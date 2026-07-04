@@ -32,6 +32,9 @@ func (s *Skill) Init(_ context.Context, _ *core.Engine, cfg map[string]interface
 func (s *Skill) Shutdown(_ context.Context) error { return nil }
 
 func (s *Skill) HealthCheck(_ context.Context) error {
+	if os.Getenv("FRONTEND_EXTERNAL") == "true" {
+		return nil
+	}
 	if _, err := os.Stat(s.distDir); err != nil {
 		return err
 	}

@@ -6,12 +6,13 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
 
 function App() {
-  const apiKey = localStorage.getItem('cm_api_key');
+  const credential = localStorage.getItem('cm_token');
 
-  if (!apiKey) {
-    return <Settings />;
+  if (!credential) {
+    return <Login />;
   }
 
   return (

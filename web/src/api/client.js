@@ -4,12 +4,19 @@ function getApiKey() {
   return localStorage.getItem('cm_api_key') || '';
 }
 
+function getToken() {
+  return localStorage.getItem('cm_token') || '';
+}
+
 async function request(path, options = {}) {
+  const token = getToken();
+  const apiKey = getApiKey();
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : apiKey ? { 'X-API-Key': apiKey } : {};
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'X-API-Key': getApiKey(),
+      ...authHeaders,
       ...options.headers,
     },
   });
@@ -21,6 +28,19 @@ async function request(path, options = {}) {
 
   return res.json();
 }
+
+export const auth = {
+  login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  logout: () => request('/auth/logout', { method: 'POST' }),
+  me: () => request('/auth/me'),
+};
+
+export const users = {
+  list: () => request('/users'),
+  create: (body) => request('/users', { method: 'POST', body: JSON.stringify(body) }),
+  setPassword: (username, password) => request(`/users/${encodeURIComponent(username)}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
+  delete: (username) => request(`/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
+};
 
 export const projects = {
   list: (params = {}) => {
@@ -36,8 +56,14 @@ export const projects = {
   down: (name) => request(`/projects/${name}/down`, { method: 'POST' }),
   update: (name, timeout) => request(`/projects/${name}/update${timeout ? '?timeout=' + timeout : ''}`, { method: 'POST' }),
   restart: (name) => request(`/projects/${name}/restart`, { method: 'POST' }),
+  startJob: (name, action, timeout) => request(`/projects/${name}/jobs/${action}${timeout ? '?timeout=' + timeout : ''}`, { method: 'POST' }),
   setInactive: (name, inactive) => request(`/projects/${name}/inactive`, { method: 'PUT', body: JSON.stringify({ inactive }) }),
   bulk: (action, body) => request(`/projects/bulk/${action}`, { method: 'POST', body: JSON.stringify(body) }),
+};
+
+export const jobs = {
+  list: () => request('/jobs'),
+  get: (id) => request(`/jobs/${id}`),
 };
 
 export const skills = {

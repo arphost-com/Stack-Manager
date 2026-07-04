@@ -4,16 +4,23 @@ services:
     environment:
       PORT: "8192"
       ROOT: "/docker"
+      STATE_DIR: "/state"
       API_KEY: "${API_KEY:?API_KEY required}"
-      HOOKS_DIR: "/docker/.compose-manager/hooks"
-      BACKUP_DIR: "/docker/.compose-manager/backups"
-      DOCKER_CONFIG: "/docker/.compose-manager/docker-config"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      HOOKS_DIR: "/state/hooks"
+      BACKUP_DIR: "/state/backups"
+      USERS_FILE: "/state/users.json"
+      JOBS_DIR: "/state/jobs"
+      DOCKER_CONFIG: "/state/docker-config"
+      FRONTEND_EXTERNAL: "true"
     user: "${SERVER_USER:-1001:1001}"
     group_add:
       - "${DOCKER_GID:-0}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DOCKER_ROOT:-/home/debian/docker}:/docker
+      - ${STATE_DIR:-/home/debian/.compose-manager}:/state
     restart: unless-stopped
 
   web:

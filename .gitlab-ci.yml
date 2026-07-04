@@ -10,6 +10,7 @@ variables:
   DEPLOY_USER: "debian"
   DEPLOY_PATH: "/home/debian/docker/compose-manager"
   DOCKER_ROOT: "/home/debian/docker"
+  STATE_DIR: "/home/debian/.compose-manager"
   WEB_PORT: "8193"
   COMPOSE_PROJECT_NAME: "compose-manager"
   CI_COMPOSE_PROJECT_NAME: "compose-manager-ci-${CI_PIPELINE_ID}"
@@ -25,6 +26,7 @@ validate:compose:
     - bash -n compose-manager.sh
     - export API_KEY="ci-placeholder"
     - export DOCKER_ROOT="${DOCKER_ROOT}"
+    - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
@@ -49,6 +51,7 @@ build:images:
   script:
     - export API_KEY="ci-placeholder"
     - export DOCKER_ROOT="${DOCKER_ROOT}"
+    - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
@@ -127,6 +130,7 @@ security:image_scan:
     - command -v trivy
     - export API_KEY="ci-placeholder"
     - export DOCKER_ROOT="${DOCKER_ROOT}"
+    - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
@@ -173,13 +177,13 @@ deploy:docker02:
     - export SERVICE_UID="$(id -u "${DEPLOY_USER}")"
     - export SERVICE_GID="$(id -g "${DEPLOY_USER}")"
     - export SERVER_USER="${SERVICE_UID}:${SERVICE_GID}"
-    - sudo -n mkdir -p "${DEPLOY_PATH}" "${DOCKER_ROOT}/.compose-manager/hooks" "${DOCKER_ROOT}/.compose-manager/backups" "${DOCKER_ROOT}/.compose-manager/docker-config"
-    - sudo -n chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${DEPLOY_PATH}" "${DOCKER_ROOT}/.compose-manager"
-    - sudo -n find "${DOCKER_ROOT}/.compose-manager" -type d -exec chmod 2770 {} +
-    - sudo -n find "${DOCKER_ROOT}/.compose-manager" -type f -exec chmod 660 {} +
+    - sudo -n mkdir -p "${DEPLOY_PATH}" "${STATE_DIR}/hooks" "${STATE_DIR}/backups" "${STATE_DIR}/docker-config" "${STATE_DIR}/jobs"
+    - sudo -n chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${DEPLOY_PATH}" "${STATE_DIR}"
+    - sudo -n find "${STATE_DIR}" -type d -exec chmod 2770 {} +
+    - sudo -n find "${STATE_DIR}" -type f -exec chmod 660 {} +
     - sudo -n rsync -a --delete --chown="${DEPLOY_USER}:${DEPLOY_USER}" --exclude='.git/' --exclude='.claude/' --exclude='.env' --exclude='bin/' --exclude='node_modules/' --exclude='web/dist/' --exclude='tmp/' ./ "${DEPLOY_PATH}/"
     - umask 077
-    - printf '%s\n' "API_KEY=${COMPOSE_MANAGER_API_KEY}" "DOCKER_ROOT=${DOCKER_ROOT}" "WEB_PORT=${WEB_PORT}" "DOCKER_GID=${DOCKER_GID}" "SERVER_USER=${SERVER_USER}" > "${CI_PROJECT_DIR}/compose-manager.env"
+    - printf '%s\n' "API_KEY=${COMPOSE_MANAGER_API_KEY}" "DOCKER_ROOT=${DOCKER_ROOT}" "STATE_DIR=${STATE_DIR}" "WEB_PORT=${WEB_PORT}" "DOCKER_GID=${DOCKER_GID}" "SERVER_USER=${SERVER_USER}" > "${CI_PROJECT_DIR}/compose-manager.env"
     - sudo -n install -m 600 -o "${DEPLOY_USER}" -g "${DEPLOY_USER}" "${CI_PROJECT_DIR}/compose-manager.env" "${DEPLOY_PATH}/.env"
     - rm -f "${CI_PROJECT_DIR}/compose-manager.env"
     - sudo -n -u "${DEPLOY_USER}" docker compose --project-directory "${DEPLOY_PATH}" --env-file "${DEPLOY_PATH}/.env" -f "${DEPLOY_PATH}/docker-compose.yml" up -d --build --remove-orphans
@@ -195,4 +199,4 @@ smoke:docker02:
     - sudo -n -u "${DEPLOY_USER}" docker compose --project-directory "${DEPLOY_PATH}" --env-file "${DEPLOY_PATH}/.env" -f "${DEPLOY_PATH}/docker-compose.yml" ps
     - curl -fsS "http://127.0.0.1:${WEB_PORT}/health"
     - curl -fsS -H "X-API-Key: ${COMPOSE_MANAGER_API_KEY}" "http://127.0.0.1:${WEB_PORT}/api/v1/projects" >/tmp/compose-manager-projects.json
-    - sudo -n find "${DEPLOY_PATH}" "${DOCKER_ROOT}/.compose-manager" -maxdepth 2 -printf '%M %u:%g %p\n'
+    - sudo -n find "${DEPLOY_PATH}" "${STATE_DIR}" -maxdepth 2 -printf '%M %u:%g %p\n'

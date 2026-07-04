@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	cmauth "github.com/arphost-com/Compose-Manager/server/internal/auth"
 	"github.com/arphost-com/Compose-Manager/server/internal/config"
 	"github.com/arphost-com/Compose-Manager/server/internal/core"
 	"github.com/arphost-com/Compose-Manager/server/internal/handlers"
@@ -33,6 +34,15 @@ func main() {
 
 	// Core engine
 	engine := core.NewEngine(cfg.Root, cfg.HooksDir)
+	jobs, err := core.NewJobManager(cfg.JobsDir)
+	if err != nil {
+		log.Fatalf("jobs init: %v", err)
+	}
+	userStore, err := cmauth.NewStore(cfg.UsersFile, cfg.AdminUsername, cfg.AdminPassword)
+	if err != nil {
+		log.Fatalf("users init: %v", err)
+	}
+	sessionManager := cmauth.NewSessionManager(12 * time.Hour)
 
 	// Skill registry
 	registry := skills.NewRegistry()
@@ -52,8 +62,9 @@ func main() {
 	}
 
 	// Handlers
-	projectHandler := handlers.NewProjectHandler(engine)
+	projectHandler := handlers.NewProjectHandler(engine, jobs)
 	skillHandler := handlers.NewSkillHandler(registry)
+	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 
 	// Router
 	r := chi.NewRouter()
@@ -76,35 +87,49 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// API routes (protected by API key)
+	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(middleware.RequireAPIKey(cfg.APIKey))
+		r.Post("/auth/login", authHandler.Login)
 
-		// Project endpoints
-		r.Post("/projects", projectHandler.Create)
-		r.Get("/projects", projectHandler.List)
-		r.Get("/projects/{name}", projectHandler.Get)
-		r.Get("/projects/{name}/images", projectHandler.Images)
-		r.Get("/projects/{name}/status", projectHandler.Status)
-		r.Post("/projects/{name}/pull", projectHandler.Pull)
-		r.Post("/projects/{name}/up", projectHandler.Up)
-		r.Post("/projects/{name}/down", projectHandler.Down)
-		r.Post("/projects/{name}/update", projectHandler.Update)
-		r.Post("/projects/{name}/restart", projectHandler.Restart)
-		r.Put("/projects/{name}/inactive", projectHandler.SetInactive)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireAuth(cfg.APIKey, sessionManager))
 
-		// Bulk operations
-		r.Post("/projects/bulk/{action}", projectHandler.BulkAction)
+			r.Get("/auth/me", authHandler.Me)
+			r.Post("/auth/logout", authHandler.Logout)
+			r.Get("/users", authHandler.ListUsers)
+			r.Post("/users", authHandler.CreateUser)
+			r.Put("/users/{username}/password", authHandler.SetPassword)
+			r.Delete("/users/{username}", authHandler.DeleteUser)
 
-		// System
-		r.Post("/prune", projectHandler.Prune)
-		r.Post("/registries/login", projectHandler.RegistryLogin)
+			// Project endpoints
+			r.Post("/projects", projectHandler.Create)
+			r.Get("/projects", projectHandler.List)
+			r.Get("/projects/{name}", projectHandler.Get)
+			r.Get("/projects/{name}/images", projectHandler.Images)
+			r.Get("/projects/{name}/status", projectHandler.Status)
+			r.Post("/projects/{name}/pull", projectHandler.Pull)
+			r.Post("/projects/{name}/up", projectHandler.Up)
+			r.Post("/projects/{name}/down", projectHandler.Down)
+			r.Post("/projects/{name}/update", projectHandler.Update)
+			r.Post("/projects/{name}/restart", projectHandler.Restart)
+			r.Post("/projects/{name}/jobs/{action}", projectHandler.StartJob)
+			r.Put("/projects/{name}/inactive", projectHandler.SetInactive)
 
-		// Skills
-		r.Route("/skills", func(sr chi.Router) {
-			sr.Get("/", skillHandler.List)
-			sr.Get("/{skillName}", skillHandler.Get)
-			registry.MountRoutes(sr)
+			// Bulk operations
+			r.Post("/projects/bulk/{action}", projectHandler.BulkAction)
+
+			// System
+			r.Post("/prune", projectHandler.Prune)
+			r.Post("/registries/login", projectHandler.RegistryLogin)
+			r.Get("/jobs", projectHandler.ListJobs)
+			r.Get("/jobs/{jobId}", projectHandler.GetJob)
+
+			// Skills
+			r.Route("/skills", func(sr chi.Router) {
+				sr.Get("/", skillHandler.List)
+				sr.Get("/{skillName}", skillHandler.Get)
+				registry.MountRoutes(sr)
+			})
 		})
 	})
 

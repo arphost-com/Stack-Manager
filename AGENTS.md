@@ -21,7 +21,7 @@ bash -n compose-manager.sh
 # Server
 cd server && go test ./...
 cd server && go build ./cmd/server
-cd server && API_KEY=dev-key go run ./cmd/server
+cd server && API_KEY=dev-key-change-me-123 go run ./cmd/server
 
 # Web
 cd web && npm ci
@@ -148,8 +148,10 @@ The server image runs as non-root by default (`SERVER_USER=1001:1001`) and is ad
 Docker credentials from registry login are stored under:
 
 ```text
-/docker/.compose-manager/docker-config
+/home/debian/.compose-manager/docker-config
 ```
+
+Do not store Compose Manager's own persistent state under the managed Docker root. On docker02 the app checkout is `/home/debian/docker/compose-manager`, while persistent state is `/home/debian/.compose-manager` and is mounted into the containers at `/state`.
 
 ## GitLab Pipeline
 
@@ -180,11 +182,18 @@ Server env vars:
 | Variable | Default | Required |
 | --- | --- | --- |
 | `API_KEY` | none | yes |
+| `ADMIN_USERNAME` | `admin` | no |
+| `ADMIN_PASSWORD` | API key bootstrap fallback | no |
 | `ROOT` | `/docker` | no |
+| `STATE_DIR` | `$HOME/.compose-manager` | no |
 | `PORT` | `8192` | no |
-| `HOOKS_DIR` | `<ROOT>/.compose-manager/hooks` | no |
-| `BACKUP_DIR` | `<ROOT>/.compose-manager/backups` | no |
+| `HOOKS_DIR` | `<STATE_DIR>/hooks` | no |
+| `BACKUP_DIR` | `<STATE_DIR>/backups` | no |
+| `USERS_FILE` | `<STATE_DIR>/users.json` | no |
+| `JOBS_DIR` | `<STATE_DIR>/jobs` | no |
 | `DOCKER_CONFIG` | Docker default | no |
+
+If `<STATE_DIR>/users.json` does not exist, the server creates the first admin from `ADMIN_USERNAME` and `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is empty, it uses `API_KEY` as the bootstrap password. Rotate or add users from the Settings page after first login.
 
 CLI config files load in this order:
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, skills as skillsApi, system, registries } from '../api/client';
+import { projects, jobs, skills as skillsApi, system, registries } from '../api/client';
 
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull newer images, then recreate containers. Projects with update hooks run only their hook.' },
@@ -61,13 +61,30 @@ export default function Dashboard() {
 
   const runAction = async (name, action) => {
     try {
-      setActionResult({ label: `${action} ${name}`, status: 'running' });
-      const res = await callProjectAction(name, action, timeout);
-      setActionResult({ label: `${action} ${name}`, status: 'done', result: res.data });
-      fetchData();
+      const res = await projects.startJob(name, action, timeout);
+      setActionResult({ label: `${action} ${name}`, status: 'running', job: res.data });
+      pollJob(res.data.id, `${action} ${name}`);
     } catch (err) {
       setActionResult({ label: `${action} ${name}`, status: 'error', error: err.message });
     }
+  };
+
+  const pollJob = (jobId, label) => {
+    const tick = async () => {
+      try {
+        const res = await jobs.get(jobId);
+        const job = res.data;
+        setActionResult({ label, status: job.status === 'running' ? 'running' : job.success ? 'done' : 'error', job });
+        if (job.status === 'running') {
+          window.setTimeout(tick, 1500);
+        } else {
+          fetchData();
+        }
+      } catch (err) {
+        setActionResult({ label, status: 'error', error: err.message });
+      }
+    };
+    window.setTimeout(tick, 750);
   };
 
   const runBulk = async (action) => {
@@ -300,17 +317,6 @@ export default function Dashboard() {
   );
 }
 
-async function callProjectAction(name, action, timeout) {
-  switch (action) {
-    case 'pull': return projects.pull(name, timeout);
-    case 'up': return projects.up(name);
-    case 'down': return projects.down(name);
-    case 'restart': return projects.restart(name);
-    case 'update': return projects.update(name, timeout);
-    default: throw new Error(`unsupported action: ${action}`);
-  }
-}
-
 function SourceSummary({ sources }) {
   const registry = sources.filter(s => s.source_type === 'registry').length;
   const custom = sources.filter(s => s.source_type === 'custom').length;
@@ -366,7 +372,12 @@ function ActionResult({ result, onDismiss }) {
         <div>
           <div className="font-medium">{result.status === 'running' ? `Running ${result.label}...` : result.status === 'error' ? `Error during ${result.label}` : `${result.label} completed`}</div>
           {result.error && <div className="mt-1">{result.error}</div>}
-          {result.result?.output && <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-xs">{result.result.output}</pre>}
+          {result.job && <div className="mt-1 text-xs">Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}</div>}
+          {(result.job?.output || result.result?.output) && (
+            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
+              {result.job?.output || result.result?.output}
+            </pre>
+          )}
         </div>
         <button title="Dismiss this message." onClick={onDismiss} className="text-sm underline">dismiss</button>
       </div>

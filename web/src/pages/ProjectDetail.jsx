@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { projects, debug as debugApi, security, backup, dbadmin } from '../api/client';
+import { projects, jobs, debug as debugApi, security, backup, dbadmin } from '../api/client';
 
-const TABS = ['overview', 'sources', 'logs', 'stats', 'security', 'backups', 'databases', 'inspect', 'processes'];
+const TABS = ['overview', 'sessions', 'sources', 'logs', 'stats', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull and recreate containers, unless an update hook exists.' },
   { key: 'pull', label: 'Pull', title: 'Pull images without restarting containers.' },
@@ -20,7 +20,7 @@ export default function ProjectDetail() {
   const [tabLoading, setTabLoading] = useState(false);
   const [actionResult, setActionResult] = useState(null);
   const [timeout, setTimeoutValue] = useState(300);
-  const [logOptions, setLogOptions] = useState({ tail: 200, container: '' });
+  const [logOptions, setLogOptions] = useState({ tail: 200, container: '', watch: false });
 
   const fetchProject = async () => {
     try {
@@ -35,6 +35,14 @@ export default function ProjectDetail() {
 
   useEffect(() => { fetchProject(); }, [name]);
 
+  useEffect(() => {
+    if (activeTab !== 'logs' || !logOptions.watch) return undefined;
+    const id = window.setInterval(() => {
+      loadTab('logs');
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [activeTab, logOptions.watch, logOptions.tail, logOptions.container]);
+
   const loadTab = async (tab = activeTab) => {
     setActiveTab(tab);
     setTabData(null);
@@ -44,6 +52,7 @@ export default function ProjectDetail() {
       let res;
       switch (tab) {
         case 'sources': res = await projects.images(name); break;
+        case 'sessions': res = await jobs.list(); break;
         case 'logs': res = await debugApi.logs(name, logOptions.tail, logOptions.container || undefined); break;
         case 'stats': res = await debugApi.stats(name); break;
         case 'security': res = await security.scan(name); break;
@@ -63,14 +72,31 @@ export default function ProjectDetail() {
 
   const runAction = async (action) => {
     try {
-      setActionResult({ status: 'running', label: action });
-      const res = await callAction(name, action, timeout);
-      setActionResult({ status: 'done', label: action, result: res.data });
-      fetchProject();
-      if (activeTab !== 'overview') loadTab(activeTab);
+      const res = await projects.startJob(name, action, timeout);
+      setActionResult({ status: 'running', label: action, job: res.data });
+      pollJob(res.data.id, action);
     } catch (err) {
       setActionResult({ status: 'error', label: action, error: err.message });
     }
+  };
+
+  const pollJob = (jobId, label) => {
+    const tick = async () => {
+      try {
+        const res = await jobs.get(jobId);
+        const job = res.data;
+        setActionResult({ status: job.status === 'running' ? 'running' : job.success ? 'done' : 'error', label, job });
+        if (job.status === 'running') {
+          window.setTimeout(tick, 1500);
+        } else {
+          fetchProject();
+          if (activeTab !== 'overview') loadTab(activeTab);
+        }
+      } catch (err) {
+        setActionResult({ status: 'error', label, error: err.message });
+      }
+    };
+    window.setTimeout(tick, 750);
   };
 
   const toggleInactive = async () => {
@@ -172,12 +198,17 @@ export default function ProjectDetail() {
                 </select>
               </Field>
               <button title="Reload logs with the current filters." onClick={() => loadTab('logs')} className="btn-secondary">Load Logs</button>
+              <label className="flex items-center gap-2 pb-2 text-sm text-gray-700" title="Reload the current log view every 3 seconds.">
+                <input type="checkbox" checked={logOptions.watch} onChange={e => setLogOptions({ ...logOptions, watch: e.target.checked })} />
+                Watch
+              </label>
             </div>
           )}
 
           {tabLoading && <div className="py-8 text-center text-gray-500">Loading...</div>}
           {!tabLoading && tabData?.error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{tabData.error}</div>}
           {!tabLoading && !tabData?.error && activeTab === 'sources' && <Sources data={tabData} />}
+          {!tabLoading && !tabData?.error && activeTab === 'sessions' && <Sessions data={tabData} projectName={name} />}
           {!tabLoading && !tabData?.error && activeTab === 'logs' && <Logs data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'stats' && <Stats data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'security' && <Security data={tabData} />}
@@ -189,17 +220,6 @@ export default function ProjectDetail() {
       </div>
     </div>
   );
-}
-
-async function callAction(name, action, timeout) {
-  switch (action) {
-    case 'pull': return projects.pull(name, timeout);
-    case 'up': return projects.up(name);
-    case 'down': return projects.down(name);
-    case 'restart': return projects.restart(name);
-    case 'update': return projects.update(name, timeout);
-    default: throw new Error(`unsupported action: ${action}`);
-  }
 }
 
 function Overview({ project }) {
@@ -252,6 +272,43 @@ function Sources({ data }) {
         </tbody>
       </table>
       {images.length === 0 && <div className="py-6 text-gray-500">No image metadata was parsed.</div>}
+    </div>
+  );
+}
+
+function Sessions({ data, projectName }) {
+  const [openId, setOpenId] = useState('');
+  const sessions = (Array.isArray(data) ? data : []).filter(job => job.project === projectName)
+    .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  const open = sessions.find(job => job.id === openId) || sessions[0];
+  return (
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="space-y-2">
+        {sessions.map(job => (
+          <button key={job.id} onClick={() => setOpenId(job.id)} className={`block w-full rounded-md border p-3 text-left text-sm ${open?.id === job.id ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{job.action}</span>
+              <Badge tone={job.status === 'running' ? 'blue' : job.success ? 'green' : 'red'}>{job.status}</Badge>
+            </div>
+            <div className="mt-1 font-mono text-xs text-gray-500">{job.id}</div>
+            <div className="mt-1 text-xs text-gray-500">{new Date(job.started_at).toLocaleString()}</div>
+          </button>
+        ))}
+        {sessions.length === 0 && <div className="py-6 text-gray-500">No action sessions saved for this project.</div>}
+      </div>
+      <div>
+        {open ? (
+          <>
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+              <Badge tone={open.status === 'running' ? 'blue' : open.success ? 'green' : 'red'}>{open.status}</Badge>
+              <span className="font-medium">{open.action}</span>
+              <span className="font-mono text-xs text-gray-500">{open.id}</span>
+              {open.duration && <span className="text-xs text-gray-500">{open.duration}</span>}
+            </div>
+            <pre className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs text-gray-100 whitespace-pre-wrap">{open.output || 'No output yet.'}</pre>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -414,7 +471,12 @@ function ActionResult({ result, onDismiss }) {
         <div>
           <div className="font-medium">{result.status === 'running' ? `Running ${result.label}...` : result.status === 'error' ? `Error during ${result.label}` : `${result.label} completed`}</div>
           {result.error && <div className="mt-1">{result.error}</div>}
-          {result.result?.output && <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-xs">{result.result.output}</pre>}
+          {result.job && <div className="mt-1 text-xs">Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}</div>}
+          {(result.job?.output || result.result?.output) && (
+            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
+              {result.job?.output || result.result?.output}
+            </pre>
+          )}
         </div>
         <button title="Dismiss this message." onClick={onDismiss} className="text-sm underline">dismiss</button>
       </div>
@@ -433,6 +495,7 @@ function tabTitle(tab) {
     databases: 'Check supported database containers.',
     inspect: 'Show docker inspect JSON.',
     processes: 'Show docker top output.',
+    sessions: 'Show live and completed action output sessions.',
   };
   return titles[tab] || tab;
 }

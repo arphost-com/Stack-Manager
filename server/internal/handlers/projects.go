@@ -12,11 +12,12 @@ import (
 // ProjectHandler handles all project-related API endpoints.
 type ProjectHandler struct {
 	Engine *core.Engine
+	Jobs   *core.JobManager
 }
 
 // NewProjectHandler creates a new ProjectHandler.
-func NewProjectHandler(engine *core.Engine) *ProjectHandler {
-	return &ProjectHandler{Engine: engine}
+func NewProjectHandler(engine *core.Engine, jobs *core.JobManager) *ProjectHandler {
+	return &ProjectHandler{Engine: engine, Jobs: jobs}
 }
 
 // Create creates a new compose project under the configured root.
@@ -141,6 +142,38 @@ func (h *ProjectHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	}
 	result := h.Engine.Restart(project)
 	writeJSON(w, http.StatusOK, result)
+}
+
+// StartJob starts a tracked compose action and returns a job ID immediately.
+func (h *ProjectHandler) StartJob(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	action := chi.URLParam(r, "action")
+	timeout := h.getTimeout(r)
+	job, err := h.Jobs.Start(h.Engine, project, action, timeout)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// GetJob returns a tracked compose action with its current or completed output.
+func (h *ProjectHandler) GetJob(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "jobId")
+	job, ok := h.Jobs.Get(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "job not found: "+id)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+// ListJobs returns tracked compose action sessions.
+func (h *ProjectHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.Jobs.List())
 }
 
 // SetInactive toggles the inactive marker.
