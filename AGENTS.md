@@ -132,8 +132,8 @@ Services:
 
 | Service | Port | Purpose |
 | --- | --- | --- |
-| `server` | 8080 internal | Go API server |
-| `web` | `${WEB_PORT:-3020}:8080` | React SPA via nginx |
+| `server` | 8192 internal | Go API server |
+| `web` | `${WEB_PORT:-8193}:8080` | React SPA via nginx |
 
 Required environment:
 
@@ -181,7 +181,7 @@ Server env vars:
 | --- | --- | --- |
 | `API_KEY` | none | yes |
 | `ROOT` | `/docker` | no |
-| `PORT` | `8080` | no |
+| `PORT` | `8192` | no |
 | `HOOKS_DIR` | `<ROOT>/.compose-manager/hooks` | no |
 | `BACKUP_DIR` | `<ROOT>/.compose-manager/backups` | no |
 | `DOCKER_CONFIG` | Docker default | no |

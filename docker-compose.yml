@@ -2,7 +2,7 @@ services:
   server:
     build: ./server
     environment:
-      PORT: "8080"
+      PORT: "8192"
       ROOT: "/docker"
       API_KEY: "${API_KEY:?API_KEY required}"
       HOOKS_DIR: "/docker/.compose-manager/hooks"
@@ -19,7 +19,7 @@ services:
   web:
     build: ./web
     ports:
-      - "${WEB_PORT:-3020}:8080"
+      - "${WEB_PORT:-8193}:8080"
     depends_on:
       - server
     restart: unless-stopped

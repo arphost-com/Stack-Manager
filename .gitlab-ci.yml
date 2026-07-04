@@ -10,7 +10,7 @@ variables:
   DEPLOY_USER: "debian"
   DEPLOY_PATH: "/home/debian/docker/compose-manager"
   DOCKER_ROOT: "/home/debian/docker"
-  WEB_PORT: "3020"
+  WEB_PORT: "8193"
   COMPOSE_PROJECT_NAME: "compose-manager"
   CI_COMPOSE_PROJECT_NAME: "compose-manager-ci-${CI_PIPELINE_ID}"
 
