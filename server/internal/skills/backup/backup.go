@@ -37,6 +37,7 @@ type Skill struct {
 	engine    *core.Engine
 	store     *storage.Store
 	backupDir string
+	cancel    context.CancelFunc
 }
 
 func New() *Skill { return &Skill{} }
@@ -57,10 +58,23 @@ func (s *Skill) Init(_ context.Context, engine *core.Engine, cfg map[string]inte
 	} else {
 		s.backupDir = filepath.Join(engine.RootDir, ".compose-manager", "backups")
 	}
-	return os.MkdirAll(s.backupDir, 0755)
+	if err := os.MkdirAll(s.backupDir, 0755); err != nil {
+		return err
+	}
+	if s.store != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.cancel = cancel
+		go s.runScheduler(ctx)
+	}
+	return nil
 }
 
-func (s *Skill) Shutdown(_ context.Context) error { return nil }
+func (s *Skill) Shutdown(_ context.Context) error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	return nil
+}
 func (s *Skill) HealthCheck(_ context.Context) error {
 	if _, err := os.Stat(s.backupDir); err != nil {
 		return fmt.Errorf("backup directory not accessible: %w", err)
@@ -74,6 +88,10 @@ func (s *Skill) RegisterRoutes(r chi.Router) {
 	r.Delete("/destinations/{destinationId}", s.DeleteDestination)
 	r.Post("/destinations/{destinationId}/test", s.TestDestination)
 	r.Post("/create/{name}", s.Create)
+	r.Get("/schedules", s.ListSchedules)
+	r.Post("/schedules", s.SaveSchedule)
+	r.Delete("/schedules/{scheduleId}", s.DeleteSchedule)
+	r.Post("/schedules/{scheduleId}/run", s.RunScheduleNow)
 	r.Get("/list", s.List)
 	r.Get("/list/{name}", s.ListProject)
 	r.Get("/download/{backupId}", s.Download)
@@ -93,40 +111,49 @@ func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	backup, err := s.createProjectBackup(r.Context(), project, destinationIDs(req))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, backup)
+}
 
+func (s *Skill) createProjectBackup(ctx context.Context, project *core.Project, destinationIDs []int64) (*core.BackupInfo, error) {
 	timestamp := time.Now().UTC().Format("20060102_150405")
-	backupName := fmt.Sprintf("%s__%s.tar.gz", name, timestamp)
+	backupName := fmt.Sprintf("%s__%s.tar.gz", project.Name, timestamp)
 	backupPath := filepath.Join(s.backupDir, backupName)
 
 	output, err := createArchive(project.Dir, backupPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError,
-			fmt.Sprintf("backup failed: %s - %s", err.Error(), output))
-		return
+		return nil, fmt.Errorf("backup failed: %s - %s", err.Error(), output)
 	}
 
 	info, _ := os.Stat(backupPath)
 	backup := core.BackupInfo{
 		ID:        backupName,
-		Project:   name,
+		Project:   project.Name,
 		File:      backupPath,
 		SizeBytes: info.Size(),
 		CreatedAt: time.Now().UTC(),
 	}
-	s.recordBackupEvent(r.Context(), core.BackupEvent{
-		Project:   name,
+	s.recordBackupEvent(ctx, core.BackupEvent{
+		Project:   project.Name,
 		BackupID:  backupName,
 		EventType: "backup",
 		SizeBytes: info.Size(),
 		Success:   true,
 		CreatedAt: backup.CreatedAt,
 	})
-	if req.DestinationID != nil && *req.DestinationID > 0 {
-		transfer, err := s.copyToDestination(r.Context(), *req.DestinationID, backupPath, backupName)
-		backup.Destination = transfer
+	for _, destinationID := range destinationIDs {
+		transfer, err := s.copyToDestination(ctx, destinationID, backupPath, backupName)
 		if transfer != nil {
-			s.recordBackupEvent(r.Context(), core.BackupEvent{
-				Project:         name,
+			backup.Destinations = append(backup.Destinations, *transfer)
+			if backup.Destination == nil {
+				backup.Destination = transfer
+			}
+			s.recordBackupEvent(ctx, core.BackupEvent{
+				Project:         project.Name,
 				BackupID:        backupName,
 				EventType:       "upload",
 				DestinationID:   transfer.DestinationID,
@@ -139,12 +166,11 @@ func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		if err != nil {
-			writeJSON(w, http.StatusCreated, backup)
-			return
+			continue
 		}
 	}
 
-	writeJSON(w, http.StatusCreated, backup)
+	return &backup, nil
 }
 
 // ListDestinations returns configured backup destinations without secrets.
@@ -182,6 +208,90 @@ func (s *Skill) SaveDestination(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, destination)
+}
+
+func (s *Skill) ListSchedules(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup schedule storage is not configured")
+		return
+	}
+	schedules, err := s.store.ListBackupSchedules(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, schedules)
+}
+
+func (s *Skill) SaveSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup schedule storage is not configured")
+		return
+	}
+	var req core.BackupScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	normalizeBackupSchedule(&req)
+	if err := validateBackupSchedule(req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	schedule, err := s.store.SaveBackupSchedule(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, schedule)
+}
+
+func (s *Skill) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup schedule storage is not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "scheduleId"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "invalid schedule id")
+		return
+	}
+	if err := s.store.DeleteBackupSchedule(r.Context(), id); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "backup schedule not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true})
+}
+
+func (s *Skill) RunScheduleNow(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup schedule storage is not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "scheduleId"), 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "invalid schedule id")
+		return
+	}
+	schedule, err := s.store.GetBackupSchedule(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "backup schedule not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result, err := s.runBackupSchedule(r.Context(), *schedule)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, result)
 }
 
 // DeleteDestination removes a configured backup destination.
@@ -381,6 +491,129 @@ func validBackupID(backupID string) bool {
 	return strings.HasSuffix(backupID, ".tar.gz")
 }
 
+func (s *Skill) runScheduler(ctx context.Context) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	s.tickSchedules(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.tickSchedules(ctx)
+		}
+	}
+}
+
+func (s *Skill) tickSchedules(ctx context.Context) {
+	if s.store == nil {
+		return
+	}
+	schedules, err := s.store.ListDueBackupSchedules(ctx, time.Now().UTC())
+	if err != nil {
+		return
+	}
+	for _, schedule := range schedules {
+		_, _ = s.runBackupSchedule(ctx, schedule)
+	}
+}
+
+func (s *Skill) runBackupSchedule(ctx context.Context, schedule core.BackupSchedule) (map[string]interface{}, error) {
+	projects, err := s.projectsForBackupSchedule(schedule)
+	if err != nil {
+		next := nextBackupRun(schedule, time.Now().UTC())
+		_ = s.store.MarkBackupScheduleDispatched(ctx, schedule.ID, next, nil, "failed", err.Error())
+		return nil, err
+	}
+	backupIDs := make([]string, 0, len(projects))
+	errorsOut := make([]string, 0)
+	for _, project := range projects {
+		backup, err := s.createProjectBackup(ctx, project, schedule.DestinationIDs)
+		if err != nil {
+			errorsOut = append(errorsOut, project.Name+": "+err.Error())
+			continue
+		}
+		backupIDs = append(backupIDs, backup.ID)
+	}
+	status := "completed"
+	errText := ""
+	if len(errorsOut) > 0 {
+		status = "partial"
+		errText = strings.Join(errorsOut, "\n")
+		if len(backupIDs) == 0 {
+			status = "failed"
+		}
+	}
+	next := nextBackupRun(schedule, time.Now().UTC())
+	if err := s.store.MarkBackupScheduleDispatched(ctx, schedule.ID, next, backupIDs, status, errText); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"schedule":   schedule.Name,
+		"status":     status,
+		"backup_ids": backupIDs,
+		"errors":     errorsOut,
+	}, nil
+}
+
+func (s *Skill) projectsForBackupSchedule(schedule core.BackupSchedule) ([]*core.Project, error) {
+	if len(schedule.Projects) > 0 {
+		projects := make([]*core.Project, 0, len(schedule.Projects))
+		for _, name := range schedule.Projects {
+			project, err := s.engine.GetProject(name)
+			if err != nil {
+				return nil, err
+			}
+			projects = append(projects, project)
+		}
+		return projects, nil
+	}
+	discovered, err := s.engine.DiscoverProjects()
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]*core.Project, 0, len(discovered))
+	for i := range discovered {
+		if discovered[i].Inactive {
+			continue
+		}
+		projects = append(projects, &discovered[i])
+	}
+	return projects, nil
+}
+
+func nextBackupRun(schedule core.BackupSchedule, after time.Time) time.Time {
+	next := schedule.NextRunAt
+	step := time.Duration(schedule.IntervalMinutes) * time.Minute
+	if step <= 0 {
+		step = 24 * time.Hour
+	}
+	if next.IsZero() || !next.After(after) {
+		next = after.Add(step)
+	}
+	for !next.After(after) {
+		next = next.Add(step)
+	}
+	return next.UTC()
+}
+
+func destinationIDs(req core.BackupCreateRequest) []int64 {
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(req.DestinationIDs)+1)
+	if req.DestinationID != nil && *req.DestinationID > 0 {
+		seen[*req.DestinationID] = true
+		ids = append(ids, *req.DestinationID)
+	}
+	for _, id := range req.DestinationIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func createArchive(projectDir, backupPath string) (string, error) {
 	args := []string{"-czf", backupPath, "-C", filepath.Dir(projectDir), filepath.Base(projectDir)}
 	output, err := exec.Command("tar", args...).CombinedOutput()
@@ -452,6 +685,66 @@ func validateDestinationRequest(req core.BackupDestinationRequest) error {
 		}
 	}
 	return nil
+}
+
+func normalizeBackupSchedule(req *core.BackupScheduleRequest) {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Projects = cleanStringList(req.Projects)
+	req.DestinationIDs = cleanInt64List(req.DestinationIDs)
+	if req.IntervalMinutes <= 0 {
+		req.IntervalMinutes = 1440
+	}
+	if req.NextRunAt != nil {
+		next := req.NextRunAt.UTC().Truncate(time.Second)
+		req.NextRunAt = &next
+	}
+}
+
+func validateBackupSchedule(req core.BackupScheduleRequest) error {
+	if req.Name == "" {
+		return errors.New("schedule name is required")
+	}
+	if req.IntervalMinutes < 5 {
+		return errors.New("interval must be at least 5 minutes")
+	}
+	for _, project := range req.Projects {
+		if project == "" || strings.Contains(project, "/") || strings.Contains(project, "\\") || strings.Contains(project, "..") {
+			return fmt.Errorf("invalid project name %q", project)
+		}
+	}
+	for _, id := range req.DestinationIDs {
+		if id < 1 {
+			return errors.New("destination ids must be positive")
+		}
+	}
+	return nil
+}
+
+func cleanStringList(values []string) []string {
+	seen := map[string]bool{}
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		cleaned = append(cleaned, value)
+	}
+	return cleaned
+}
+
+func cleanInt64List(values []int64) []int64 {
+	seen := map[int64]bool{}
+	cleaned := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value < 1 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		cleaned = append(cleaned, value)
+	}
+	return cleaned
 }
 
 func validateMapValues(label string, values map[string]string) error {

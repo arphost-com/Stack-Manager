@@ -363,15 +363,13 @@ Schedules support `update`, `pull`, `up`, `restart`, `down`, and `status`. Sched
 Remote agents use the same server image in agent mode:
 
 ```bash
-APP_MODE=agent
-AGENT_NAME=docker03
-AGENT_TOKEN=change-me-to-a-secure-random-token
-ROOT=/home/debian/docker
-STATE_DIR=.compose-manager
-PORT=8192
+git clone https://github.com/arphost-com/Compose-Manager.git
+cd Compose-Manager
+./scripts/prepare-state.sh --agent .env
+docker compose --env-file .env -f docker-compose.agent.yml up -d --build
 ```
 
-Agent mode does not require MariaDB or Redis. The main server stores the agent URL and token, then calls `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
+Agent mode does not require MariaDB, Redis, or the web UI on the remote host. The setup script writes `APP_MODE=agent`, `AGENT_NAME`, `AGENT_TOKEN`, `AGENT_PORT`, `DOCKER_ROOT`, and `HOST_URL` into `.env`; register `HOST_URL` and `AGENT_TOKEN` from Settings > Agents on the main server. The agent compose file mounts host `DOCKER_ROOT` into the container as `/docker`, then the main server calls `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
 
 ### Project Deletion
 

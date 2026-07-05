@@ -126,7 +126,36 @@ type BackupInfo struct {
 
 // BackupCreateRequest controls backup creation and optional off-host copy.
 type BackupCreateRequest struct {
-	DestinationID *int64 `json:"destination_id,omitempty"`
+	DestinationID  *int64  `json:"destination_id,omitempty"`
+	DestinationIDs []int64 `json:"destination_ids,omitempty"`
+}
+
+// BackupSchedule runs project backups automatically.
+type BackupSchedule struct {
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Enabled         bool       `json:"enabled"`
+	Projects        []string   `json:"projects,omitempty"`
+	DestinationIDs  []int64    `json:"destination_ids,omitempty"`
+	IntervalMinutes int        `json:"interval_minutes"`
+	NextRunAt       time.Time  `json:"next_run_at"`
+	LastRunAt       *time.Time `json:"last_run_at,omitempty"`
+	LastStatus      string     `json:"last_status,omitempty"`
+	LastError       string     `json:"last_error,omitempty"`
+	LastBackupIDs   []string   `json:"last_backup_ids,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// BackupScheduleRequest creates or updates an automatic backup schedule.
+type BackupScheduleRequest struct {
+	ID              int64      `json:"id,omitempty"`
+	Name            string     `json:"name"`
+	Enabled         *bool      `json:"enabled,omitempty"`
+	Projects        []string   `json:"projects,omitempty"`
+	DestinationIDs  []int64    `json:"destination_ids,omitempty"`
+	IntervalMinutes int        `json:"interval_minutes"`
+	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
 }
 
 // BackupDestination is a configured backup endpoint.

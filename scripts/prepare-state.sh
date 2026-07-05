@@ -3,6 +3,13 @@ set -eu
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(dirname "${script_dir}")"
+agent_mode=0
+case "${1:-}" in
+  --agent)
+    agent_mode=1
+    shift
+    ;;
+esac
 env_file="${1:-${project_root}/.env}"
 example_env="${project_root}/.env.example"
 case "${env_file}" in
@@ -94,6 +101,10 @@ detect_host_url() {
   printf 'http://%s:%s\n' "${host}" "${port}"
 }
 
+detect_agent_name() {
+  hostname -s 2>/dev/null || hostname 2>/dev/null || printf '%s\n' compose-agent
+}
+
 created_env=0
 if [ ! -f "${env_file}" ]; then
   if [ ! -f "${example_env}" ]; then
@@ -106,14 +117,25 @@ if [ ! -f "${env_file}" ]; then
   printf '%s\n' "Created ${env_file} from .env.example."
 fi
 
-ensure_setting ADMIN_USERNAME admin
-ensure_setting DB_NAME compose_manager
-ensure_setting DB_USER compose_manager
-ensure_setting REDIS_DB 0
-ensure_setting CACHE_TTL_SECONDS 15
-ensure_setting METRICS_REFRESH_MINUTES 15
-ensure_setting WARM_CACHE_TTL_MINUTES 30
+if [ "${agent_mode}" -eq 1 ]; then
+  set_env_value APP_MODE agent
+  ensure_setting AGENT_NAME "$(detect_agent_name)"
+  ensure_secret AGENT_TOKEN
+  ensure_setting AGENT_PORT 8192
+else
+  set_env_value APP_MODE server
+  ensure_setting ADMIN_USERNAME admin
+  ensure_setting DB_NAME compose_manager
+  ensure_setting DB_USER compose_manager
+  ensure_setting REDIS_DB 0
+  ensure_setting CACHE_TTL_SECONDS 15
+  ensure_setting METRICS_REFRESH_MINUTES 15
+  ensure_setting WARM_CACHE_TTL_MINUTES 30
+fi
 ensure_setting DOCKER_ROOT "${HOME}/docker"
+if [ "${agent_mode}" -eq 1 ]; then
+  ensure_setting ROOT "$(env_value DOCKER_ROOT)"
+fi
 ensure_setting STATE_DIR .compose-manager
 ensure_setting BACKUP_TARGET_ROOT .compose-manager/backup-targets
 if [ "${created_env}" -eq 1 ]; then
@@ -124,13 +146,17 @@ else
   ensure_setting DOCKER_GID "$(detect_docker_gid)"
   ensure_setting SERVER_USER "$(id -u):$(id -g)"
 fi
-ensure_setting WEB_PORT 8193
-ensure_secret API_KEY
-ensure_secret ADMIN_PASSWORD
-ensure_secret DB_PASSWORD
-ensure_secret DB_ROOT_PASSWORD
-ensure_secret REDIS_PASSWORD
-ensure_setting HOST_URL "$(detect_host_url "$(env_value WEB_PORT)")"
+if [ "${agent_mode}" -eq 1 ]; then
+  ensure_setting HOST_URL "$(detect_host_url "$(env_value AGENT_PORT)")"
+else
+  ensure_setting WEB_PORT 8193
+  ensure_secret API_KEY
+  ensure_secret ADMIN_PASSWORD
+  ensure_secret DB_PASSWORD
+  ensure_secret DB_ROOT_PASSWORD
+  ensure_secret REDIS_PASSWORD
+  ensure_setting HOST_URL "$(detect_host_url "$(env_value WEB_PORT)")"
+fi
 chmod 600 "${env_file}"
 
 if [ -f "${env_file}" ]; then
@@ -187,9 +213,11 @@ mkdir -p \
   "${state_dir}/backups/db-dumps" \
   "${state_dir}/docker-config" \
   "${state_dir}/jobs" \
-  "${state_dir}/mariadb" \
-  "${state_dir}/redis" \
   "${backup_target_root}"
+
+if [ "${agent_mode}" -eq 0 ]; then
+  mkdir -p "${state_dir}/mariadb" "${state_dir}/redis"
+fi
 
 if [ "$(id -u)" -eq 0 ]; then
   chown "${state_uid}:${state_gid}" "${state_dir}"
@@ -212,26 +240,45 @@ printf '%s\n' "Prepared ${backup_target_root} for backup endpoint mounts."
 
 printf '%s\n' ""
 printf '%s\n' "Compose Manager settings written to ${env_file}:"
-for key in \
-  HOST_URL \
-  API_KEY \
-  ADMIN_USERNAME \
-  ADMIN_PASSWORD \
-  DB_NAME \
-  DB_USER \
-  DB_PASSWORD \
-  DB_ROOT_PASSWORD \
-  REDIS_PASSWORD \
-  REDIS_DB \
-  CACHE_TTL_SECONDS \
-  METRICS_REFRESH_MINUTES \
-  WARM_CACHE_TTL_MINUTES \
-  DOCKER_ROOT \
-  STATE_DIR \
-  BACKUP_TARGET_ROOT \
-  DOCKER_GID \
-  SERVER_USER \
-  WEB_PORT
-do
-  printf '%s=%s\n' "${key}" "$(env_value "${key}")"
-done
+if [ "${agent_mode}" -eq 1 ]; then
+  for key in \
+    APP_MODE \
+    HOST_URL \
+    AGENT_NAME \
+    AGENT_TOKEN \
+    AGENT_PORT \
+    DOCKER_ROOT \
+    ROOT \
+    STATE_DIR \
+    BACKUP_TARGET_ROOT \
+    DOCKER_GID \
+    SERVER_USER
+  do
+    printf '%s=%s\n' "${key}" "$(env_value "${key}")"
+  done
+else
+  for key in \
+    APP_MODE \
+    HOST_URL \
+    API_KEY \
+    ADMIN_USERNAME \
+    ADMIN_PASSWORD \
+    DB_NAME \
+    DB_USER \
+    DB_PASSWORD \
+    DB_ROOT_PASSWORD \
+    REDIS_PASSWORD \
+    REDIS_DB \
+    CACHE_TTL_SECONDS \
+    METRICS_REFRESH_MINUTES \
+    WARM_CACHE_TTL_MINUTES \
+    DOCKER_ROOT \
+    STATE_DIR \
+    BACKUP_TARGET_ROOT \
+    DOCKER_GID \
+    SERVER_USER \
+    WEB_PORT
+  do
+    printf '%s=%s\n' "${key}" "$(env_value "${key}")"
+  done
+fi

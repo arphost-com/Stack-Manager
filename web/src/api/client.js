@@ -154,6 +154,10 @@ export const backup = {
   saveDestination: (body) => request('/skills/backup/destinations', { method: 'POST', body: JSON.stringify(body) }),
   deleteDestination: (id) => request(`/skills/backup/destinations/${id}`, { method: 'DELETE' }),
   testDestination: (id) => request(`/skills/backup/destinations/${id}/test`, { method: 'POST' }),
+  schedules: () => request('/skills/backup/schedules'),
+  saveSchedule: (body) => request('/skills/backup/schedules', { method: 'POST', body: JSON.stringify(body) }),
+  deleteSchedule: (id) => request(`/skills/backup/schedules/${id}`, { method: 'DELETE' }),
+  runSchedule: (id) => request(`/skills/backup/schedules/${id}/run`, { method: 'POST' }),
 };
 
 export const dbadmin = {

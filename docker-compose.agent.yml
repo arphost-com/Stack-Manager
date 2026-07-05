@@ -1,0 +1,65 @@
+services:
+  state-init-agent:
+    image: alpine:3.22
+    user: "0:0"
+    environment:
+      SERVER_USER: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
+    command:
+      - sh
+      - -eu
+      - -c
+      - |
+        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /backup-targets
+        chown "${SERVER_USER}" /state
+        chown -R "${SERVER_USER}" /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets
+        find /state /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type d -exec chmod 2770 {} +
+        find /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type f -exec chmod 660 {} +
+    volumes:
+      - type: bind
+        source: ${STATE_DIR:-.compose-manager}
+        target: /state
+      - type: bind
+        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        target: /backup-targets
+        bind:
+          create_host_path: true
+    restart: "no"
+
+  agent:
+    build: ./server
+    environment:
+      APP_MODE: "agent"
+      PORT: "${AGENT_PORT:-8192}"
+      ROOT: "/docker"
+      STATE_DIR: "/state"
+      HOOKS_DIR: "/state/hooks"
+      BACKUP_DIR: "/state/backups"
+      DOCKER_CONFIG: "/state/docker-config"
+      AGENT_NAME: "${AGENT_NAME:?AGENT_NAME required}"
+      AGENT_TOKEN: "${AGENT_TOKEN:?AGENT_TOKEN required}"
+    user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    ports:
+      - "${AGENT_PORT:-8192}:${AGENT_PORT:-8192}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${DOCKER_ROOT:?DOCKER_ROOT required, set to the directory containing managed Compose projects}
+        target: /docker
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${STATE_DIR:-.compose-manager}
+        target: /state
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        target: /backup-targets
+        bind:
+          create_host_path: true
+    depends_on:
+      state-init-agent:
+        condition: service_completed_successfully
+    restart: unless-stopped

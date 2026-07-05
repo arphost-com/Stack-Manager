@@ -1343,10 +1343,1224 @@ volumes:
 			Notes:      "Useful as a private search backend for research and agent workflows.",
 		},
 	}
+	templates = append(templates, categoryExpansionStackTemplates()...)
 	sort.Slice(templates, func(i, j int) bool {
 		return templates[i].Name < templates[j].Name
 	})
 	return templates
+}
+
+func categoryExpansionStackTemplates() []StackTemplate {
+	return []StackTemplate{
+		{
+			ID:          "apache-httpd",
+			Name:        "Apache HTTP Server",
+			Description: "Apache static web server with a bind-mounted public directory.",
+			Category:    "web",
+			Source:      "docker-hub-official",
+			Image:       "httpd:2.4-alpine",
+			Tags:        []string{"web", "static", "apache"},
+			ComposeContent: `services:
+  apache:
+    image: httpd:2.4-alpine
+    restart: unless-stopped
+    ports:
+      - "${APACHE_PORT:-8080}:80"
+    volumes:
+      - ./public:/usr/local/apache2/htdocs:ro
+`,
+			EnvContent: "APACHE_PORT=8080\n",
+			Notes:      "Create a public directory beside compose.yml before starting, or edit the bind mount.",
+		},
+		{
+			ID:          "authelia",
+			Name:        "Authelia",
+			Description: "Single sign-on and two-factor authentication portal.",
+			Category:    "security",
+			Source:      "official-docs",
+			Image:       "authelia/authelia:latest",
+			Tags:        []string{"security", "sso", "2fa"},
+			ComposeContent: `services:
+  authelia:
+    image: authelia/authelia:latest
+    restart: unless-stopped
+    ports:
+      - "${AUTHELIA_PORT:-9091}:9091"
+    volumes:
+      - ./config:/config
+    environment:
+      TZ: ${TZ:-UTC}
+`,
+			EnvContent: "AUTHELIA_PORT=9091\nTZ=UTC\n",
+			Notes:      "Create config/configuration.yml before starting. Authelia will not boot without a valid configuration.",
+		},
+		{
+			ID:          "audiobookshelf",
+			Name:        "Audiobookshelf",
+			Description: "Self-hosted audiobook and podcast server.",
+			Category:    "media",
+			Source:      "official-docs",
+			Image:       "ghcr.io/advplyr/audiobookshelf:latest",
+			Tags:        []string{"media", "audiobooks", "podcasts"},
+			ComposeContent: `services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    restart: unless-stopped
+    ports:
+      - "${AUDIOBOOKSHELF_PORT:-13378}:80"
+    volumes:
+      - audiobookshelf-config:/config
+      - audiobookshelf-metadata:/metadata
+      - ./audiobooks:/audiobooks
+      - ./podcasts:/podcasts
+volumes:
+  audiobookshelf-config:
+  audiobookshelf-metadata:
+`,
+			EnvContent: "AUDIOBOOKSHELF_PORT=13378\n",
+			Notes:      "Create audiobooks and podcasts directories beside compose.yml or edit the bind mounts.",
+		},
+		{
+			ID:          "beanstalkd",
+			Name:        "Beanstalkd",
+			Description: "Simple fast work queue service.",
+			Category:    "queue",
+			Source:      "docker-hub",
+			Image:       "schickling/beanstalkd:latest",
+			Tags:        []string{"queue", "jobs", "work-queue"},
+			ComposeContent: `services:
+  beanstalkd:
+    image: schickling/beanstalkd:latest
+    restart: unless-stopped
+    ports:
+      - "${BEANSTALKD_PORT:-11300}:11300"
+`,
+			EnvContent: "BEANSTALKD_PORT=11300\n",
+		},
+		{
+			ID:          "beszel",
+			Name:        "Beszel",
+			Description: "Lightweight server monitoring hub with a local agent.",
+			Category:    "monitoring",
+			Source:      "official-docs",
+			Image:       "henrygd/beszel:latest",
+			Tags:        []string{"monitoring", "metrics", "servers"},
+			ComposeContent: `services:
+  beszel:
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    ports:
+      - "${BESZEL_PORT:-8090}:8090"
+    environment:
+      APP_URL: ${BESZEL_APP_URL:-http://localhost:8090}
+    volumes:
+      - beszel-data:/beszel_data
+      - beszel-socket:/beszel_socket
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      HUB_URL: ${BESZEL_APP_URL:-http://localhost:8090}
+      TOKEN: ${BESZEL_AGENT_TOKEN:-}
+      KEY: ${BESZEL_AGENT_KEY:-}
+    volumes:
+      - beszel-agent-data:/var/lib/beszel-agent
+      - beszel-socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  beszel-data:
+  beszel-agent-data:
+  beszel-socket:
+`,
+			EnvContent: "BESZEL_PORT=8090\nBESZEL_APP_URL=http://localhost:8090\nBESZEL_AGENT_TOKEN=\nBESZEL_AGENT_KEY=\n",
+			Notes:      "Create the admin user first, then fill BESZEL_AGENT_TOKEN and BESZEL_AGENT_KEY from the Add System flow.",
+		},
+		{
+			ID:          "calibre-web",
+			Name:        "Calibre-Web",
+			Description: "Web library for ebooks backed by a Calibre database.",
+			Category:    "media",
+			Source:      "linuxserver-docs",
+			Image:       "lscr.io/linuxserver/calibre-web:latest",
+			Tags:        []string{"media", "ebooks", "library"},
+			ComposeContent: `services:
+  calibre-web:
+    image: lscr.io/linuxserver/calibre-web:latest
+    restart: unless-stopped
+    ports:
+      - "${CALIBRE_WEB_PORT:-8083}:8083"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - calibre-web-config:/config
+      - ./books:/books
+volumes:
+  calibre-web-config:
+`,
+			EnvContent: "CALIBRE_WEB_PORT=8083\nPUID=1000\nPGID=1000\nTZ=UTC\n",
+			Notes:      "Create a books directory with a Calibre library database or edit the bind mount.",
+		},
+		{
+			ID:          "caddy-static",
+			Name:        "Caddy Static Site",
+			Description: "Caddy web server for static files.",
+			Category:    "web",
+			Source:      "docker-hub-official",
+			Image:       "caddy:2-alpine",
+			Tags:        []string{"web", "static", "caddy"},
+			ComposeContent: `services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${CADDY_STATIC_PORT:-8080}:80"
+    volumes:
+      - ./site:/usr/share/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  caddy-data:
+  caddy-config:
+`,
+			EnvContent: "CADDY_STATIC_PORT=8080\n",
+			Notes:      "Create a site directory beside compose.yml before starting, or edit the bind mount.",
+		},
+		{
+			ID:          "crowdsec",
+			Name:        "CrowdSec",
+			Description: "Collaborative intrusion detection and remediation engine.",
+			Category:    "security",
+			Source:      "official-docs",
+			Image:       "crowdsecurity/crowdsec:latest",
+			Tags:        []string{"security", "ids", "firewall"},
+			ComposeContent: `services:
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    restart: unless-stopped
+    environment:
+      COLLECTIONS: ${CROWDSEC_COLLECTIONS:-crowdsecurity/linux}
+      GID: ${DOCKER_GID:-998}
+    volumes:
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-data:/var/lib/crowdsec/data
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  crowdsec-config:
+  crowdsec-data:
+`,
+			EnvContent: "CROWDSEC_COLLECTIONS=crowdsecurity/linux\nDOCKER_GID=998\n",
+			Notes:      "Adjust DOCKER_GID to the host Docker socket group if CrowdSec needs container log access.",
+		},
+		{
+			ID:          "dashy",
+			Name:        "Dashy",
+			Description: "Self-hosted start page and service dashboard.",
+			Category:    "management",
+			Source:      "docker-hub",
+			Image:       "lissy93/dashy:latest",
+			Tags:        []string{"dashboard", "management", "homepage"},
+			ComposeContent: `services:
+  dashy:
+    image: lissy93/dashy:latest
+    restart: unless-stopped
+    ports:
+      - "${DASHY_PORT:-8080}:8080"
+    volumes:
+      - ./conf.yml:/app/user-data/conf.yml
+`,
+			EnvContent: "DASHY_PORT=8080\n",
+			Notes:      "Create conf.yml beside compose.yml before starting, or remove the bind mount for the image defaults.",
+		},
+		{
+			ID:          "diun",
+			Name:        "Diun",
+			Description: "Docker image update notification service.",
+			Category:    "automation",
+			Source:      "official-docs",
+			Image:       "crazymax/diun:latest",
+			Tags:        []string{"automation", "updates", "notifications"},
+			ComposeContent: `services:
+  diun:
+    image: crazymax/diun:latest
+    restart: unless-stopped
+    command: serve
+    environment:
+      TZ: ${TZ:-UTC}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DIUN_PROVIDERS_DOCKER: "true"
+      DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT: "true"
+    volumes:
+      - diun-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  diun-data:
+`,
+			EnvContent: "TZ=UTC\nLOG_LEVEL=info\n",
+			Notes:      "Configure notification targets in environment variables before relying on alerts.",
+		},
+		{
+			ID:          "directus",
+			Name:        "Directus",
+			Description: "Headless CMS and API layer backed by PostgreSQL.",
+			Category:    "cms",
+			Source:      "official-docs",
+			Image:       "directus/directus:latest",
+			Tags:        []string{"cms", "headless", "api"},
+			ComposeContent: `services:
+  directus:
+    image: directus/directus:latest
+    restart: unless-stopped
+    ports:
+      - "${DIRECTUS_PORT:-8055}:8055"
+    environment:
+      KEY: ${DIRECTUS_KEY:?set DIRECTUS_KEY}
+      SECRET: ${DIRECTUS_SECRET:?set DIRECTUS_SECRET}
+      DB_CLIENT: pg
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-directus}
+      DB_USER: ${POSTGRES_USER:-directus}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL:?set DIRECTUS_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD:?set DIRECTUS_ADMIN_PASSWORD}
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-directus}
+      POSTGRES_USER: ${POSTGRES_USER:-directus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - directus-db:/var/lib/postgresql/data
+volumes:
+  directus-db:
+`,
+			EnvContent: "DIRECTUS_PORT=8055\nDIRECTUS_KEY=\nDIRECTUS_SECRET=\nDIRECTUS_ADMIN_EMAIL=\nDIRECTUS_ADMIN_PASSWORD=\nPOSTGRES_DB=directus\nPOSTGRES_USER=directus\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Generate DIRECTUS_KEY, DIRECTUS_SECRET, DIRECTUS_ADMIN_PASSWORD, and POSTGRES_PASSWORD before starting.",
+		},
+		{
+			ID:          "dockge",
+			Name:        "Dockge",
+			Description: "Docker Compose stack manager.",
+			Category:    "management",
+			Source:      "upstream-github",
+			Image:       "louislam/dockge:1",
+			Tags:        []string{"management", "docker", "compose"},
+			ComposeContent: `services:
+  dockge:
+    image: louislam/dockge:1
+    restart: unless-stopped
+    ports:
+      - "${DOCKGE_PORT:-5001}:5001"
+    environment:
+      DOCKGE_STACKS_DIR: ${DOCKGE_STACKS_DIR:-/opt/stacks}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockge-data:/app/data
+      - ${DOCKGE_STACKS_DIR:-/opt/stacks}:${DOCKGE_STACKS_DIR:-/opt/stacks}
+volumes:
+  dockge-data:
+`,
+			EnvContent: "DOCKGE_PORT=5001\nDOCKGE_STACKS_DIR=/opt/stacks\nPUID=1000\nPGID=1000\n",
+			Notes:      "Set DOCKGE_STACKS_DIR to the host directory containing stacks before starting.",
+		},
+		{
+			ID:          "dokuwiki",
+			Name:        "DokuWiki",
+			Description: "File-backed wiki with no external database.",
+			Category:    "docs",
+			Source:      "linuxserver-docs",
+			Image:       "lscr.io/linuxserver/dokuwiki:latest",
+			Tags:        []string{"docs", "wiki", "knowledge-base"},
+			ComposeContent: `services:
+  dokuwiki:
+    image: lscr.io/linuxserver/dokuwiki:latest
+    restart: unless-stopped
+    ports:
+      - "${DOKUWIKI_PORT:-8080}:80"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - dokuwiki-config:/config
+volumes:
+  dokuwiki-config:
+`,
+			EnvContent: "DOKUWIKI_PORT=8080\nPUID=1000\nPGID=1000\nTZ=UTC\n",
+		},
+		{
+			ID:          "drupal-postgres",
+			Name:        "Drupal + PostgreSQL",
+			Description: "Drupal CMS with PostgreSQL persistence.",
+			Category:    "cms",
+			Source:      "docker-hub-official",
+			Image:       "drupal:10-apache",
+			Tags:        []string{"cms", "drupal", "postgres"},
+			ComposeContent: `services:
+  drupal:
+    image: drupal:10-apache
+    restart: unless-stopped
+    ports:
+      - "${DRUPAL_PORT:-8080}:80"
+    volumes:
+      - drupal-modules:/var/www/html/modules
+      - drupal-profiles:/var/www/html/profiles
+      - drupal-sites:/var/www/html/sites
+      - drupal-themes:/var/www/html/themes
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-drupal}
+      POSTGRES_USER: ${POSTGRES_USER:-drupal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - drupal-db:/var/lib/postgresql/data
+volumes:
+  drupal-modules:
+  drupal-profiles:
+  drupal-sites:
+  drupal-themes:
+  drupal-db:
+`,
+			EnvContent: "DRUPAL_PORT=8080\nPOSTGRES_DB=drupal\nPOSTGRES_USER=drupal\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Set POSTGRES_PASSWORD before starting and enter the same database values in the Drupal installer.",
+		},
+		{
+			ID:          "duplicati",
+			Name:        "Duplicati",
+			Description: "Web-managed encrypted backup tool for files and folders.",
+			Category:    "files",
+			Source:      "linuxserver-docs",
+			Image:       "lscr.io/linuxserver/duplicati:latest",
+			Tags:        []string{"files", "backup", "sync"},
+			ComposeContent: `services:
+  duplicati:
+    image: lscr.io/linuxserver/duplicati:latest
+    restart: unless-stopped
+    ports:
+      - "${DUPLICATI_PORT:-8200}:8200"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - duplicati-config:/config
+      - ./backups:/backups
+      - ./source:/source:ro
+volumes:
+  duplicati-config:
+`,
+			EnvContent: "DUPLICATI_PORT=8200\nPUID=1000\nPGID=1000\nTZ=UTC\n",
+			Notes:      "Create backups and source directories or edit the bind mounts before starting.",
+		},
+		{
+			ID:          "emby",
+			Name:        "Emby",
+			Description: "Personal media server for video, music, and photos.",
+			Category:    "media",
+			Source:      "linuxserver-docs",
+			Image:       "lscr.io/linuxserver/emby:latest",
+			Tags:        []string{"media", "video", "music"},
+			ComposeContent: `services:
+  emby:
+    image: lscr.io/linuxserver/emby:latest
+    restart: unless-stopped
+    ports:
+      - "${EMBY_HTTP_PORT:-8096}:8096"
+      - "${EMBY_HTTPS_PORT:-8920}:8920"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - emby-config:/config
+      - ./media:/data/media:ro
+volumes:
+  emby-config:
+`,
+			EnvContent: "EMBY_HTTP_PORT=8096\nEMBY_HTTPS_PORT=8920\nPUID=1000\nPGID=1000\nTZ=UTC\n",
+			Notes:      "Create a media directory or edit the bind mount before starting.",
+		},
+		{
+			ID:          "filebrowser",
+			Name:        "File Browser",
+			Description: "Web file manager for a mounted directory.",
+			Category:    "files",
+			Source:      "official-docs",
+			Image:       "filebrowser/filebrowser:latest",
+			Tags:        []string{"files", "browser", "manager"},
+			ComposeContent: `services:
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    restart: unless-stopped
+    ports:
+      - "${FILEBROWSER_PORT:-8080}:80"
+    volumes:
+      - ./files:/srv
+      - filebrowser-db:/database
+      - filebrowser-config:/config
+volumes:
+  filebrowser-db:
+  filebrowser-config:
+`,
+			EnvContent: "FILEBROWSER_PORT=8080\n",
+			Notes:      "Create a files directory before starting. The initial admin password is generated and printed in container logs.",
+		},
+		{
+			ID:          "forgejo",
+			Name:        "Forgejo",
+			Description: "Self-hosted Git forge with SSH and web access.",
+			Category:    "devtools",
+			Source:      "official-docs",
+			Image:       "codeberg.org/forgejo/forgejo:9",
+			Tags:        []string{"git", "devtools", "forge"},
+			ComposeContent: `services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:9
+    restart: unless-stopped
+    environment:
+      USER_UID: ${USER_UID:-1000}
+      USER_GID: ${USER_GID:-1000}
+    ports:
+      - "${FORGEJO_WEB_PORT:-3000}:3000"
+      - "${FORGEJO_SSH_PORT:-2222}:22"
+    volumes:
+      - forgejo-data:/data
+volumes:
+  forgejo-data:
+`,
+			EnvContent: "USER_UID=1000\nUSER_GID=1000\nFORGEJO_WEB_PORT=3000\nFORGEJO_SSH_PORT=2222\n",
+		},
+		{
+			ID:          "gatus",
+			Name:        "Gatus",
+			Description: "Developer-friendly status page and health monitor.",
+			Category:    "monitoring",
+			Source:      "official-docs",
+			Image:       "twinproduction/gatus:latest",
+			Tags:        []string{"monitoring", "status", "healthchecks"},
+			ComposeContent: `services:
+  gatus:
+    image: twinproduction/gatus:latest
+    restart: unless-stopped
+    ports:
+      - "${GATUS_PORT:-8080}:8080"
+    volumes:
+      - ./config:/config
+`,
+			EnvContent: "GATUS_PORT=8080\n",
+			Notes:      "Create config/config.yaml before starting, or edit the bind mount.",
+		},
+		{
+			ID:          "ghost-mysql",
+			Name:        "Ghost + MySQL",
+			Description: "Ghost publishing CMS with MySQL persistence.",
+			Category:    "cms",
+			Source:      "docker-hub-official",
+			Image:       "ghost:5-alpine",
+			Tags:        []string{"cms", "publishing", "mysql"},
+			ComposeContent: `services:
+  ghost:
+    image: ghost:5-alpine
+    restart: unless-stopped
+    ports:
+      - "${GHOST_PORT:-2368}:2368"
+    environment:
+      url: ${GHOST_URL:-http://localhost:2368}
+      database__client: mysql
+      database__connection__host: db
+      database__connection__user: ${MYSQL_USER:-ghost}
+      database__connection__password: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      database__connection__database: ${MYSQL_DATABASE:-ghost}
+    volumes:
+      - ghost-content:/var/lib/ghost/content
+    depends_on:
+      - db
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ghost}
+      MYSQL_USER: ${MYSQL_USER:-ghost}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ghost-db:/var/lib/mysql
+volumes:
+  ghost-content:
+  ghost-db:
+`,
+			EnvContent: "GHOST_PORT=2368\nGHOST_URL=http://localhost:2368\nMYSQL_DATABASE=ghost\nMYSQL_USER=ghost\nMYSQL_PASSWORD=\nMYSQL_ROOT_PASSWORD=\n",
+			Notes:      "Set MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD before starting.",
+		},
+		{
+			ID:          "grav",
+			Name:        "Grav",
+			Description: "Flat-file CMS with no database dependency.",
+			Category:    "cms",
+			Source:      "linuxserver-docs",
+			Image:       "lscr.io/linuxserver/grav:latest",
+			Tags:        []string{"cms", "flat-file", "website"},
+			ComposeContent: `services:
+  grav:
+    image: lscr.io/linuxserver/grav:latest
+    restart: unless-stopped
+    ports:
+      - "${GRAV_PORT:-8080}:80"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - grav-config:/config
+volumes:
+  grav-config:
+`,
+			EnvContent: "GRAV_PORT=8080\nPUID=1000\nPGID=1000\nTZ=UTC\n",
+		},
+		{
+			ID:          "hedgedoc",
+			Name:        "HedgeDoc",
+			Description: "Collaborative markdown notes and documentation editor.",
+			Category:    "docs",
+			Source:      "official-docs",
+			Image:       "quay.io/hedgedoc/hedgedoc:latest",
+			Tags:        []string{"docs", "markdown", "collaboration"},
+			ComposeContent: `services:
+  hedgedoc:
+    image: quay.io/hedgedoc/hedgedoc:latest
+    restart: unless-stopped
+    ports:
+      - "${HEDGEDOC_PORT:-3000}:3000"
+    environment:
+      CMD_DB_URL: postgres://${POSTGRES_USER:-hedgedoc}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hedgedoc}
+      CMD_DOMAIN: ${HEDGEDOC_DOMAIN:-localhost}
+      CMD_PROTOCOL_USESSL: "${HEDGEDOC_USE_SSL:-false}"
+      CMD_SESSION_SECRET: ${HEDGEDOC_SESSION_SECRET:?set HEDGEDOC_SESSION_SECRET}
+    volumes:
+      - hedgedoc-uploads:/hedgedoc/public/uploads
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hedgedoc}
+      POSTGRES_USER: ${POSTGRES_USER:-hedgedoc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - hedgedoc-db:/var/lib/postgresql/data
+volumes:
+  hedgedoc-uploads:
+  hedgedoc-db:
+`,
+			EnvContent: "HEDGEDOC_PORT=3000\nHEDGEDOC_DOMAIN=localhost\nHEDGEDOC_USE_SSL=false\nHEDGEDOC_SESSION_SECRET=\nPOSTGRES_DB=hedgedoc\nPOSTGRES_USER=hedgedoc\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Generate HEDGEDOC_SESSION_SECRET and POSTGRES_PASSWORD before starting.",
+		},
+		{
+			ID:          "jenkins",
+			Name:        "Jenkins",
+			Description: "Automation server for builds and delivery workflows.",
+			Category:    "devtools",
+			Source:      "official-docs",
+			Image:       "jenkins/jenkins:lts-jdk21",
+			Tags:        []string{"devtools", "ci", "automation"},
+			ComposeContent: `services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    restart: unless-stopped
+    ports:
+      - "${JENKINS_PORT:-8080}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+volumes:
+  jenkins-home:
+`,
+			EnvContent: "JENKINS_PORT=8080\nJENKINS_AGENT_PORT=50000\n",
+			Notes:      "Read the initial admin password from container logs or /var/jenkins_home/secrets/initialAdminPassword.",
+		},
+		{
+			ID:          "joomla-mariadb",
+			Name:        "Joomla + MariaDB",
+			Description: "Joomla CMS with MariaDB persistence.",
+			Category:    "cms",
+			Source:      "docker-hub-official",
+			Image:       "joomla:latest",
+			Tags:        []string{"cms", "joomla", "mariadb"},
+			ComposeContent: `services:
+  joomla:
+    image: joomla:latest
+    restart: unless-stopped
+    ports:
+      - "${JOOMLA_PORT:-8080}:80"
+    environment:
+      JOOMLA_DB_HOST: db
+      JOOMLA_DB_NAME: ${MYSQL_DATABASE:-joomla}
+      JOOMLA_DB_USER: ${MYSQL_USER:-joomla}
+      JOOMLA_DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+    volumes:
+      - joomla-data:/var/www/html
+    depends_on:
+      - db
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-joomla}
+      MARIADB_USER: ${MYSQL_USER:-joomla}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?set MARIADB_ROOT_PASSWORD}
+    volumes:
+      - joomla-db:/var/lib/mysql
+volumes:
+  joomla-data:
+  joomla-db:
+`,
+			EnvContent: "JOOMLA_PORT=8080\nMYSQL_DATABASE=joomla\nMYSQL_USER=joomla\nMYSQL_PASSWORD=\nMARIADB_ROOT_PASSWORD=\n",
+			Notes:      "Set MYSQL_PASSWORD and MARIADB_ROOT_PASSWORD before starting.",
+		},
+		{
+			ID:          "kafka-kraft",
+			Name:        "Apache Kafka",
+			Description: "Single-node Kafka broker using KRaft mode.",
+			Category:    "queue",
+			Source:      "official-docs",
+			Image:       "apache/kafka:latest",
+			Tags:        []string{"queue", "streaming", "kafka"},
+			ComposeContent: `services:
+  kafka:
+    image: apache/kafka:latest
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_ADVERTISED_HOST:-localhost}:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+volumes:
+  kafka-data:
+`,
+			EnvContent: "KAFKA_PORT=9092\nKAFKA_ADVERTISED_HOST=localhost\n",
+		},
+		{
+			ID:          "keycloak-postgres",
+			Name:        "Keycloak + PostgreSQL",
+			Description: "Identity and access management server with PostgreSQL.",
+			Category:    "security",
+			Source:      "official-docs",
+			Image:       "quay.io/keycloak/keycloak:latest",
+			Tags:        []string{"security", "identity", "sso"},
+			ComposeContent: `services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    restart: unless-stopped
+    command: ["start", "--http-enabled=true", "--hostname=${KEYCLOAK_HOSTNAME:-localhost}"]
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-keycloak}
+      KC_DB_USERNAME: ${POSTGRES_USER:-keycloak}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - keycloak-db:/var/lib/postgresql/data
+volumes:
+  keycloak-db:
+`,
+			EnvContent: "KEYCLOAK_PORT=8080\nKEYCLOAK_HOSTNAME=localhost\nKEYCLOAK_ADMIN_USER=admin\nKEYCLOAK_ADMIN_PASSWORD=\nPOSTGRES_DB=keycloak\nPOSTGRES_USER=keycloak\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Set KEYCLOAK_ADMIN_PASSWORD and POSTGRES_PASSWORD before starting. Add TLS or a trusted reverse proxy before production use.",
+		},
+		{
+			ID:          "mosquitto",
+			Name:        "Eclipse Mosquitto",
+			Description: "MQTT broker for IoT and event messaging.",
+			Category:    "queue",
+			Source:      "docker-hub-official",
+			Image:       "eclipse-mosquitto:2",
+			Tags:        []string{"queue", "mqtt", "iot"},
+			ComposeContent: `services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "${MOSQUITTO_PORT:-1883}:1883"
+      - "${MOSQUITTO_WS_PORT:-9001}:9001"
+    volumes:
+      - ./config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+`,
+			EnvContent: "MOSQUITTO_PORT=1883\nMOSQUITTO_WS_PORT=9001\n",
+			Notes:      "Create config/mosquitto.conf before starting. Avoid anonymous listeners on untrusted networks.",
+		},
+		{
+			ID:          "nats",
+			Name:        "NATS",
+			Description: "Lightweight messaging system with JetStream persistence.",
+			Category:    "queue",
+			Source:      "official-docs",
+			Image:       "nats:2-alpine",
+			Tags:        []string{"queue", "messaging", "jetstream"},
+			ComposeContent: `services:
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - nats-data:/data
+volumes:
+  nats-data:
+`,
+			EnvContent: "NATS_CLIENT_PORT=4222\nNATS_MONITOR_PORT=8222\n",
+		},
+		{
+			ID:          "navidrome",
+			Name:        "Navidrome",
+			Description: "Self-hosted music streaming server.",
+			Category:    "media",
+			Source:      "official-docs",
+			Image:       "deluan/navidrome:latest",
+			Tags:        []string{"media", "music", "streaming"},
+			ComposeContent: `services:
+  navidrome:
+    image: deluan/navidrome:latest
+    restart: unless-stopped
+    ports:
+      - "${NAVIDROME_PORT:-4533}:4533"
+    environment:
+      ND_SCANSCHEDULE: ${NAVIDROME_SCAN_SCHEDULE:-1h}
+      ND_LOGLEVEL: ${NAVIDROME_LOG_LEVEL:-info}
+      ND_BASEURL: ${NAVIDROME_BASE_URL:-}
+    volumes:
+      - navidrome-data:/data
+      - ./music:/music:ro
+volumes:
+  navidrome-data:
+`,
+			EnvContent: "NAVIDROME_PORT=4533\nNAVIDROME_SCAN_SCHEDULE=1h\nNAVIDROME_LOG_LEVEL=info\nNAVIDROME_BASE_URL=\n",
+			Notes:      "Create a music directory or edit the bind mount before starting.",
+		},
+		{
+			ID:          "netdata",
+			Name:        "Netdata",
+			Description: "Real-time host and container metrics dashboard.",
+			Category:    "monitoring",
+			Source:      "official-docs",
+			Image:       "netdata/netdata:stable",
+			Tags:        []string{"monitoring", "metrics", "containers"},
+			ComposeContent: `services:
+  netdata:
+    image: netdata/netdata:stable
+    restart: unless-stopped
+    pid: host
+    network_mode: host
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - netdata-config:/etc/netdata
+      - netdata-lib:/var/lib/netdata
+      - netdata-cache:/var/cache/netdata
+      - /:/host/root:ro,rslave
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  netdata-config:
+  netdata-lib:
+  netdata-cache:
+`,
+			Notes: "Netdata uses host networking and host mounts for full-node visibility. Review the mounts before deploying.",
+		},
+		{
+			ID:          "nginx-unprivileged",
+			Name:        "Nginx Unprivileged",
+			Description: "Rootless-friendly Nginx static web server.",
+			Category:    "web",
+			Source:      "docker-hub",
+			Image:       "nginxinc/nginx-unprivileged:stable-alpine",
+			Tags:        []string{"web", "static", "nginx", "non-root"},
+			ComposeContent: `services:
+  nginx:
+    image: nginxinc/nginx-unprivileged:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_UNPRIVILEGED_PORT:-8080}:8080"
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+`,
+			EnvContent: "NGINX_UNPRIVILEGED_PORT=8080\n",
+			Notes:      "Create an html directory beside compose.yml before starting, or edit the bind mount.",
+		},
+		{
+			ID:          "node-red",
+			Name:        "Node-RED",
+			Description: "Flow-based automation and integration builder.",
+			Category:    "automation",
+			Source:      "official-docs",
+			Image:       "nodered/node-red:latest",
+			Tags:        []string{"automation", "iot", "flows"},
+			ComposeContent: `services:
+  node-red:
+    image: nodered/node-red:latest
+    restart: unless-stopped
+    ports:
+      - "${NODE_RED_PORT:-1880}:1880"
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - node-red-data:/data
+volumes:
+  node-red-data:
+`,
+			EnvContent: "NODE_RED_PORT=1880\nTZ=UTC\n",
+			Notes:      "Set a Node-RED credential secret in settings.js before storing sensitive flow credentials.",
+		},
+		{
+			ID:          "php-apache",
+			Name:        "PHP Apache",
+			Description: "PHP-enabled Apache web app starter.",
+			Category:    "web",
+			Source:      "docker-hub-official",
+			Image:       "php:8.3-apache",
+			Tags:        []string{"web", "php", "apache"},
+			ComposeContent: `services:
+  php:
+    image: php:8.3-apache
+    restart: unless-stopped
+    ports:
+      - "${PHP_APACHE_PORT:-8080}:80"
+    volumes:
+      - ./app:/var/www/html
+`,
+			EnvContent: "PHP_APACHE_PORT=8080\n",
+			Notes:      "Create an app directory with PHP files before starting, or edit the bind mount.",
+		},
+		{
+			ID:          "pihole",
+			Name:        "Pi-hole",
+			Description: "DNS sinkhole and local network ad blocker.",
+			Category:    "security",
+			Source:      "upstream-github",
+			Image:       "pihole/pihole:latest",
+			Tags:        []string{"security", "dns", "adblock"},
+			ComposeContent: `services:
+  pihole:
+    image: pihole/pihole:latest
+    restart: unless-stopped
+    ports:
+      - "${PIHOLE_DNS_PORT:-53}:53/tcp"
+      - "${PIHOLE_DNS_PORT:-53}:53/udp"
+      - "${PIHOLE_WEB_PORT:-8080}:80"
+    environment:
+      TZ: ${TZ:-UTC}
+      FTLCONF_webserver_api_password: ${PIHOLE_WEB_PASSWORD:?set PIHOLE_WEB_PASSWORD}
+    volumes:
+      - pihole-etc:/etc/pihole
+      - pihole-dnsmasq:/etc/dnsmasq.d
+volumes:
+  pihole-etc:
+  pihole-dnsmasq:
+`,
+			EnvContent: "PIHOLE_DNS_PORT=53\nPIHOLE_WEB_PORT=8080\nPIHOLE_WEB_PASSWORD=\nTZ=UTC\n",
+			Notes:      "Set PIHOLE_WEB_PASSWORD before starting and avoid binding DNS ports on hosts already running a resolver.",
+		},
+		{
+			ID:          "plex",
+			Name:        "Plex Media Server",
+			Description: "Personal media server for streaming libraries.",
+			Category:    "media",
+			Source:      "docker-hub-official",
+			Image:       "plexinc/pms-docker:latest",
+			Tags:        []string{"media", "video", "streaming"},
+			ComposeContent: `services:
+  plex:
+    image: plexinc/pms-docker:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: ${TZ:-UTC}
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
+      ADVERTISE_IP: ${PLEX_ADVERTISE_IP:-}
+    volumes:
+      - plex-config:/config
+      - ./transcode:/transcode
+      - ./media:/data:ro
+volumes:
+  plex-config:
+`,
+			EnvContent: "TZ=UTC\nPLEX_CLAIM=\nPLEX_ADVERTISE_IP=\n",
+			Notes:      "Create media and transcode directories or edit the bind mounts. Host networking is recommended for Plex discovery.",
+		},
+		{
+			ID:          "portainer-ce",
+			Name:        "Portainer CE",
+			Description: "Docker and Compose management UI.",
+			Category:    "management",
+			Source:      "official-docs",
+			Image:       "portainer/portainer-ce:latest",
+			Tags:        []string{"management", "docker", "containers"},
+			ComposeContent: `services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    restart: unless-stopped
+    ports:
+      - "${PORTAINER_HTTPS_PORT:-9443}:9443"
+      - "${PORTAINER_HTTP_PORT:-9000}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+volumes:
+  portainer-data:
+`,
+			EnvContent: "PORTAINER_HTTPS_PORT=9443\nPORTAINER_HTTP_PORT=9000\n",
+			Notes:      "The Docker socket mount grants broad host control. Restrict network access to trusted operators.",
+		},
+		{
+			ID:          "redpanda",
+			Name:        "Redpanda",
+			Description: "Kafka-compatible streaming platform without ZooKeeper.",
+			Category:    "queue",
+			Source:      "official-docs",
+			Image:       "docker.redpanda.com/redpandadata/redpanda:latest",
+			Tags:        []string{"queue", "streaming", "kafka-compatible"},
+			ComposeContent: `services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://${REDPANDA_ADVERTISED_HOST:-localhost}:${REDPANDA_KAFKA_PORT:-9092}
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-9092}:9092"
+      - "${REDPANDA_ADMIN_PORT:-9644}:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+volumes:
+  redpanda-data:
+`,
+			EnvContent: "REDPANDA_KAFKA_PORT=9092\nREDPANDA_ADMIN_PORT=9644\nREDPANDA_ADVERTISED_HOST=localhost\n",
+		},
+		{
+			ID:          "sftpgo",
+			Name:        "SFTPGo",
+			Description: "Managed SFTP, WebDAV, FTP, and object-storage gateway.",
+			Category:    "files",
+			Source:      "official-docs",
+			Image:       "drakkan/sftpgo:latest",
+			Tags:        []string{"files", "sftp", "webdav"},
+			ComposeContent: `services:
+  sftpgo:
+    image: drakkan/sftpgo:latest
+    restart: unless-stopped
+    ports:
+      - "${SFTPGO_HTTP_PORT:-8080}:8080"
+      - "${SFTPGO_SFTP_PORT:-2022}:2022"
+    volumes:
+      - sftpgo-data:/srv/sftpgo
+      - sftpgo-home:/var/lib/sftpgo
+volumes:
+  sftpgo-data:
+  sftpgo-home:
+`,
+			EnvContent: "SFTPGO_HTTP_PORT=8080\nSFTPGO_SFTP_PORT=2022\n",
+		},
+		{
+			ID:          "sonarqube",
+			Name:        "SonarQube Community",
+			Description: "Code quality and static analysis platform.",
+			Category:    "devtools",
+			Source:      "official-docs",
+			Image:       "sonarqube:community",
+			Tags:        []string{"devtools", "code-quality", "analysis"},
+			ComposeContent: `services:
+  sonarqube:
+    image: sonarqube:community
+    restart: unless-stopped
+    ports:
+      - "${SONARQUBE_PORT:-9000}:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-sonarqube}
+      SONAR_JDBC_USERNAME: ${POSTGRES_USER:-sonarqube}
+      SONAR_JDBC_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+      - sonarqube-logs:/opt/sonarqube/logs
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sonarqube}
+      POSTGRES_USER: ${POSTGRES_USER:-sonarqube}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - sonarqube-db:/var/lib/postgresql/data
+volumes:
+  sonarqube-data:
+  sonarqube-extensions:
+  sonarqube-logs:
+  sonarqube-db:
+`,
+			EnvContent: "SONARQUBE_PORT=9000\nPOSTGRES_DB=sonarqube\nPOSTGRES_USER=sonarqube\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Set POSTGRES_PASSWORD before starting. SonarQube may require host sysctl tuning for Elasticsearch.",
+		},
+		{
+			ID:          "traefik-whoami",
+			Name:        "Traefik Whoami",
+			Description: "Tiny HTTP echo service for route and proxy testing.",
+			Category:    "web",
+			Source:      "official-docs",
+			Image:       "traefik/whoami:latest",
+			Tags:        []string{"web", "testing", "http"},
+			ComposeContent: `services:
+  whoami:
+    image: traefik/whoami:latest
+    restart: unless-stopped
+    ports:
+      - "${WHOAMI_PORT:-8080}:80"
+`,
+			EnvContent: "WHOAMI_PORT=8080\n",
+		},
+		{
+			ID:          "trivy-server",
+			Name:        "Trivy Server",
+			Description: "Vulnerability scanner server for container and filesystem scans.",
+			Category:    "security",
+			Source:      "official-docs",
+			Image:       "aquasec/trivy:latest",
+			Tags:        []string{"security", "scanner", "vulnerabilities"},
+			ComposeContent: `services:
+  trivy:
+    image: aquasec/trivy:latest
+    restart: unless-stopped
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    ports:
+      - "${TRIVY_PORT:-4954}:4954"
+    volumes:
+      - trivy-cache:/root/.cache
+volumes:
+  trivy-cache:
+`,
+			EnvContent: "TRIVY_PORT=4954\n",
+			Notes:      "Restrict access to trusted clients; the server accepts scan requests over HTTP.",
+		},
+		{
+			ID:          "watchtower",
+			Name:        "Watchtower",
+			Description: "Automated container image updater.",
+			Category:    "automation",
+			Source:      "official-docs",
+			Image:       "containrrr/watchtower:latest",
+			Tags:        []string{"automation", "updates", "docker"},
+			ComposeContent: `services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    command: ["--schedule", "${WATCHTOWER_SCHEDULE:-0 0 4 * * *}", "--cleanup"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`,
+			EnvContent: "WATCHTOWER_SCHEDULE=0 0 4 * * *\n",
+			Notes:      "Automated updates can restart managed containers. Use labels or scope arguments if only selected stacks should update.",
+		},
+		{
+			ID:          "wikijs",
+			Name:        "Wiki.js",
+			Description: "Modern wiki and knowledge base backed by PostgreSQL.",
+			Category:    "docs",
+			Source:      "official-docs",
+			Image:       "ghcr.io/requarks/wiki:2",
+			Tags:        []string{"docs", "wiki", "knowledge-base"},
+			ComposeContent: `services:
+  wiki:
+    image: ghcr.io/requarks/wiki:2
+    restart: unless-stopped
+    ports:
+      - "${WIKIJS_PORT:-8080}:3000"
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-wikijs}
+      DB_PASS: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-wiki}
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wiki}
+      POSTGRES_USER: ${POSTGRES_USER:-wikijs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - wikijs-db:/var/lib/postgresql/data
+volumes:
+  wikijs-db:
+`,
+			EnvContent: "WIKIJS_PORT=8080\nPOSTGRES_DB=wiki\nPOSTGRES_USER=wikijs\nPOSTGRES_PASSWORD=\n",
+			Notes:      "Set POSTGRES_PASSWORD before starting.",
+		},
+	}
 }
 
 func GetBuiltinStackTemplate(id string) (StackTemplate, bool) {

@@ -488,17 +488,21 @@ export default function Settings() {
           <div className="space-y-4">
             <div className="section-panel">
               <h2 className="text-lg font-semibold text-gray-950">Agent Setup</h2>
-              <div className="mt-3 grid gap-3 text-sm text-gray-700 md:grid-cols-2">
+              <div className="mt-3 grid gap-3 text-sm text-gray-700 xl:grid-cols-3">
                 <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">1. Prepare the remote host</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Compose-Manager.git{"\n"}cd Compose-Manager{"\n"}./scripts/prepare-state.sh .env</pre>
+                  <div className="font-medium text-gray-950">1. Prepare agent state</div>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Compose-Manager.git{"\n"}cd Compose-Manager{"\n"}./scripts/prepare-state.sh --agent .env</pre>
                 </div>
                 <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">2. Run it in agent mode</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">APP_MODE=agent{"\n"}AGENT_NAME=docker03{"\n"}AGENT_TOKEN=&lt;generated-token&gt;{"\n"}ROOT=/home/debian/docker{"\n"}PORT=8192</pre>
+                  <div className="font-medium text-gray-950">2. Start the agent only</div>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">docker compose --env-file .env \{"\n"}  -f docker-compose.agent.yml \{"\n"}  up -d --build</pre>
+                </div>
+                <div className="rounded-md border border-gray-200 p-3">
+                  <div className="font-medium text-gray-950">3. Register below</div>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">grep -E '^(HOST_URL|AGENT_NAME|AGENT_TOKEN|DOCKER_ROOT)=' .env{"\n"}# Agent URL: HOST_URL{"\n"}# Token: AGENT_TOKEN</pre>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-gray-600">Use the agent base URL and token below. Agent mode does not need MariaDB or Redis; the main server stores the connection and sends project commands to `/agent/v1`.</p>
+              <p className="mt-3 text-sm text-gray-600">Agent mode uses `DOCKER_ROOT` on the remote host and mounts it into the agent as `/docker`; the setup script writes `APP_MODE=agent`, `AGENT_NAME`, `AGENT_TOKEN`, and `HOST_URL` into `.env`. Register `HOST_URL` as the Agent URL and `AGENT_TOKEN` as the token.</p>
             </div>
             <div className="section-panel">
               <h2 className="mb-3 text-lg font-semibold text-gray-950">Registered Agents</h2>

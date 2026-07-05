@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi } from '../api/client';
+import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi } from '../api/client';
 
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull newer images, then recreate containers. Projects with update hooks run only their hook.' },
@@ -27,6 +27,9 @@ export default function Dashboard() {
   const [scheduleList, setScheduleList] = useState([]);
   const [metricsSummary, setMetricsSummary] = useState(null);
   const [metricsHistory, setMetricsHistory] = useState([]);
+  const [backupList, setBackupList] = useState([]);
+  const [backupDestinations, setBackupDestinations] = useState([]);
+  const [backupSchedules, setBackupSchedules] = useState([]);
   const [mainTab, setMainTab] = useState('projects');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,6 +37,8 @@ export default function Dashboard() {
   const [selected, setSelected] = useState([]);
   const [filters, setFilters] = useState({ includeInactive: true, runningOnly: false, query: '' });
   const [quickFilter, setQuickFilter] = useState('all');
+  const [updatePageSize, setUpdatePageSize] = useState(10);
+  const [updatePage, setUpdatePage] = useState(1);
   const [timeout, setTimeoutValue] = useState(300);
   const [pruneMode, setPruneMode] = useState('safe');
   const [showPruneMenu, setShowPruneMenu] = useState(false);
@@ -56,17 +61,31 @@ export default function Dashboard() {
     interval_minutes: 1440,
     timeout_seconds: 300,
   });
+  const [selectedBackupProjects, setSelectedBackupProjects] = useState([]);
+  const [selectedBackupDestinations, setSelectedBackupDestinations] = useState([]);
+  const [backupScheduleForm, setBackupScheduleForm] = useState({
+    id: 0,
+    name: '',
+    projects: [],
+    all_projects: true,
+    destination_ids: [],
+    enabled: true,
+    interval_minutes: 1440,
+  });
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [projRes, skillRes, agentRes, scheduleRes, metricsRes, historyRes] = await Promise.all([
+      const [projRes, skillRes, agentRes, scheduleRes, metricsRes, historyRes, backupRes, backupDestRes, backupScheduleRes] = await Promise.all([
         projects.list({ include_inactive: filters.includeInactive ? 'true' : 'false', running_only: filters.runningOnly ? 'true' : 'false' }),
         skillsApi.list(),
         agentsApi.list(),
         schedulesApi.list(),
         metricsApi.summary(),
         metricsApi.history(24),
+        backupApi.list(),
+        backupApi.destinations(),
+        backupApi.schedules(),
       ]);
       setProjectList(projRes.data || []);
       setSkillList(skillRes.data || []);
@@ -74,6 +93,9 @@ export default function Dashboard() {
       setScheduleList(scheduleRes.data || []);
       setMetricsSummary(metricsRes.data || null);
       setMetricsHistory(historyRes.data || []);
+      setBackupList(backupRes.data || []);
+      setBackupDestinations(backupDestRes.data || []);
+      setBackupSchedules(backupScheduleRes.data || []);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -100,6 +122,9 @@ export default function Dashboard() {
   const noUpdates = projectList.filter(p => p.update_policy?.effective_policy === 'no_updates').length;
   const customServices = projectList.reduce((sum, p) => sum + (p.image_sources || []).filter(s => s.source_type === 'custom').length, 0);
   const registryServices = projectList.reduce((sum, p) => sum + (p.image_sources || []).filter(s => s.source_type === 'registry').length, 0);
+  const updatePageCount = Math.max(1, Math.ceil(projectList.length / updatePageSize));
+  const updatePageSafe = Math.min(updatePage, updatePageCount);
+  const pagedUpdateProjects = projectList.slice((updatePageSafe - 1) * updatePageSize, updatePageSafe * updatePageSize);
 
   const setSummaryFilter = (filter) => {
     setQuickFilter(filter);
@@ -288,6 +313,126 @@ export default function Dashboard() {
     }
   };
 
+  const toggleBackupProject = (name) => {
+    setSelectedBackupProjects(current => current.includes(name) ? current.filter(item => item !== name) : [...current, name]);
+  };
+
+  const toggleBackupDestination = (id) => {
+    setSelectedBackupDestinations(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  };
+
+  const runBackupProject = async (name) => {
+    try {
+      setActionResult({ label: `backup ${name}`, status: 'running' });
+      const body = selectedBackupDestinations.length > 0 ? { destination_ids: selectedBackupDestinations } : {};
+      const res = await backupApi.create(name, body);
+      setActionResult({ label: `backup ${name}`, status: 'done', result: res.data });
+      fetchData();
+    } catch (err) {
+      setActionResult({ label: `backup ${name}`, status: 'error', error: err.message });
+    }
+  };
+
+  const runBackupBatch = async (mode) => {
+    const targets = mode === 'all' ? projectList.filter(p => !p.inactive).map(p => p.name) : selectedBackupProjects;
+    if (targets.length === 0) {
+      setActionResult({ label: 'backup batch', status: 'error', error: 'No projects selected.' });
+      return;
+    }
+    const results = [];
+    setActionResult({ label: `backup ${targets.length} project${targets.length === 1 ? '' : 's'}`, status: 'running' });
+    for (const name of targets) {
+      try {
+        const body = selectedBackupDestinations.length > 0 ? { destination_ids: selectedBackupDestinations } : {};
+        const res = await backupApi.create(name, body);
+        results.push({ project: name, success: true, backup: res.data?.id });
+        setActionResult({ label: `backup ${targets.length} projects`, status: 'running', result: { output: results.map(r => `${r.project}: ${r.success ? r.backup : r.error}`).join('\n') } });
+      } catch (err) {
+        results.push({ project: name, success: false, error: err.message });
+      }
+    }
+    const failed = results.filter(r => !r.success);
+    setActionResult({
+      label: `backup ${targets.length} projects`,
+      status: failed.length ? 'error' : 'done',
+      result: { output: results.map(r => `${r.project}: ${r.success ? r.backup : r.error}`).join('\n') },
+      error: failed.length ? `${failed.length} project backup${failed.length === 1 ? '' : 's'} failed.` : undefined,
+    });
+    setSelectedBackupProjects([]);
+    fetchData();
+  };
+
+  const toggleBackupScheduleProject = (name) => {
+    setBackupScheduleForm(current => ({
+      ...current,
+      projects: current.projects.includes(name) ? current.projects.filter(item => item !== name) : [...current.projects, name],
+      all_projects: false,
+    }));
+  };
+
+  const toggleBackupScheduleDestination = (id) => {
+    setBackupScheduleForm(current => ({
+      ...current,
+      destination_ids: current.destination_ids.includes(id) ? current.destination_ids.filter(item => item !== id) : [...current.destination_ids, id],
+    }));
+  };
+
+  const saveBackupSchedule = async (event) => {
+    event.preventDefault();
+    const body = {
+      id: Number(backupScheduleForm.id) || undefined,
+      name: backupScheduleForm.name,
+      enabled: backupScheduleForm.enabled,
+      projects: backupScheduleForm.all_projects ? [] : backupScheduleForm.projects,
+      destination_ids: backupScheduleForm.destination_ids,
+      interval_minutes: Number(backupScheduleForm.interval_minutes),
+    };
+    try {
+      setActionResult({ label: 'save backup schedule', status: 'running' });
+      const res = await backupApi.saveSchedule(body);
+      setActionResult({ label: 'save backup schedule', status: 'done', result: res.data });
+      setBackupScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440 });
+      fetchData();
+    } catch (err) {
+      setActionResult({ label: 'save backup schedule', status: 'error', error: err.message });
+    }
+  };
+
+  const editBackupSchedule = (schedule) => {
+    setBackupScheduleForm({
+      id: schedule.id,
+      name: schedule.name,
+      projects: schedule.projects || [],
+      all_projects: !schedule.projects || schedule.projects.length === 0,
+      destination_ids: schedule.destination_ids || [],
+      enabled: Boolean(schedule.enabled),
+      interval_minutes: schedule.interval_minutes || 1440,
+    });
+  };
+
+  const runBackupSchedule = async (schedule) => {
+    try {
+      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'running' });
+      const res = await backupApi.runSchedule(schedule.id);
+      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'done', result: res.data });
+      fetchData();
+    } catch (err) {
+      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'error', error: err.message });
+    }
+  };
+
+  const deleteBackupSchedule = async (schedule) => {
+    if (!window.confirm(`Delete backup schedule ${schedule.name}?`)) return;
+    try {
+      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'running' });
+      await backupApi.deleteSchedule(schedule.id);
+      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'done' });
+      fetchData();
+    } catch (err) {
+      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'error', error: err.message });
+    }
+  };
+
   const toggleSelected = (name) => {
     setSelected((current) => current.includes(name) ? current.filter(item => item !== name) : [...current, name]);
   };
@@ -331,7 +476,7 @@ export default function Dashboard() {
                       setPruneMode(mode.key);
                       setShowPruneMenu(false);
                     }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 ${pruneMode === mode.key ? 'bg-blue-50 text-blue-800' : 'text-gray-800'}`}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 ${pruneMode === mode.key ? 'bg-gray-100 text-blue-700' : 'text-gray-800'}`}
                     role="menuitem"
                   >
                     <span className="w-4">{pruneMode === mode.key ? '✓' : ''}</span>
@@ -347,6 +492,8 @@ export default function Dashboard() {
       <div className="section-panel">
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setMainTab('projects')} className={mainTab === 'projects' ? 'btn-primary' : 'btn-secondary'} title="Show project discovery, filters, and compose actions.">Projects</button>
+          <button type="button" onClick={() => setMainTab('updates')} className={mainTab === 'updates' ? 'btn-primary' : 'btn-secondary'} title="Show every project and its update policy.">Updates</button>
+          <button type="button" onClick={() => setMainTab('backups')} className={mainTab === 'backups' ? 'btn-primary' : 'btn-secondary'} title="Run and schedule backups across projects.">Backups</button>
           <button type="button" onClick={() => setMainTab('system')} className={mainTab === 'system' ? 'btn-primary' : 'btn-secondary'} title="Show system health, enabled modules, and historical host statistics.">System Status</button>
         </div>
       </div>
@@ -485,6 +632,45 @@ export default function Dashboard() {
         </>
       )}
 
+      {mainTab === 'updates' && (
+        <UpdatesPanel
+          projects={projectList}
+          page={updatePageSafe}
+          pageCount={updatePageCount}
+          pageSize={updatePageSize}
+          pagedProjects={pagedUpdateProjects}
+          setPage={setUpdatePage}
+          setPageSize={(value) => {
+            setUpdatePageSize(value);
+            setUpdatePage(1);
+          }}
+          runAction={runAction}
+        />
+      )}
+
+      {mainTab === 'backups' && (
+        <BackupsPanel
+          projects={projectList}
+          backups={backupList}
+          destinations={backupDestinations}
+          schedules={backupSchedules}
+          selectedProjects={selectedBackupProjects}
+          selectedDestinations={selectedBackupDestinations}
+          scheduleForm={backupScheduleForm}
+          setScheduleForm={setBackupScheduleForm}
+          toggleProject={toggleBackupProject}
+          toggleDestination={toggleBackupDestination}
+          runProject={runBackupProject}
+          runBatch={runBackupBatch}
+          toggleScheduleProject={toggleBackupScheduleProject}
+          toggleScheduleDestination={toggleBackupScheduleDestination}
+          saveSchedule={saveBackupSchedule}
+          editSchedule={editBackupSchedule}
+          runSchedule={runBackupSchedule}
+          deleteSchedule={deleteBackupSchedule}
+        />
+      )}
+
       {mainTab === 'system' && (
         <SystemStatus
           skills={skillList}
@@ -537,6 +723,248 @@ function SystemStatus({ skills, summary, history, onRefresh }) {
         </div>
       </div>
       <MetricsPanel summary={summary} history={history} onRefresh={onRefresh} />
+    </div>
+  );
+}
+
+function UpdatesPanel({ projects, pagedProjects, page, pageCount, pageSize, setPage, setPageSize, runAction }) {
+  return (
+    <div className="section-panel">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-950">Update Policies</h2>
+          <p className="text-sm text-gray-600">Review every discovered project before running updates.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-gray-500">{projects.length} projects</span>
+          <select className="input max-w-[120px]" value={pageSize} onChange={e => setPageSize(Number(e.target.value))} title="Rows per page.">
+            {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size} rows</option>)}
+          </select>
+          <button type="button" className="mini-button" disabled={page <= 1} onClick={() => setPage(page - 1)} title="Previous page.">Prev</button>
+          <span className="text-xs text-gray-500">Page {page} of {pageCount}</span>
+          <button type="button" className="mini-button" disabled={page >= pageCount} onClick={() => setPage(page + 1)} title="Next page.">Next</button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[920px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
+              <th className="py-2">Project</th>
+              <th>Policy</th>
+              <th>Reason</th>
+              <th>Sources</th>
+              <th className="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagedProjects.map(project => {
+              const policy = project.update_policy?.effective_policy || project.update_policy?.policy || 'auto';
+              const reason = project.update_policy?.reason || project.update_policy?.effective_reason || '';
+              return (
+                <tr key={project.name} className="border-b border-gray-100 align-top">
+                  <td className="py-3">
+                    <Link to={`/projects/${project.name}`} className="font-medium text-blue-700 hover:underline">{project.name}</Link>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {project.inactive && <Badge tone="amber">inactive</Badge>}
+                      <Badge tone={project.running ? 'green' : 'gray'}>{project.running ? 'running' : 'stopped'}</Badge>
+                    </div>
+                  </td>
+                  <td className="py-3"><Badge tone={policy === 'no_updates' ? 'amber' : 'blue'}>{policy.replace('_', ' ')}</Badge></td>
+                  <td className="max-w-[360px] py-3 text-xs text-gray-600">{reason || 'Default update behavior.'}</td>
+                  <td className="py-3"><SourceSummary sources={project.image_sources || []} /></td>
+                  <td className="py-3">
+                    <div className="flex justify-end gap-1">
+                      <button type="button" onClick={() => runAction(project.name, 'pull')} className="mini-button" title="Pull images for this project.">Pull</button>
+                      <button type="button" onClick={() => runAction(project.name, 'update')} className="mini-button" title="Run the update workflow for this project.">Update</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {projects.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No projects discovered.</div>}
+      </div>
+    </div>
+  );
+}
+
+function BackupsPanel({
+  projects,
+  backups,
+  destinations,
+  schedules,
+  selectedProjects,
+  selectedDestinations,
+  scheduleForm,
+  setScheduleForm,
+  toggleProject,
+  toggleDestination,
+  runProject,
+  runBatch,
+  toggleScheduleProject,
+  toggleScheduleDestination,
+  saveSchedule,
+  editSchedule,
+  runSchedule,
+  deleteSchedule,
+}) {
+  const activeProjects = projects.filter(project => !project.inactive);
+  const enabledDestinations = destinations.filter(destination => destination.enabled);
+  const totalBytes = backups.reduce((sum, backup) => sum + Number(backup.size_bytes || 0), 0);
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="Local backups" value={backups.length} sub={formatBytes(totalBytes)} />
+        <MetricCard label="Backup endpoints" value={enabledDestinations.length} sub={`${destinations.length} configured`} />
+        <MetricCard label="Backup schedules" value={schedules.length} sub={`${schedules.filter(s => s.enabled).length} enabled`} />
+        <MetricCard label="Active projects" value={activeProjects.length} />
+      </div>
+
+      <div className="section-panel">
+        <div className="mb-4 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-950">Run Backups</h2>
+            <p className="text-sm text-gray-600">Create local archives and optionally copy them to configured endpoints.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" onClick={() => runBatch('selected')} title="Back up checked projects.">Backup Selected ({selectedProjects.length})</button>
+            <button type="button" className="btn-primary" onClick={() => runBatch('all')} title="Back up every active project.">Backup All Active</button>
+          </div>
+        </div>
+
+        <div className="mb-4 rounded-md border border-gray-200 p-3">
+          <div className="mb-2 text-sm font-medium text-gray-800">Copy to endpoints</div>
+          <div className="flex flex-wrap gap-3">
+            {enabledDestinations.map(destination => (
+              <label key={destination.id} className="flex items-center gap-2 text-sm text-gray-700" title={`Copy new backups to ${destination.name}.`}>
+                <input type="checkbox" checked={selectedDestinations.includes(destination.id)} onChange={() => toggleDestination(destination.id)} />
+                {destination.name} <span className="text-xs text-gray-500">({destination.type})</span>
+              </label>
+            ))}
+            {enabledDestinations.length === 0 && <span className="text-sm text-gray-500">No enabled endpoints. Configure them in Settings &gt; Backup Endpoints.</span>}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
+                <th className="w-10 py-2">Pick</th>
+                <th>Project</th>
+                <th>State</th>
+                <th>Last local backup</th>
+                <th className="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map(project => {
+                const lastBackup = backups.find(backup => backup.project === project.name);
+                return (
+                  <tr key={project.name} className="border-b border-gray-100">
+                    <td className="py-3"><input type="checkbox" checked={selectedProjects.includes(project.name)} onChange={() => toggleProject(project.name)} title={`Select ${project.name} for backup.`} /></td>
+                    <td className="py-3"><Link to={`/projects/${project.name}`} className="font-medium text-blue-700 hover:underline">{project.name}</Link></td>
+                    <td><Badge tone={project.inactive ? 'amber' : project.running ? 'green' : 'gray'}>{project.inactive ? 'inactive' : project.running ? 'running' : 'stopped'}</Badge></td>
+                    <td className="text-xs text-gray-500">{lastBackup ? `${formatDate(lastBackup.created_at)} · ${formatBytes(lastBackup.size_bytes)}` : 'none'}</td>
+                    <td className="text-right"><button type="button" className="mini-button" onClick={() => runProject(project.name)} title={`Create a backup for ${project.name}.`}>Backup</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {projects.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No projects discovered.</div>}
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+        <form onSubmit={saveSchedule} className="section-panel space-y-3">
+          <h2 className="text-lg font-semibold text-gray-950">{scheduleForm.id ? 'Edit Backup Schedule' : 'New Backup Schedule'}</h2>
+          <Field label="Name" title="Friendly schedule name.">
+            <input className="input" value={scheduleForm.name} onChange={e => setScheduleForm({ ...scheduleForm, name: e.target.value })} placeholder="nightly backups" required />
+          </Field>
+          <Field label="Interval minutes" title="Minimum 5 minutes. Use 1440 for daily.">
+            <input className="input" type="number" min="5" value={scheduleForm.interval_minutes} onChange={e => setScheduleForm({ ...scheduleForm, interval_minutes: Number(e.target.value) })} required />
+          </Field>
+          <label className="flex items-center gap-2 text-sm text-gray-700" title="Run this schedule automatically.">
+            <input type="checkbox" checked={scheduleForm.enabled} onChange={e => setScheduleForm({ ...scheduleForm, enabled: e.target.checked })} />
+            Enabled
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700" title="Back up every active project when the schedule runs.">
+            <input type="checkbox" checked={scheduleForm.all_projects} onChange={e => setScheduleForm({ ...scheduleForm, all_projects: e.target.checked, projects: e.target.checked ? [] : scheduleForm.projects })} />
+            All active projects
+          </label>
+          {!scheduleForm.all_projects && (
+            <div className="max-h-40 overflow-auto rounded-md border border-gray-200 p-2">
+              {projects.map(project => (
+                <label key={project.name} className="flex items-center gap-2 py-1 text-sm text-gray-700">
+                  <input type="checkbox" checked={scheduleForm.projects.includes(project.name)} onChange={() => toggleScheduleProject(project.name)} />
+                  {project.name}
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="rounded-md border border-gray-200 p-2">
+            <div className="mb-1 text-sm font-medium text-gray-800">Endpoints</div>
+            {enabledDestinations.map(destination => (
+              <label key={destination.id} className="flex items-center gap-2 py-1 text-sm text-gray-700">
+                <input type="checkbox" checked={scheduleForm.destination_ids.includes(destination.id)} onChange={() => toggleScheduleDestination(destination.id)} />
+                {destination.name} <span className="text-xs text-gray-500">({destination.type})</span>
+              </label>
+            ))}
+            {enabledDestinations.length === 0 && <div className="text-sm text-gray-500">No enabled endpoints selected; schedules will create local backups only.</div>}
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-primary flex-1" title="Save this backup schedule.">Save Schedule</button>
+            {scheduleForm.id > 0 && (
+              <button type="button" className="btn-secondary" onClick={() => setScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440 })} title="Clear the edit form.">New</button>
+            )}
+          </div>
+        </form>
+
+        <div className="section-panel">
+          <h2 className="mb-3 text-lg font-semibold text-gray-950">Backup Schedules</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
+                  <th className="py-2">Name</th>
+                  <th>Scope</th>
+                  <th>Interval</th>
+                  <th>Next Run</th>
+                  <th>Last Run</th>
+                  <th>Status</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map(schedule => (
+                  <tr key={schedule.id} className="border-b border-gray-100 align-top">
+                    <td className="py-3 font-medium">{schedule.name}</td>
+                    <td className="py-3 text-xs text-gray-600">{schedule.projects?.length ? schedule.projects.join(', ') : 'all active projects'}</td>
+                    <td>{schedule.interval_minutes}m</td>
+                    <td className="text-xs text-gray-500">{formatDate(schedule.next_run_at)}</td>
+                    <td className="text-xs text-gray-500">{formatDate(schedule.last_run_at)}</td>
+                    <td>
+                      <Badge tone={!schedule.enabled ? 'gray' : schedule.last_status === 'failed' ? 'red' : schedule.last_status === 'partial' ? 'amber' : 'green'}>
+                        {!schedule.enabled ? 'disabled' : schedule.last_status || 'ready'}
+                      </Badge>
+                      {schedule.last_error && <div className="mt-1 max-w-[260px] whitespace-pre-wrap text-xs text-red-700">{schedule.last_error}</div>}
+                    </td>
+                    <td className="py-3">
+                      <div className="flex justify-end gap-1">
+                        <button type="button" className="mini-button" onClick={() => editSchedule(schedule)} title="Edit this schedule.">Edit</button>
+                        <button type="button" className="mini-button" onClick={() => runSchedule(schedule)} title="Run this schedule now.">Run</button>
+                        <button type="button" className="mini-danger" onClick={() => deleteSchedule(schedule)} title="Delete this schedule.">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {schedules.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No backup schedules configured.</div>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
