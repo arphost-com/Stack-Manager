@@ -22,7 +22,7 @@ services:
         source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
         target: /backup-targets
         bind:
-          create_host_path: false
+          create_host_path: true
     restart: "no"
 
   server:
@@ -66,7 +66,7 @@ services:
         source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
         target: /backup-targets
         bind:
-          create_host_path: false
+          create_host_path: true
     depends_on:
       state-init:
         condition: service_completed_successfully
