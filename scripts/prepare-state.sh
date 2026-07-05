@@ -178,7 +178,8 @@ mkdir -p \
   "${state_dir}/redis"
 
 if [ "$(id -u)" -eq 0 ]; then
-  chown -R "${state_uid}:${state_gid}" "${state_dir}"
+  chown "${state_uid}:${state_gid}" "${state_dir}"
+  chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs"
 else
   current_owner="$(stat_owner "${state_dir}")"
   expected_owner="${state_uid}:${state_gid}"
@@ -189,8 +190,8 @@ else
   fi
 fi
 
-find "${state_dir}" -type d -exec chmod 2770 {} +
-find "${state_dir}" -type f -exec chmod 660 {} +
+find "${state_dir}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" -type d -exec chmod 2770 {} +
+find "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" -type f -exec chmod 660 {} +
 
 printf '%s\n' "Prepared ${state_dir} for ${state_uid}:${state_gid}."
 

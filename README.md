@@ -199,7 +199,7 @@ If `.env` does not exist, `prepare-state.sh` creates it from `.env.example`. It 
 
 Open `http://<host>:8193`. If the MariaDB users table is empty, the first admin is created from `ADMIN_USERNAME` and `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is unset, the bootstrap password is `API_KEY`; rotate or add users from Settings after first login.
 
-The preparation step is required on manual installs such as docker01. The Compose file uses `create_host_path: false` for bind mounts so Docker will not silently create `STATE_DIR` as `root`. If `STATE_DIR` was already created as root, stop the stack and repair ownership once:
+The preparation step is recommended on manual installs such as docker01. The Compose stack also runs a short `state-init` service that repairs app-writable state paths before the server starts. If `STATE_DIR` was already created as root, stop the stack and repair app state ownership once:
 
 ```bash
 docker compose --env-file .env down
@@ -208,6 +208,8 @@ sudo chown -R "$(id -u):$(id -g)" "${STATE_DIR}"
 ./scripts/prepare-state.sh .env
 docker compose --env-file .env up -d --build
 ```
+
+Do not recursively chown `STATE_DIR/mariadb` or `STATE_DIR/redis` to the app user after those services have initialized; MariaDB and Redis need their own service-owned data files.
 
 After `git pull`, use `docker compose --env-file .env up -d --build` instead of plain `docker compose up -d` when Dockerfiles or nginx/server config changed. Plain `up -d` can reuse old images and keep old nginx behavior.
 
