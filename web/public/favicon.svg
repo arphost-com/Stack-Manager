@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CM">
+  <rect width="64" height="64" rx="14" fill="#0f3b8f"/>
+  <path d="M18 16h19c7 0 12 4 12 10 0 4-2 7-6 9 5 1 8 5 8 10 0 7-6 11-14 11H18V16Zm9 8v8h10c3 0 5-2 5-4s-2-4-5-4H27Zm0 16v8h11c4 0 6-2 6-4s-2-4-6-4H27Z" fill="#ffffff" opacity=".16"/>
+  <text x="32" y="43" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="800" letter-spacing="-1" fill="#ffffff">CM</text>
+  <path d="M13 50h38" stroke="#60a5fa" stroke-width="4" stroke-linecap="round"/>
+</svg>
