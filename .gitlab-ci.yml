@@ -241,9 +241,10 @@ deploy:docker02:
       [ -n "${db_root_password}" ] || db_root_password="$(gen_secret)"
       [ -n "${redis_password}" ] || redis_password="$(gen_secret)"
       [ -n "${host_url}" ] || host_url="http://docker02:${WEB_PORT}"
-      # docker02 is on the ARPHost GitLab network; default base images through the
-      # dependency proxy to avoid Docker Hub anonymous rate limits during rebuilds.
-      [ -n "${base_image_prefix}" ] || base_image_prefix="10.10.10.96:8929/arphost/dependency_proxy/containers/library/"
+      # BASE_IMAGE_PREFIX defaults to empty so images pull directly from Docker
+      # Hub using docker02's authenticated login. Set it via the .env or a CI
+      # variable once the GitLab dependency proxy has valid Docker Hub credentials.
+      # Example: BASE_IMAGE_PREFIX=10.10.10.96:8929/arphost/dependency_proxy/containers/library/
       umask 077
       tmp="$(mktemp)"
       printf '%s\n' \
