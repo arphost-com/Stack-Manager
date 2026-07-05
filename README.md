@@ -334,7 +334,7 @@ The dashboard includes a built-in stack catalog modeled after Docker GUI templat
 
 Initial built-in templates include WordPress/MariaDB, Nginx static site, PostgreSQL, Redis, Gitea, Uptime Kuma, Portainer Agent, and Prometheus/Grafana. These are normal Compose projects after creation and can be edited later on disk like any other project.
 
-The catalog also includes additional self-hosted templates such as Paperless-ngx, Stirling PDF, Homepage, MinIO, Mealie, Syncthing, NocoDB, and AI starters including Ollama, Open WebUI, AnythingLLM, Flowise, Langflow, LocalAI, Qdrant, Chroma, Whisper ASR, ComfyUI, and Stable Diffusion web UI.
+The catalog also includes additional self-hosted templates such as Paperless-ngx, Stirling PDF, Homepage, MinIO, Mealie, Syncthing, NocoDB, and AI starters including Ollama, Open WebUI, vLLM, Text Generation Inference, LiteLLM Proxy, AnythingLLM, Flowise, Langflow, LocalAI, Qdrant, Weaviate, Chroma, Whisper ASR, JupyterLab PyTorch, ComfyUI, and Stable Diffusion web UI.
 
 ### Docker Settings
 

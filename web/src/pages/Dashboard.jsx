@@ -10,6 +10,16 @@ const ACTIONS = [
   { key: 'down', label: 'Stop', title: 'Run docker compose down and remove project containers.' },
 ];
 
+const PRUNE_MODES = [
+  { key: 'safe', label: 'Safe: images, networks, volumes', title: 'Prune unused images, networks, and volumes using the safest Compose Manager prune mode.' },
+  { key: 'system', label: 'System prune', title: 'Run docker system prune for unused containers, networks, images, and build cache.' },
+  { key: 'system-all', label: 'System prune --all --volumes', title: 'Run docker system prune --all --volumes. This is the broadest cleanup option.' },
+  { key: 'images', label: 'Images --all', title: 'Remove unused Docker images, including unreferenced tagged images.' },
+  { key: 'volumes', label: 'Volumes', title: 'Remove unused Docker volumes.' },
+  { key: 'networks', label: 'Networks', title: 'Remove unused Docker networks.' },
+  { key: 'builder', label: 'Builder cache --all', title: 'Remove Docker build cache.' },
+];
+
 export default function Dashboard() {
   const [projectList, setProjectList] = useState([]);
   const [skillList, setSkillList] = useState([]);
@@ -26,6 +36,7 @@ export default function Dashboard() {
   const [quickFilter, setQuickFilter] = useState('all');
   const [timeout, setTimeoutValue] = useState(300);
   const [pruneMode, setPruneMode] = useState('safe');
+  const [showPruneMenu, setShowPruneMenu] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: '',
@@ -265,6 +276,18 @@ export default function Dashboard() {
     }
   };
 
+  const runPrune = async () => {
+    if (pruneMode === 'system-all' && !window.confirm('Run docker system prune --all --volumes? This removes unused images, build cache, networks, and volumes.')) return;
+    setShowPruneMenu(false);
+    setActionResult({ label: 'system prune', status: 'running' });
+    try {
+      const res = await system.prune(pruneMode);
+      setActionResult({ label: 'system prune', status: 'done', result: res.data });
+    } catch (err) {
+      setActionResult({ label: 'system prune', status: 'error', error: err.message });
+    }
+  };
+
   const toggleSelected = (name) => {
     setSelected((current) => current.includes(name) ? current.filter(item => item !== name) : [...current, name]);
   };
@@ -290,25 +313,34 @@ export default function Dashboard() {
         <div className="flex flex-wrap gap-2">
           <button title="Refresh project discovery, status, containers, hooks, and image sources." onClick={fetchData} className="btn-secondary">Refresh</button>
           <button title="Create a new project directory with a compose.yml file." onClick={() => setShowCreate(!showCreate)} className="btn-primary">Create Project</button>
-          <select value={pruneMode} onChange={e => setPruneMode(e.target.value)} className="input w-56" title="Choose which Docker prune command to run.">
-            <option value="safe">Safe: images, networks, volumes</option>
-            <option value="system">System prune</option>
-            <option value="system-all">System prune --all --volumes</option>
-            <option value="images">Images --all</option>
-            <option value="volumes">Volumes</option>
-            <option value="networks">Networks</option>
-            <option value="builder">Builder cache --all</option>
-          </select>
-          <button title="Run the selected Docker prune command on this host." onClick={async () => {
-            if (pruneMode === 'system-all' && !window.confirm('Run docker system prune --all --volumes? This removes unused images, build cache, networks, and volumes.')) return;
-            setActionResult({ label: 'system prune', status: 'running' });
-            try {
-              const res = await system.prune(pruneMode);
-              setActionResult({ label: 'system prune', status: 'done', result: res.data });
-            } catch (err) {
-              setActionResult({ label: 'system prune', status: 'error', error: err.message });
-            }
-          }} className="btn-danger">Prune</button>
+          <div className="relative inline-flex">
+            <button title={`Run ${PRUNE_MODES.find(mode => mode.key === pruneMode)?.label || 'selected prune command'} on this host.`} onClick={runPrune} className="rounded-l-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-600">
+              Prune
+            </button>
+            <button type="button" title="Choose a Docker prune command." onClick={() => setShowPruneMenu(!showPruneMenu)} className="rounded-r-md border-l border-red-500 bg-red-700 px-2 py-2 text-sm font-medium text-white hover:bg-red-600" aria-haspopup="menu" aria-expanded={showPruneMenu}>
+              ▾
+            </button>
+            {showPruneMenu && (
+              <div className="absolute right-0 top-full z-20 mt-1 w-64 overflow-hidden rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg" role="menu">
+                {PRUNE_MODES.map(mode => (
+                  <button
+                    key={mode.key}
+                    type="button"
+                    title={mode.title}
+                    onClick={() => {
+                      setPruneMode(mode.key);
+                      setShowPruneMenu(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 ${pruneMode === mode.key ? 'bg-blue-50 text-blue-800' : 'text-gray-800'}`}
+                    role="menuitem"
+                  >
+                    <span className="w-4">{pruneMode === mode.key ? '✓' : ''}</span>
+                    <span>{mode.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

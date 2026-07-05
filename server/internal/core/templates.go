@@ -914,6 +914,103 @@ volumes:
 			Notes:      "Connect it to Ollama, OpenAI-compatible APIs, or other providers from the AnythingLLM setup screen.",
 		},
 		{
+			ID:          "vllm-openai",
+			Name:        "vLLM OpenAI Server",
+			Description: "High-throughput OpenAI-compatible LLM inference server.",
+			Category:    "ai",
+			Source:      "portainer-style",
+			Image:       "vllm/vllm-openai:latest",
+			Tags:        []string{"ai", "llm", "openai-compatible", "inference"},
+			ComposeContent: `services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - ${VLLM_MODEL:-facebook/opt-125m}
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+volumes:
+  vllm-cache:
+`,
+			EnvContent: "VLLM_PORT=8000\nVLLM_MODEL=facebook/opt-125m\nHUGGING_FACE_HUB_TOKEN=\n",
+			Notes:      "vLLM is intended for GPU inference. Add the host-specific GPU runtime/device settings before using large models.",
+		},
+		{
+			ID:          "text-generation-inference",
+			Name:        "Text Generation Inference",
+			Description: "Hugging Face LLM inference server.",
+			Category:    "ai",
+			Source:      "portainer-style",
+			Image:       "ghcr.io/huggingface/text-generation-inference:latest",
+			Tags:        []string{"ai", "llm", "huggingface", "inference"},
+			ComposeContent: `services:
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    restart: unless-stopped
+    shm_size: 1g
+    ports:
+      - "${TGI_PORT:-8080}:80"
+    command:
+      - --model-id
+      - ${TGI_MODEL_ID:-HuggingFaceH4/zephyr-7b-beta}
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - tgi-cache:/data
+volumes:
+  tgi-cache:
+`,
+			EnvContent: "TGI_PORT=8080\nTGI_MODEL_ID=HuggingFaceH4/zephyr-7b-beta\nHUGGING_FACE_HUB_TOKEN=\n",
+			Notes:      "Most useful TGI deployments need GPU runtime settings and enough VRAM for the selected model.",
+		},
+		{
+			ID:          "litellm-proxy",
+			Name:        "LiteLLM Proxy",
+			Description: "OpenAI-compatible proxy for many LLM providers.",
+			Category:    "ai",
+			Source:      "portainer-style",
+			Image:       "ghcr.io/berriai/litellm:main-latest",
+			Tags:        []string{"ai", "proxy", "openai-compatible", "gateway"},
+			ComposeContent: `services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-change-me}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-litellm}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-litellm}
+    command:
+      - --port
+      - "4000"
+    depends_on:
+      - db
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - litellm-db:/var/lib/postgresql/data
+volumes:
+  litellm-db:
+`,
+			EnvContent: "LITELLM_PORT=4000\nLITELLM_MASTER_KEY=change-me\nPOSTGRES_DB=litellm\nPOSTGRES_USER=litellm\nPOSTGRES_PASSWORD=change-me\n",
+			Notes:      "Add provider API keys or a LiteLLM config file before routing production traffic through this proxy.",
+		},
+		{
 			ID:          "flowise",
 			Name:        "Flowise",
 			Description: "Visual builder for AI chains, agents, and chatflows.",
@@ -1036,6 +1133,35 @@ volumes:
 			EnvContent: "QDRANT_HTTP_PORT=6333\nQDRANT_GRPC_PORT=6334\n",
 		},
 		{
+			ID:          "weaviate",
+			Name:        "Weaviate",
+			Description: "Vector database with optional module support.",
+			Category:    "ai",
+			Source:      "portainer-style",
+			Image:       "semitechnologies/weaviate:latest",
+			Tags:        []string{"ai", "vector-db", "rag", "search"},
+			ComposeContent: `services:
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    restart: unless-stopped
+    ports:
+      - "${WEAVIATE_PORT:-8080}:8080"
+      - "${WEAVIATE_GRPC_PORT:-50051}:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "${WEAVIATE_ANONYMOUS_ACCESS:-true}"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+      CLUSTER_HOSTNAME: node1
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+volumes:
+  weaviate-data:
+`,
+			EnvContent: "WEAVIATE_PORT=8080\nWEAVIATE_GRPC_PORT=50051\nWEAVIATE_ANONYMOUS_ACCESS=true\n",
+			Notes:      "Turn off anonymous access and configure authentication before exposing Weaviate outside a trusted network.",
+		},
+		{
 			ID:          "chroma",
 			Name:        "Chroma",
 			Description: "Embeddings database for local AI apps.",
@@ -1123,6 +1249,30 @@ volumes:
 `,
 			EnvContent: "COMFYUI_PORT=8188\n",
 			Notes:      "Image generation is much better with GPU support. Add device/runtime settings manually for your host.",
+		},
+		{
+			ID:          "jupyter-pytorch",
+			Name:        "JupyterLab PyTorch",
+			Description: "Notebook workspace with PyTorch for AI experiments.",
+			Category:    "ai",
+			Source:      "portainer-style",
+			Image:       "quay.io/jupyter/pytorch-notebook:latest",
+			Tags:        []string{"ai", "notebooks", "pytorch", "devtools"},
+			ComposeContent: `services:
+  jupyter:
+    image: quay.io/jupyter/pytorch-notebook:latest
+    restart: unless-stopped
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-change-me}
+    volumes:
+      - jupyter-work:/home/jovyan/work
+volumes:
+  jupyter-work:
+`,
+			EnvContent: "JUPYTER_PORT=8888\nJUPYTER_TOKEN=change-me\n",
+			Notes:      "Use a strong JUPYTER_TOKEN and add GPU runtime settings manually if the host supports CUDA.",
 		},
 		{
 			ID:          "automatic1111",
