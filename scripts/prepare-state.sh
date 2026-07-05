@@ -178,13 +178,13 @@ mkdir -p \
   "${state_dir}/redis"
 
 if [ "$(id -u)" -eq 0 ]; then
-  chown -R "${state_uid}:${state_gid}" "${state_dir}" "${docker_root}"
+  chown -R "${state_uid}:${state_gid}" "${state_dir}"
 else
   current_owner="$(stat_owner "${state_dir}")"
   expected_owner="${state_uid}:${state_gid}"
   if [ "${current_owner}" != "${expected_owner}" ]; then
     printf '%s\n' "State directory ${state_dir} is owned by ${current_owner}, expected ${expected_owner}."
-    printf '%s\n' "Run: sudo chown -R ${expected_owner} ${state_dir} ${docker_root}"
+    printf '%s\n' "Run: sudo chown -R ${expected_owner} ${state_dir}"
     exit 1
   fi
 fi

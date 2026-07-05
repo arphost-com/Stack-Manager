@@ -1,4 +1,24 @@
 services:
+  state-init:
+    image: alpine:3.22
+    user: "0:0"
+    environment:
+      SERVER_USER: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
+    command:
+      - sh
+      - -eu
+      - -c
+      - |
+        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /state/mariadb /state/redis
+        chown -R "${SERVER_USER}" /state
+        find /state -type d -exec chmod 2770 {} +
+        find /state -type f -exec chmod 660 {} +
+    volumes:
+      - type: bind
+        source: ${STATE_DIR:-.compose-manager}
+        target: /state
+    restart: "no"
+
   server:
     build: ./server
     environment:
@@ -37,6 +57,8 @@ services:
         bind:
           create_host_path: false
     depends_on:
+      state-init:
+        condition: service_completed_successfully
       mariadb:
         condition: service_healthy
       redis:
@@ -64,6 +86,9 @@ services:
         target: /var/lib/mysql
         bind:
           create_host_path: false
+    depends_on:
+      state-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
       interval: 10s
@@ -80,6 +105,9 @@ services:
         target: /data
         bind:
           create_host_path: false
+    depends_on:
+      state-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s

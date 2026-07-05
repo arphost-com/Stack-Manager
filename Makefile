@@ -30,7 +30,7 @@ docker-build:
 	docker compose build
 
 docker-up: prepare-state
-	docker compose --env-file .env up -d
+	docker compose --env-file .env up -d --build
 
 docker-down:
 	docker compose down

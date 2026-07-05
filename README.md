@@ -204,10 +204,12 @@ The preparation step is required on manual installs such as docker01. The Compos
 ```bash
 docker compose --env-file .env down
 . ./.env
-sudo chown -R "$(id -u):$(id -g)" "${STATE_DIR}" "${DOCKER_ROOT}"
+sudo chown -R "$(id -u):$(id -g)" "${STATE_DIR}"
 ./scripts/prepare-state.sh .env
 docker compose --env-file .env up -d --build
 ```
+
+After `git pull`, use `docker compose --env-file .env up -d --build` instead of plain `docker compose up -d` when Dockerfiles or nginx/server config changed. Plain `up -d` can reuse old images and keep old nginx behavior.
 
 Persistent state is stored under `STATE_DIR`:
 

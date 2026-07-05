@@ -166,7 +166,7 @@ Docker credentials from registry login are stored under:
 
 Store Compose Manager's own persistent state under the Compose Manager root. Managed projects live under the host-specific `DOCKER_ROOT`, which can be any directory selected for that machine. docker02 uses `/home/debian/docker` as its GitLab deploy target, but that is not a global default.
 
-Manual installs must run `./scripts/prepare-state.sh .env` before `docker compose up`. The Compose file sets `create_host_path: false` on state bind mounts so Docker does not silently create `STATE_DIR` or database/cache subdirectories as `root`. If state paths already exist with wrong ownership, stop the stack and repair them with `sudo chown -R <uid>:<gid> "$STATE_DIR" "$DOCKER_ROOT"` before restarting.
+Manual installs should run `./scripts/prepare-state.sh .env` before `docker compose up`. The Compose stack also includes a `state-init` service that repairs `STATE_DIR` ownership before app services start. If state paths already exist with wrong ownership, stop the stack and repair only Compose Manager state with `sudo chown -R <uid>:<gid> "$STATE_DIR"` before restarting. Do not recursively chown `DOCKER_ROOT`; it contains managed projects that may have their own owners.
 `prepare-state.sh` creates `.env` from `.env.example` if needed, generates random values for missing or `change-me...` secrets, writes all setup values back to `.env`, and prints the resulting settings including `HOST_URL`.
 
 Runtime state:
