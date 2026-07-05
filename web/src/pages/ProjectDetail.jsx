@@ -22,11 +22,14 @@ export default function ProjectDetail() {
   const [timeout, setTimeoutValue] = useState(300);
   const [logOptions, setLogOptions] = useState({ tail: 200, container: '', watch: false });
   const [policyForm, setPolicyForm] = useState({ mode: 'auto', notes: '' });
+  const [backupDestinationId, setBackupDestinationId] = useState('');
+  const [backupDestinations, setBackupDestinations] = useState([]);
 
   const fetchProject = async () => {
     try {
-      const res = await projects.get(name);
+      const [res, destinationRes] = await Promise.all([projects.get(name), backup.destinations()]);
       setProject(res.data);
+      setBackupDestinations(destinationRes.data || []);
       setPolicyForm({
         mode: res.data.update_policy?.mode || 'auto',
         notes: res.data.update_policy?.notes || '',
@@ -131,7 +134,8 @@ export default function ProjectDetail() {
   const createBackup = async () => {
     try {
       setActionResult({ status: 'running', label: 'backup' });
-      const res = await backup.create(name);
+      const destinationID = backupDestinationId ? Number(backupDestinationId) : undefined;
+      const res = await backup.create(name, destinationID ? { destination_id: destinationID } : {});
       setActionResult({ status: 'done', label: 'backup', result: res.data });
       loadTab('backups');
     } catch (err) {
@@ -185,7 +189,11 @@ export default function ProjectDetail() {
               {action.label}
             </button>
           ))}
-          <button title="Create a tar.gz backup of the project directory." onClick={createBackup} className="btn-secondary">Backup</button>
+          <select title="Optional backup endpoint to copy the backup to after it is created locally." value={backupDestinationId} onChange={e => setBackupDestinationId(e.target.value)} className="input max-w-[220px]">
+            <option value="">Local only</option>
+            {backupDestinations.filter(d => d.enabled).map(d => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
+          </select>
+          <button title="Create a tar.gz backup of the project directory. Choose a destination to also copy it to configured storage." onClick={createBackup} className="btn-secondary">Backup</button>
           <button title="Dump supported database containers in this project." onClick={dumpDatabases} className="btn-secondary">DB Dump</button>
         </div>
       </div>
@@ -399,6 +407,15 @@ function Security({ data }) {
 }
 
 function Backups({ data, projectName, reload, setActionResult }) {
+  const downloadBackup = async (id) => {
+    try {
+      setActionResult({ status: 'running', label: `download ${id}` });
+      await backup.download(id);
+      setActionResult({ status: 'done', label: `download ${id}` });
+    } catch (err) {
+      setActionResult({ status: 'error', label: `download ${id}`, error: err.message });
+    }
+  };
   const restoreBackup = async (id) => {
     try {
       setActionResult({ status: 'running', label: `restore ${id}` });
@@ -428,6 +445,7 @@ function Backups({ data, projectName, reload, setActionResult }) {
             <div className="text-xs text-gray-500">{(b.size_bytes / 1024 / 1024).toFixed(1)} MB · {new Date(b.created_at).toLocaleString()}</div>
           </div>
           <div className="flex gap-2">
+            <button title="Download this local backup archive from the Compose Manager server." onClick={() => downloadBackup(b.id)} className="mini-button">Download</button>
             <button title="Restore this backup, stop running containers first, then start the project." onClick={() => restoreBackup(b.id)} className="mini-button">Restore</button>
             <button title="Delete this backup archive." onClick={() => deleteBackup(b.id)} className="mini-danger">Delete</button>
           </div>
@@ -514,6 +532,12 @@ function ActionResult({ result, onDismiss }) {
           <div className="font-medium">{result.status === 'running' ? `Running ${result.label}...` : result.status === 'error' ? `Error during ${result.label}` : `${result.label} completed`}</div>
           {result.error && <div className="mt-1">{result.error}</div>}
           {result.job && <div className="mt-1 text-xs">Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}</div>}
+          {result.result?.destination && (
+            <div className="mt-1 text-xs">
+              Destination: <span className="font-mono">{result.result.destination.destination_name}</span> · {result.result.destination.success ? 'copied' : result.result.destination.error || 'failed'}
+              {result.result.destination.target && <span> · <span className="font-mono">{result.result.destination.target}</span></span>}
+            </div>
+          )}
           {(result.job?.output || result.result?.output) && (
             <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
               {result.job?.output || result.result?.output}

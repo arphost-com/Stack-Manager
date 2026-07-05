@@ -3,22 +3,39 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/arphost-com/Compose-Manager/server/internal/core"
+	"github.com/arphost-com/Compose-Manager/server/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
+
+const maxDownloadBackupSize = 10 << 30
+
+var supportedDestinationTypes = map[string]bool{
+	"local": true,
+	"mount": true,
+	"cifs":  true,
+	"nfs":   true,
+	"ftp":   true,
+	"sftp":  true,
+	"s3":    true,
+}
 
 // Skill implements the backup/restore skill.
 type Skill struct {
 	engine    *core.Engine
+	store     *storage.Store
 	backupDir string
 }
 
@@ -32,6 +49,9 @@ func (s *Skill) Version() string { return "1.0.0" }
 
 func (s *Skill) Init(_ context.Context, engine *core.Engine, cfg map[string]interface{}) error {
 	s.engine = engine
+	if store, ok := cfg["store"].(*storage.Store); ok {
+		s.store = store
+	}
 	if dir, ok := cfg["backup_dir"].(string); ok && dir != "" {
 		s.backupDir = dir
 	} else {
@@ -49,9 +69,14 @@ func (s *Skill) HealthCheck(_ context.Context) error {
 }
 
 func (s *Skill) RegisterRoutes(r chi.Router) {
+	r.Get("/destinations", s.ListDestinations)
+	r.Post("/destinations", s.SaveDestination)
+	r.Delete("/destinations/{destinationId}", s.DeleteDestination)
+	r.Post("/destinations/{destinationId}/test", s.TestDestination)
 	r.Post("/create/{name}", s.Create)
 	r.Get("/list", s.List)
 	r.Get("/list/{name}", s.ListProject)
+	r.Get("/download/{backupId}", s.Download)
 	r.Post("/restore/{name}/{backupId}", s.Restore)
 	r.Delete("/{backupId}", s.Delete)
 }
@@ -59,6 +84,10 @@ func (s *Skill) RegisterRoutes(r chi.Router) {
 // Create creates a backup of a project's directory.
 func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	var req core.BackupCreateRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
 	project, err := s.engine.GetProject(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -74,7 +103,7 @@ func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError,
-			fmt.Sprintf("backup failed: %s — %s", err.Error(), string(output)))
+			fmt.Sprintf("backup failed: %s - %s", err.Error(), string(output)))
 		return
 	}
 
@@ -86,8 +115,94 @@ func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 		SizeBytes: info.Size(),
 		CreatedAt: time.Now().UTC(),
 	}
+	if req.DestinationID != nil && *req.DestinationID > 0 {
+		transfer, err := s.copyToDestination(r.Context(), *req.DestinationID, backupPath, backupName)
+		backup.Destination = transfer
+		if err != nil {
+			writeJSON(w, http.StatusCreated, backup)
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusCreated, backup)
+}
+
+// ListDestinations returns configured backup destinations without secrets.
+func (s *Skill) ListDestinations(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup destination storage is not configured")
+		return
+	}
+	destinations, err := s.store.ListBackupDestinations(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, destinations)
+}
+
+// SaveDestination creates or updates a backup destination.
+func (s *Skill) SaveDestination(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup destination storage is not configured")
+		return
+	}
+	var req core.BackupDestinationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := validateDestinationRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	destination, err := s.store.SaveBackupDestination(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, destination)
+}
+
+// DeleteDestination removes a configured backup destination.
+func (s *Skill) DeleteDestination(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup destination storage is not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "destinationId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid destination ID")
+		return
+	}
+	if err := s.store.DeleteBackupDestination(r.Context(), id); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "backup destination not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": id})
+}
+
+// TestDestination checks whether the server can reach/write the destination.
+func (s *Skill) TestDestination(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup destination storage is not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "destinationId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid destination ID")
+		return
+	}
+	result, err := s.testDestination(r.Context(), id)
+	status := http.StatusOK
+	if err != nil {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, result)
 }
 
 // List returns all backups.
@@ -139,7 +254,7 @@ func (s *Skill) Restore(w http.ResponseWriter, r *http.Request) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError,
-			fmt.Sprintf("restore failed: %s — %s", err.Error(), string(output)))
+			fmt.Sprintf("restore failed: %s - %s", err.Error(), string(output)))
 		return
 	}
 
@@ -152,6 +267,35 @@ func (s *Skill) Restore(w http.ResponseWriter, r *http.Request) {
 		"restored": true,
 		"up":       upResult,
 	})
+}
+
+// Download streams a local backup archive to the browser.
+func (s *Skill) Download(w http.ResponseWriter, r *http.Request) {
+	backupID := chi.URLParam(r, "backupId")
+	if !validBackupID(backupID) {
+		writeError(w, http.StatusBadRequest, "invalid backup ID")
+		return
+	}
+	backupPath := filepath.Join(s.backupDir, backupID)
+	info, err := os.Stat(backupPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "backup not found: "+backupID)
+		return
+	}
+	if info.Size() > maxDownloadBackupSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "backup is too large to download through the web UI")
+		return
+	}
+	file, err := os.Open(backupPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", backupID))
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	http.ServeContent(w, r, backupID, info.ModTime(), file)
 }
 
 // Delete removes a backup file.
@@ -184,6 +328,291 @@ func validBackupID(backupID string) bool {
 		return false
 	}
 	return strings.HasSuffix(backupID, ".tar.gz")
+}
+
+func validateDestinationRequest(req core.BackupDestinationRequest) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return errors.New("destination name is required")
+	}
+	destType := strings.ToLower(strings.TrimSpace(req.Type))
+	if !supportedDestinationTypes[destType] {
+		return fmt.Errorf("unsupported destination type %q", req.Type)
+	}
+	if err := validateMapValues("config", req.Config); err != nil {
+		return err
+	}
+	if err := validateMapValues("secrets", req.Secrets); err != nil {
+		return err
+	}
+	if req.Config == nil {
+		req.Config = map[string]string{}
+	}
+	switch destType {
+	case "local", "mount", "cifs", "nfs":
+		if strings.TrimSpace(req.Config["path"]) == "" {
+			return errors.New("path is required for local, mount, CIFS, and NFS destinations")
+		}
+	case "ftp", "sftp":
+		if strings.TrimSpace(req.Config["host"]) == "" {
+			return errors.New("host is required for FTP and SFTP destinations")
+		}
+		if strings.TrimSpace(req.Config["username"]) == "" {
+			return errors.New("username is required for FTP and SFTP destinations")
+		}
+	case "s3":
+		if strings.TrimSpace(req.Config["bucket"]) == "" {
+			return errors.New("bucket is required for S3 destinations")
+		}
+	}
+	return nil
+}
+
+func validateMapValues(label string, values map[string]string) error {
+	for key, value := range values {
+		if strings.ContainsAny(key, "\r\n") || strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("%s contains invalid newline characters", label)
+		}
+	}
+	return nil
+}
+
+func (s *Skill) testDestination(ctx context.Context, destinationID int64) (*core.BackupTransferResult, error) {
+	destination, secrets, err := s.store.GetBackupDestination(ctx, destinationID)
+	if err != nil {
+		return nil, err
+	}
+	testName := ".compose-manager-test-" + time.Now().UTC().Format("20060102150405")
+	tempFile, err := os.CreateTemp("", testName)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = tempFile.WriteString("compose-manager backup destination test\n")
+	_ = tempFile.Close()
+	defer os.Remove(tempFile.Name())
+
+	result, err := s.transferFile(ctx, destination, secrets, tempFile.Name(), filepath.Base(tempFile.Name()))
+	return result, err
+}
+
+func (s *Skill) copyToDestination(ctx context.Context, destinationID int64, backupPath, backupName string) (*core.BackupTransferResult, error) {
+	destination, secrets, err := s.store.GetBackupDestination(ctx, destinationID)
+	if err != nil {
+		return &core.BackupTransferResult{
+			DestinationID: destinationID,
+			Success:       false,
+			Error:         err.Error(),
+			CompletedAt:   time.Now().UTC(),
+		}, err
+	}
+	if !destination.Enabled {
+		err := errors.New("backup destination is disabled")
+		return &core.BackupTransferResult{
+			DestinationID:   destination.ID,
+			DestinationName: destination.Name,
+			Type:            destination.Type,
+			Success:         false,
+			Error:           err.Error(),
+			CompletedAt:     time.Now().UTC(),
+		}, err
+	}
+	return s.transferFile(ctx, destination, secrets, backupPath, backupName)
+}
+
+func (s *Skill) transferFile(ctx context.Context, destination *core.BackupDestination, secrets map[string]string, sourcePath, fileName string) (*core.BackupTransferResult, error) {
+	result := &core.BackupTransferResult{
+		DestinationID:   destination.ID,
+		DestinationName: destination.Name,
+		Type:            destination.Type,
+		CompletedAt:     time.Now().UTC(),
+	}
+	destType := strings.ToLower(destination.Type)
+	switch destType {
+	case "local", "mount", "cifs", "nfs":
+		target, output, err := copyToMountedPath(destination.Config["path"], sourcePath, fileName)
+		result.Target = target
+		result.Output = output
+		result.Success = err == nil
+		if err != nil {
+			result.Error = err.Error()
+		}
+		return result, err
+	case "ftp", "sftp", "s3":
+		target, output, err := rcloneCopy(ctx, destination, secrets, sourcePath, fileName)
+		result.Target = target
+		result.Output = output
+		result.Success = err == nil
+		if err != nil {
+			result.Error = err.Error()
+		}
+		return result, err
+	default:
+		err := fmt.Errorf("unsupported destination type %q", destination.Type)
+		result.Error = err.Error()
+		return result, err
+	}
+}
+
+func copyToMountedPath(rootPath, sourcePath, fileName string) (string, string, error) {
+	if rootPath == "" {
+		return "", "", errors.New("destination path is required")
+	}
+	if !filepath.IsAbs(rootPath) {
+		return "", "", errors.New("destination path must be absolute inside the server container")
+	}
+	if err := os.MkdirAll(rootPath, 0750); err != nil {
+		return rootPath, "", err
+	}
+	target := filepath.Join(rootPath, fileName)
+	in, err := os.Open(sourcePath)
+	if err != nil {
+		return target, "", err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+	if err != nil {
+		return target, "", err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return target, "", err
+	}
+	if err := out.Close(); err != nil {
+		return target, "", err
+	}
+	return target, "copied to mounted path", nil
+}
+
+func rcloneCopy(ctx context.Context, destination *core.BackupDestination, secrets map[string]string, sourcePath, fileName string) (string, string, error) {
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return "", "", errors.New("rclone is not installed in the server container")
+	}
+	configPath, err := writeRcloneConfig(destination, secrets)
+	if err != nil {
+		return "", "", err
+	}
+	defer os.Remove(configPath)
+
+	target := rcloneTarget(destination, fileName)
+	if target == "" {
+		return "", "", errors.New("destination target could not be built")
+	}
+	cmd := exec.CommandContext(ctx, "rclone", "--config", configPath, "copyto", sourcePath, target)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return target, string(output), fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(string(output)))
+	}
+	return target, string(output), nil
+}
+
+func writeRcloneConfig(destination *core.BackupDestination, secrets map[string]string) (string, error) {
+	var body strings.Builder
+	body.WriteString("[cmbackup]\n")
+	switch strings.ToLower(destination.Type) {
+	case "ftp":
+		body.WriteString("type = ftp\n")
+		body.WriteString("host = " + destination.Config["host"] + "\n")
+		body.WriteString("user = " + destination.Config["username"] + "\n")
+		if password := secrets["password"]; password != "" {
+			obscured, err := rcloneObscure(password)
+			if err != nil {
+				return "", err
+			}
+			body.WriteString("pass = " + obscured + "\n")
+		}
+		if port := destination.Config["port"]; port != "" {
+			body.WriteString("port = " + port + "\n")
+		}
+	case "sftp":
+		body.WriteString("type = sftp\n")
+		body.WriteString("host = " + destination.Config["host"] + "\n")
+		body.WriteString("user = " + destination.Config["username"] + "\n")
+		if password := secrets["password"]; password != "" {
+			obscured, err := rcloneObscure(password)
+			if err != nil {
+				return "", err
+			}
+			body.WriteString("pass = " + obscured + "\n")
+		}
+		if keyFile := destination.Config["key_file"]; keyFile != "" {
+			body.WriteString("key_file = " + keyFile + "\n")
+		}
+		if port := destination.Config["port"]; port != "" {
+			body.WriteString("port = " + port + "\n")
+		}
+	case "s3":
+		body.WriteString("type = s3\n")
+		body.WriteString("provider = " + defaultString(destination.Config["provider"], "Other") + "\n")
+		if accessKey := secrets["access_key_id"]; accessKey != "" {
+			body.WriteString("access_key_id = " + accessKey + "\n")
+		}
+		if secretKey := secrets["secret_access_key"]; secretKey != "" {
+			body.WriteString("secret_access_key = " + secretKey + "\n")
+		}
+		if endpoint := destination.Config["endpoint"]; endpoint != "" {
+			body.WriteString("endpoint = " + endpoint + "\n")
+		}
+		if region := destination.Config["region"]; region != "" {
+			body.WriteString("region = " + region + "\n")
+		}
+		if acl := destination.Config["acl"]; acl != "" {
+			body.WriteString("acl = " + acl + "\n")
+		}
+	default:
+		return "", fmt.Errorf("unsupported rclone destination type %q", destination.Type)
+	}
+	file, err := os.CreateTemp("", "compose-manager-rclone-*.conf")
+	if err != nil {
+		return "", err
+	}
+	if _, err := file.WriteString(body.String()); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
+}
+
+func rcloneObscure(password string) (string, error) {
+	cmd := exec.Command("rclone", "obscure", password)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func rcloneTarget(destination *core.BackupDestination, fileName string) string {
+	remotePath := strings.Trim(destination.Config["remote_path"], "/")
+	switch strings.ToLower(destination.Type) {
+	case "ftp", "sftp":
+		if remotePath == "" {
+			return "cmbackup:" + fileName
+		}
+		return "cmbackup:" + remotePath + "/" + fileName
+	case "s3":
+		bucket := strings.Trim(destination.Config["bucket"], "/")
+		prefix := strings.Trim(destination.Config["prefix"], "/")
+		if bucket == "" {
+			return ""
+		}
+		if prefix == "" {
+			return "cmbackup:" + bucket + "/" + fileName
+		}
+		return "cmbackup:" + bucket + "/" + prefix + "/" + fileName
+	default:
+		return ""
+	}
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (s *Skill) listBackups(projectFilter string) []core.BackupInfo {

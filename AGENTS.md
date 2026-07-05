@@ -121,7 +121,7 @@ Built-in skills:
 
 - `security` - image scans and compose config audit.
 - `debug` - logs, stats, inspect, events, top/processes.
-- `backup` - create, list, restore, delete project backups.
+- `backup` - create, list, download, restore, delete project backups, and manage backup endpoints.
 - `dbadmin` - discover, health check, and dump supported DB containers.
 - `frontend` - serves the React SPA when embedded.
 
@@ -241,6 +241,7 @@ Server env vars:
 | `PORT` | `8192` | no | API server listen port. |
 | `HOOKS_DIR` | `<STATE_DIR>/hooks` | no | Directory for API update hooks. |
 | `BACKUP_DIR` | `<STATE_DIR>/backups` | no | Directory for backups and database dumps. |
+| `BACKUP_TARGET_ROOT` | `.compose-manager/backup-targets` | no | Host path mounted at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
 | `DOCKER_CONFIG` | Docker default | no | Docker CLI config path for registry logins. |
 | `HOST_URL` | detected by setup | no | Operator-facing dashboard URL printed by setup; not required by the server runtime. |
 

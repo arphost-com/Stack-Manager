@@ -68,6 +68,7 @@ func main() {
 
 	skillCfg := map[string]interface{}{
 		"backup_dir": cfg.BackupDir,
+		"store":      appStore,
 	}
 
 	ctx := context.Background()

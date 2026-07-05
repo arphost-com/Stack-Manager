@@ -9,15 +9,20 @@ services:
       - -eu
       - -c
       - |
-        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /state/mariadb /state/redis
+        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /state/mariadb /state/redis /backup-targets
         chown "${SERVER_USER}" /state
-        chown -R "${SERVER_USER}" /state/hooks /state/backups /state/docker-config /state/jobs
-        find /state /state/hooks /state/backups /state/docker-config /state/jobs -type d -exec chmod 2770 {} +
-        find /state/hooks /state/backups /state/docker-config /state/jobs -type f -exec chmod 660 {} +
+        chown -R "${SERVER_USER}" /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets
+        find /state /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type d -exec chmod 2770 {} +
+        find /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type f -exec chmod 660 {} +
     volumes:
       - type: bind
         source: ${STATE_DIR:-.compose-manager}
         target: /state
+      - type: bind
+        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        target: /backup-targets
+        bind:
+          create_host_path: false
     restart: "no"
 
   server:
@@ -55,6 +60,11 @@ services:
       - type: bind
         source: ${STATE_DIR:-.compose-manager}
         target: /state
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        target: /backup-targets
         bind:
           create_host_path: false
     depends_on:

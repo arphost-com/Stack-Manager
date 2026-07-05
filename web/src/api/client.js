@@ -29,6 +29,26 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+async function download(path, filename) {
+  const token = getToken();
+  const apiKey = getApiKey();
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : apiKey ? { 'X-API-Key': apiKey } : {};
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const auth = {
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
@@ -111,11 +131,16 @@ export const debug = {
 };
 
 export const backup = {
-  create: (name) => request(`/skills/backup/create/${name}`, { method: 'POST' }),
+  create: (name, body = {}) => request(`/skills/backup/create/${name}`, { method: 'POST', body: JSON.stringify(body) }),
   list: () => request('/skills/backup/list'),
   listProject: (name) => request(`/skills/backup/list/${name}`),
+  download: (id) => download(`/skills/backup/download/${encodeURIComponent(id)}`, id),
   restore: (name, backupId) => request(`/skills/backup/restore/${name}/${backupId}`, { method: 'POST' }),
   delete: (id) => request(`/skills/backup/${id}`, { method: 'DELETE' }),
+  destinations: () => request('/skills/backup/destinations'),
+  saveDestination: (body) => request('/skills/backup/destinations', { method: 'POST', body: JSON.stringify(body) }),
+  deleteDestination: (id) => request(`/skills/backup/destinations/${id}`, { method: 'DELETE' }),
+  testDestination: (id) => request(`/skills/backup/destinations/${id}/test`, { method: 'POST' }),
 };
 
 export const dbadmin = {

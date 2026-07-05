@@ -108,6 +108,7 @@ ensure_setting REDIS_DB 0
 ensure_setting CACHE_TTL_SECONDS 15
 ensure_setting DOCKER_ROOT "${HOME}/docker"
 ensure_setting STATE_DIR .compose-manager
+ensure_setting BACKUP_TARGET_ROOT .compose-manager/backup-targets
 if [ "${created_env}" -eq 1 ]; then
   set_env_value DOCKER_GID "$(detect_docker_gid)"
   set_env_value SERVER_USER "$(id -u):$(id -g)"
@@ -156,6 +157,11 @@ case "${state_dir}" in
   /*) ;;
   *) state_dir="${project_root}/${state_dir}" ;;
 esac
+backup_target_root="${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}"
+case "${backup_target_root}" in
+  /*) ;;
+  *) backup_target_root="${project_root}/${backup_target_root}" ;;
+esac
 if [ -z "${DOCKER_ROOT:-}" ]; then
   printf '%s\n' "DOCKER_ROOT is required. Set it in ${env_file} to the directory containing managed Compose projects."
   exit 1
@@ -175,11 +181,12 @@ mkdir -p \
   "${state_dir}/docker-config" \
   "${state_dir}/jobs" \
   "${state_dir}/mariadb" \
-  "${state_dir}/redis"
+  "${state_dir}/redis" \
+  "${backup_target_root}"
 
 if [ "$(id -u)" -eq 0 ]; then
   chown "${state_uid}:${state_gid}" "${state_dir}"
-  chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs"
+  chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}"
 else
   current_owner="$(stat_owner "${state_dir}")"
   expected_owner="${state_uid}:${state_gid}"
@@ -190,10 +197,11 @@ else
   fi
 fi
 
-find "${state_dir}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" -type d -exec chmod 2770 {} +
-find "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" -type f -exec chmod 660 {} +
+find "${state_dir}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type d -exec chmod 2770 {} +
+find "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type f -exec chmod 660 {} +
 
 printf '%s\n' "Prepared ${state_dir} for ${state_uid}:${state_gid}."
+printf '%s\n' "Prepared ${backup_target_root} for backup endpoint mounts."
 
 printf '%s\n' ""
 printf '%s\n' "Compose Manager settings written to ${env_file}:"
@@ -211,6 +219,7 @@ for key in \
   CACHE_TTL_SECONDS \
   DOCKER_ROOT \
   STATE_DIR \
+  BACKUP_TARGET_ROOT \
   DOCKER_GID \
   SERVER_USER \
   WEB_PORT

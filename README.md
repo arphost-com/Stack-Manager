@@ -158,6 +158,7 @@ CACHE_TTL_SECONDS=15
 
 DOCKER_ROOT=/home/debian/docker
 STATE_DIR=.compose-manager
+BACKUP_TARGET_ROOT=.compose-manager/backup-targets
 DOCKER_GID=998
 SERVER_USER=1000:1000
 WEB_PORT=8193
@@ -180,6 +181,7 @@ Environment reference:
 | `CACHE_TTL_SECONDS` | `15` | Time, in seconds, that project/image/job/settings reads may stay in Redis before refresh. Lower values show changes faster; higher values reduce Docker/API load. |
 | `DOCKER_ROOT` | none | Required host directory containing the Docker Compose projects that Compose Manager should discover and manage. This can be any path on the host and is mounted into the server container at `/docker`. |
 | `STATE_DIR` | `.compose-manager` | Compose Manager persistent state directory. Relative paths are stored under the Compose Manager root beside `docker-compose.yml`. |
+| `BACKUP_TARGET_ROOT` | `.compose-manager/backup-targets` | Host directory mounted into the server container at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
 | `DOCKER_GID` | host Docker socket group | Group ID for `/var/run/docker.sock`. The non-root server user is added to this group so it can run Docker commands. |
 | `SERVER_USER` | none | Required numeric UID:GID used to run the server container and own `STATE_DIR`, for example `1000:1000`. Use whichever host user/group should manage Docker. Set `0:0` only on hosts that intentionally require root compose management. |
 | `WEB_PORT` | `8193` | Host port for the web dashboard. The API server stays internal on port `8192`. |
@@ -196,7 +198,7 @@ Start it:
 docker compose --env-file .env up -d --build
 ```
 
-If `.env` does not exist, `prepare-state.sh` creates it from `.env.example`. It fills missing or `change-me...` values with random values for `API_KEY`, `ADMIN_PASSWORD`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, and `REDIS_PASSWORD`; sets practical defaults for the other settings; writes everything back to `.env`; and prints the resulting settings, including `HOST_URL`. Edit host-specific values such as `DOCKER_ROOT`, `SERVER_USER`, `DOCKER_GID`, `WEB_PORT`, and `HOST_URL` as needed for that box.
+If `.env` does not exist, `prepare-state.sh` creates it from `.env.example`. It fills missing or `change-me...` values with random values for `API_KEY`, `ADMIN_PASSWORD`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, and `REDIS_PASSWORD`; sets practical defaults for the other settings; writes everything back to `.env`; and prints the resulting settings, including `HOST_URL`. Edit host-specific values such as `DOCKER_ROOT`, `BACKUP_TARGET_ROOT`, `SERVER_USER`, `DOCKER_GID`, `WEB_PORT`, and `HOST_URL` as needed for that box.
 
 Open `http://<host>:8193`. If the MariaDB users table is empty, the first admin is created from `ADMIN_USERNAME` and `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is unset, the bootstrap password is `API_KEY`; rotate or add users from Settings after first login.
 
@@ -222,6 +224,7 @@ Persistent state is stored under `STATE_DIR`:
 | `redis/` | Redis append-only data for sessions/cache |
 | `hooks/` | Update hooks used by the API server |
 | `backups/` | Project backups and database dumps |
+| `backup-targets/` | Default host-backed mount for UI-configured local/CIFS/NFS backup destinations |
 | `docker-config/` | Docker registry credentials from dashboard registry login |
 
 Persistent state stays under the Compose Manager root. Managed Compose projects stay under `DOCKER_ROOT`, which can be any host directory chosen for that machine.
@@ -232,6 +235,31 @@ Legacy files from earlier versions are imported on startup if present:
 - `/state/jobs/*.json`
 
 The app no longer writes users, sessions, project settings, or action history as flat files.
+
+### Backup Endpoints
+
+Backup endpoint definitions are managed in Settings, stored in MariaDB, and cached in Redis. Secrets are saved for use by the server but are not returned to the browser after save.
+
+Endpoint types:
+
+| Type | How it works |
+|------|--------------|
+| `Linux path` | Copies the local backup archive to an absolute path inside the server container. Use `/backup-targets/...` for the default host-backed path. |
+| `Mounted path` | Same as Linux path, intended for any host mount exposed to the server container. |
+| `CIFS mount` | Same as Linux path. Mount CIFS on the host first, then expose it through `BACKUP_TARGET_ROOT` or a compose override. |
+| `NFS mount` | Same as Linux path. Mount NFS on the host first, then expose it through `BACKUP_TARGET_ROOT` or a compose override. |
+| `FTP` | Uploads with `rclone` using host, port, username, password, and remote path fields from the UI. |
+| `SFTP` | Uploads with `rclone` using password auth or an optional private-key file path available inside the server container. |
+| `S3` | Uploads with `rclone` using bucket, prefix, region, endpoint, provider, and access/secret keys. |
+
+Project backups are always created locally under `BACKUP_DIR` first. Choosing a destination in the Project Detail backup controls copies/uploads after the local archive is created. Local archives can be downloaded from the Backups tab. Remote-only FTP, SFTP, and S3 copies are not downloadable through the web UI unless they are also present on a mounted path the server can read.
+
+For a simple local or mounted destination, create the endpoint in Settings with:
+
+```text
+Type: Linux path or Mounted path
+Path: /backup-targets
+```
 
 ### Dashboard Update Policies
 

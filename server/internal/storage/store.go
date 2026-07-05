@@ -151,12 +151,146 @@ func (s *Store) Migrate(ctx context.Context) error {
 			INDEX idx_update_schedules_agent_project (agent_id, project),
 			CONSTRAINT fk_update_schedules_agent FOREIGN KEY (agent_id) REFERENCES compose_agents(id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS backup_destinations (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(128) NOT NULL UNIQUE,
+			type VARCHAR(32) NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			config_json JSON NOT NULL,
+			secret_json JSON NOT NULL,
+			created_at DATETIME(6) NOT NULL,
+			updated_at DATETIME(6) NOT NULL,
+			INDEX idx_backup_destinations_enabled (enabled),
+			INDEX idx_backup_destinations_type (type)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Store) ListBackupDestinations(ctx context.Context) ([]core.BackupDestination, error) {
+	var cached []core.BackupDestination
+	if s.GetJSON(ctx, "backup_destinations:list", &cached) {
+		return cached, nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, name, type, enabled, config_json, COALESCE(JSON_LENGTH(secret_json), 0) > 0, created_at, updated_at FROM backup_destinations ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	destinations := make([]core.BackupDestination, 0)
+	for rows.Next() {
+		destination, err := scanBackupDestination(rows, false)
+		if err != nil {
+			return nil, err
+		}
+		destinations = append(destinations, *destination)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.SetJSON(ctx, "backup_destinations:list", destinations, s.CacheTTL)
+	return destinations, nil
+}
+
+func (s *Store) GetBackupDestination(ctx context.Context, id int64) (*core.BackupDestination, map[string]string, error) {
+	destination, secrets, err := scanBackupDestinationWithSecrets(s.DB.QueryRowContext(ctx, `SELECT id, name, type, enabled, config_json, secret_json, created_at, updated_at FROM backup_destinations WHERE id=?`, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, err
+	}
+	return destination, secrets, nil
+}
+
+func (s *Store) SaveBackupDestination(ctx context.Context, req core.BackupDestinationRequest) (*core.BackupDestination, error) {
+	now := time.Now().UTC()
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	configJSON, err := json.Marshal(cleanStringMap(req.Config))
+	if err != nil {
+		return nil, err
+	}
+	secrets := cleanStringMap(req.Secrets)
+	if req.ID > 0 {
+		var currentSecrets map[string]string
+		if len(secrets) == 0 {
+			_, current, err := s.GetBackupDestination(ctx, req.ID)
+			if err != nil {
+				return nil, err
+			}
+			currentSecrets = current
+		} else {
+			currentSecrets = secrets
+		}
+		secretJSON, err := json.Marshal(currentSecrets)
+		if err != nil {
+			return nil, err
+		}
+		res, err := s.DB.ExecContext(ctx, `UPDATE backup_destinations
+			SET name=?, type=?, enabled=?, config_json=?, secret_json=?, updated_at=?
+			WHERE id=?`,
+			req.Name, req.Type, enabled, string(configJSON), string(secretJSON), now, req.ID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := res.RowsAffected()
+		if err == nil && affected == 0 {
+			return nil, ErrNotFound
+		}
+		s.DeleteCache(ctx, "backup_destinations:list")
+		destination, _, err := s.GetBackupDestination(ctx, req.ID)
+		return destination, err
+	}
+	secretJSON, err := json.Marshal(secrets)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO backup_destinations
+		(name, type, enabled, config_json, secret_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			type=VALUES(type),
+			enabled=VALUES(enabled),
+			config_json=VALUES(config_json),
+			secret_json=IF(JSON_LENGTH(VALUES(secret_json))=0, secret_json, VALUES(secret_json)),
+			updated_at=VALUES(updated_at)`,
+		req.Name, req.Type, enabled, string(configJSON), string(secretJSON), now, now)
+	if err != nil {
+		return nil, err
+	}
+	s.DeleteCache(ctx, "backup_destinations:list")
+	id, err := res.LastInsertId()
+	if err == nil && id > 0 {
+		destination, _, err := s.GetBackupDestination(ctx, id)
+		return destination, err
+	}
+	var destinationID int64
+	if err := s.DB.QueryRowContext(ctx, `SELECT id FROM backup_destinations WHERE name=?`, req.Name).Scan(&destinationID); err != nil {
+		return nil, err
+	}
+	destination, _, err := s.GetBackupDestination(ctx, destinationID)
+	return destination, err
+}
+
+func (s *Store) DeleteBackupDestination(ctx context.Context, id int64) error {
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM backup_destinations WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	s.DeleteCache(ctx, "backup_destinations:list")
 	return nil
 }
 
@@ -413,6 +547,42 @@ func scanSchedule(scanner jobScanner) (*core.UpdateSchedule, error) {
 	return &schedule, nil
 }
 
+func scanBackupDestination(scanner jobScanner, includeSecrets bool) (*core.BackupDestination, error) {
+	if includeSecrets {
+		destination, _, err := scanBackupDestinationWithSecrets(scanner)
+		return destination, err
+	}
+	var destination core.BackupDestination
+	var configRaw []byte
+	if err := scanner.Scan(&destination.ID, &destination.Name, &destination.Type, &destination.Enabled, &configRaw, &destination.HasSecret, &destination.CreatedAt, &destination.UpdatedAt); err != nil {
+		return nil, err
+	}
+	destination.Config = map[string]string{}
+	if len(configRaw) > 0 {
+		_ = json.Unmarshal(configRaw, &destination.Config)
+	}
+	return &destination, nil
+}
+
+func scanBackupDestinationWithSecrets(scanner jobScanner) (*core.BackupDestination, map[string]string, error) {
+	var destination core.BackupDestination
+	var configRaw []byte
+	var secretRaw []byte
+	if err := scanner.Scan(&destination.ID, &destination.Name, &destination.Type, &destination.Enabled, &configRaw, &secretRaw, &destination.CreatedAt, &destination.UpdatedAt); err != nil {
+		return nil, nil, err
+	}
+	destination.Config = map[string]string{}
+	if len(configRaw) > 0 {
+		_ = json.Unmarshal(configRaw, &destination.Config)
+	}
+	secrets := map[string]string{}
+	if len(secretRaw) > 0 {
+		_ = json.Unmarshal(secretRaw, &secrets)
+	}
+	destination.HasSecret = len(secrets) > 0
+	return &destination, secrets, nil
+}
+
 func (s *Store) importLegacyUsers(ctx context.Context, path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -615,6 +785,17 @@ func nullableInt64(value *int64) interface{} {
 		return nil
 	}
 	return *value
+}
+
+func cleanStringMap(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range in {
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func (s *Store) ResolveUpdatePolicy(project core.Project) core.ProjectUpdatePolicy {

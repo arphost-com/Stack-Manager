@@ -110,11 +110,52 @@ type BulkResult struct {
 
 // BackupInfo describes a stored backup.
 type BackupInfo struct {
-	ID        string    `json:"id"`
-	Project   string    `json:"project"`
-	File      string    `json:"file"`
-	SizeBytes int64     `json:"size_bytes"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string                 `json:"id"`
+	Project      string                 `json:"project"`
+	File         string                 `json:"file"`
+	SizeBytes    int64                  `json:"size_bytes"`
+	CreatedAt    time.Time              `json:"created_at"`
+	Destination  *BackupTransferResult  `json:"destination,omitempty"`
+	Destinations []BackupTransferResult `json:"destinations,omitempty"`
+}
+
+// BackupCreateRequest controls backup creation and optional off-host copy.
+type BackupCreateRequest struct {
+	DestinationID *int64 `json:"destination_id,omitempty"`
+}
+
+// BackupDestination is a configured backup endpoint.
+type BackupDestination struct {
+	ID        int64             `json:"id"`
+	Name      string            `json:"name"`
+	Type      string            `json:"type"`
+	Enabled   bool              `json:"enabled"`
+	Config    map[string]string `json:"config,omitempty"`
+	HasSecret bool              `json:"has_secret"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// BackupDestinationRequest creates or updates a backup endpoint.
+type BackupDestinationRequest struct {
+	ID      int64             `json:"id,omitempty"`
+	Name    string            `json:"name"`
+	Type    string            `json:"type"`
+	Enabled *bool             `json:"enabled,omitempty"`
+	Config  map[string]string `json:"config,omitempty"`
+	Secrets map[string]string `json:"secrets,omitempty"`
+}
+
+// BackupTransferResult describes a backup copy/upload attempt.
+type BackupTransferResult struct {
+	DestinationID   int64     `json:"destination_id"`
+	DestinationName string    `json:"destination_name"`
+	Type            string    `json:"type"`
+	Target          string    `json:"target"`
+	Success         bool      `json:"success"`
+	Output          string    `json:"output,omitempty"`
+	Error           string    `json:"error,omitempty"`
+	CompletedAt     time.Time `json:"completed_at"`
 }
 
 // DatabaseInfo describes a database found inside a container.
