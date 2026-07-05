@@ -184,7 +184,7 @@ Runtime state:
 - `deploy:docker02` is the automatic dev deployment for the default branch. It syncs the repo to `/home/debian/docker/compose-manager`, writes `.env`, and runs Compose as the `debian` user.
 - `COMPOSE_MANAGER_API_KEY`, `COMPOSE_MANAGER_DB_PASSWORD`, `COMPOSE_MANAGER_DB_ROOT_PASSWORD`, and `COMPOSE_MANAGER_REDIS_PASSWORD` are optional for docker02 dev. If unset, the deploy job preserves existing `.env` values or generates secure first-run values.
 - `smoke:docker02` runs automatically after dev deploy and reads the deployed API key from `/home/debian/docker/compose-manager/.env`.
-- `push:github` is the manual production-style job. It pushes the tested default branch to `arphost-com/Compose-Manager` using masked `GITHUB_PAT`.
+- `push:github` is the optional manual production-style job. It pushes the tested default branch to `arphost-com/Compose-Manager` using masked `GITHUB_PAT` without blocking the green docker02 dev pipeline.
 
 ## Security Guardrails
 

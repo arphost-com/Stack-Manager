@@ -208,7 +208,7 @@ The GitLab pipeline treats docker02 as the dev environment:
 - `deploy:docker02` runs automatically on the default branch after validation, tests, builds, and security scans pass.
 - The deploy job preserves existing docker02 `.env` secrets or generates secure first-run values when GitLab CI variables are not set.
 - `smoke:docker02` runs automatically after the dev deploy.
-- `push:github` is a manual production-style job that pushes the tested default branch to `arphost-com/Compose-Manager` with the masked `GITHUB_PAT` CI variable.
+- `push:github` is an optional manual production-style job that pushes the tested default branch to `arphost-com/Compose-Manager` with the masked `GITHUB_PAT` CI variable.
 
 ---
 
