@@ -269,7 +269,7 @@ smoke:docker02:
       curl -fsS \
         -H "X-API-Key: ${SMOKE_API_KEY}" \
         "http://127.0.0.1:${WEB_PORT}/api/v1/projects" \
-        >/tmp/compose-manager-projects.json
+        >"${CI_PROJECT_DIR}/compose-manager-projects.json"
     - sudo -n find "${DEPLOY_PATH}" "${STATE_DIR}" -maxdepth 2 -printf '%M %u:%g %p\n'
 
 push:github:
