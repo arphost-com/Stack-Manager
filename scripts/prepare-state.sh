@@ -12,9 +12,9 @@ esac
 
 rand_secret() {
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 32
+    openssl rand -hex 48
   else
-    dd if=/dev/urandom bs=48 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9' | cut -c 1-48
+    dd if=/dev/urandom bs=72 count=1 2>/dev/null | base64 | tr -dc 'A-Za-z0-9' | cut -c 1-96
   fi
 }
 
