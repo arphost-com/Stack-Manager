@@ -686,25 +686,25 @@ export default function Settings() {
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase text-gray-500">Runtime</h3>
-                <label className="flex items-center gap-2 text-sm text-gray-700" title="Keeps existing containers running when the Docker daemon restarts. Useful for reducing service disruption during daemon updates.">
+                <label className="flex items-center gap-2 text-sm text-gray-700" title="Zero-downtime daemon restart: containers keep running while dockerd is restarted (e.g. Docker upgrade or daemon.json edit). Off means every restart stops all containers until they come back up. Does not affect host reboots.">
                   <input type="checkbox" checked={dockerForm.live_restore} onChange={e => setDockerForm({ ...dockerForm, live_restore: e.target.checked })} />
                   Live restore
                 </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700" title="Enable IPv6 container networking. You usually also need a routed IPv6 prefix in Fixed CIDR v6.">
+                <label className="flex items-center gap-2 text-sm text-gray-700" title="Give containers IPv6 addresses in addition to IPv4. You almost always also need a routed IPv6 subnet in Fixed CIDR v6 for this to be useful.">
                   <input type="checkbox" checked={dockerForm.ipv6} onChange={e => setDockerForm({ ...dockerForm, ipv6: e.target.checked })} />
                   Enable IPv6
                 </label>
-                <Field label="Fixed CIDR v6" title="IPv6 subnet Docker should use for container addresses, for example fd00:dead:beef::/48. Leave blank unless IPv6 is configured on the host.">
+                <Field label="Fixed CIDR v6" title="IPv6 subnet Docker carves container addresses from, e.g. fd00:dead:beef::/48. Leave blank unless your host has real IPv6 connectivity.">
                   <input className="input" value={dockerForm.fixed_cidr_v6} onChange={e => setDockerForm({ ...dockerForm, fixed_cidr_v6: e.target.value })} placeholder="fd00:dead:beef::/48" />
                 </Field>
-                <Field label="Default address pools" title="One pool per line. Either a single CIDR like 172.31.0.0/24 (one subnet) or base,size like 172.30.0.0/16,24 (256 /24 subnets carved from a /16). Controls Docker-created bridge network subnets and helps avoid VPN/LAN overlaps." hint="Simple: one CIDR per line, e.g. 172.31.0.0/24. Advanced: base,size to carve subnets from a larger pool, e.g. 172.30.0.0/16,24.">
+                <Field label="Default address pools" title="Which IPv4 ranges Docker uses when it auto-creates bridge networks (each compose stack usually gets one). Set this to steer Docker away from ranges your VPN or LAN already uses. Simple form: one CIDR per line = one network of that size. Advanced form: base,size = carve many subnets of /size out of the /base pool." hint="Simple: 172.31.0.0/24 = one /24 network. Advanced: 172.30.0.0/16,24 = up to 256 /24 subnets from within 172.30.x.x. Use whichever is easier.">
                   <textarea className="textarea h-24 font-mono" value={dockerForm.default_address_pools} onChange={e => setDockerForm({ ...dockerForm, default_address_pools: e.target.value })} placeholder="172.31.0.0/24&#10;172.30.0.0/16,24" />
                 </Field>
               </div>
 
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase text-gray-500">Logging</h3>
-                <Field label="Log driver" title="Docker daemon default logging driver for new containers. json-file is widely compatible; local is compact and rotates by default.">
+                <Field label="Log driver" title="How Docker stores stdout/stderr from new containers. json-file (default) writes JSON files on disk — safest and most compatible. local writes smaller binary files with built-in rotation. journald ships logs to systemd's journal.">
                   <select className="input" value={dockerForm.log_driver} onChange={e => setDockerForm({ ...dockerForm, log_driver: e.target.value })}>
                     <option value="json-file">json-file</option>
                     <option value="local">local</option>
