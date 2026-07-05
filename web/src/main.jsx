@@ -7,6 +7,13 @@ import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import { applyThemePreference } from './theme';
+import StackCatalog from './pages/StackCatalog';
+
+applyThemePreference();
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyThemePreference());
+}
 
 function App() {
   const credential = localStorage.getItem('cm_token');
@@ -20,6 +27,7 @@ function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/catalog" element={<StackCatalog />} />
           <Route path="/projects/:name" element={<ProjectDetail />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" />} />

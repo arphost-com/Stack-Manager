@@ -351,9 +351,14 @@ func (h *ProjectHandler) BulkAction(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Prune runs docker system prune.
+// Prune runs a selected Docker prune command.
 func (h *ProjectHandler) Prune(w http.ResponseWriter, r *http.Request) {
-	result := h.Engine.Prune()
+	var req core.PruneRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Mode == "" {
+		req.Mode = r.URL.Query().Get("mode")
+	}
+	result := h.Engine.Prune(req.Mode)
 	writeJSON(w, http.StatusOK, result)
 }
 

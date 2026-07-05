@@ -155,6 +155,8 @@ DB_ROOT_PASSWORD=change-me-to-a-secure-root-database-password
 REDIS_PASSWORD=change-me-to-a-secure-redis-password
 REDIS_DB=0
 CACHE_TTL_SECONDS=15
+METRICS_REFRESH_MINUTES=15
+WARM_CACHE_TTL_MINUTES=30
 
 DOCKER_ROOT=/home/debian/docker
 STATE_DIR=.compose-manager
@@ -179,6 +181,8 @@ Environment reference:
 | `REDIS_PASSWORD` | none | Required password for Redis sessions and cache. |
 | `REDIS_DB` | `0` | Redis logical database number. `0` means the first/default Redis DB. Keep `0` for the bundled dedicated Redis container; use another index only if intentionally sharing a Redis server with other apps. |
 | `CACHE_TTL_SECONDS` | `15` | Time, in seconds, that project/image/job/settings reads may stay in Redis before refresh. Lower values show changes faster; higher values reduce Docker/API load. |
+| `METRICS_REFRESH_MINUTES` | `15` | Background interval for project cache warmup, Docker stats snapshots, and metrics history collection. Values below 15 are raised to 15. |
+| `WARM_CACHE_TTL_MINUTES` | `30` | Redis TTL for background-warmed project and image-source caches. Keep it at least twice the refresh interval for fastest dashboard loads. |
 | `DOCKER_ROOT` | none | Required host directory containing the Docker Compose projects that Compose Manager should discover and manage. This can be any path on the host and is mounted into the server container at `/docker`. |
 | `STATE_DIR` | `.compose-manager` | Compose Manager persistent state directory. Relative paths are stored under the Compose Manager root beside `docker-compose.yml`. |
 | `BACKUP_TARGET_ROOT` | `.compose-manager/backup-targets` | Host directory mounted into the server container at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
@@ -235,6 +239,33 @@ Legacy files from earlier versions are imported on startup if present:
 - `/state/jobs/*.json`
 
 The app no longer writes users, sessions, project settings, or action history as flat files.
+
+### Background Cache And Metrics
+
+Compose Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background when the server starts and then every `METRICS_REFRESH_MINUTES`. Dashboard reads use Redis-cached summaries first, so normal page loads do not need to wait for every Docker inspection command.
+
+Metrics are stored in MariaDB for historical graphing:
+
+| Metric | Source |
+|--------|--------|
+| CPU and memory | `docker stats --no-stream` sampled in the background |
+| Inbound/outbound traffic | Docker network RX/TX counters from `docker stats` |
+| Backup count/bytes | Backup skill create events |
+| Restore count/bytes | Backup skill restore events |
+| Upload bytes | Backup endpoint copy/upload events |
+
+The Project Detail Shell tab runs scoped Docker Compose troubleshooting commands from the selected project directory. It is not a raw host shell. Use `Recreate network + start` when Docker reports stale network errors such as `failed to set up container networking: network ... not found`.
+
+### Root-Sensitive Projects
+
+GitLab, PMM, and similar stacks may run containers as root internally or require root-owned data inside Docker volumes. Compose Manager does not need to run as host root for the containers themselves; Docker handles container users. Compose Manager does need filesystem access to the project directory and compose files under `DOCKER_ROOT`.
+
+Recommended model for mixed hosts:
+
+1. Run Compose Manager as the host service user, such as `SERVER_USER=1000:1000`.
+2. Keep compose files and `.env` readable by that UID/GID, using group ownership or ACLs if needed.
+3. Store application data in Docker named volumes where possible, not root-only bind paths.
+4. For truly root-only project directories, run a separate root-capable Compose Manager agent with `SERVER_USER=0:0` and register it from the main server.
 
 ### Backup Endpoints
 

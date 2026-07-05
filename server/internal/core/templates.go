@@ -241,6 +241,385 @@ GRAFANA_PORT=3000
 `,
 			Notes: "Add a prometheus.yml bind mount before production use.",
 		},
+		{
+			ID:          "traefik",
+			Name:        "Traefik",
+			Description: "Docker-aware reverse proxy with dashboard.",
+			Category:    "proxy",
+			Source:      "portainer-style",
+			Image:       "traefik:v3.1",
+			Tags:        []string{"proxy", "ingress", "tls"},
+			ComposeContent: `services:
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+`,
+			EnvContent: "TRAEFIK_HTTP_PORT=80\nTRAEFIK_DASHBOARD_PORT=8080\n",
+		},
+		{
+			ID:          "caddy",
+			Name:        "Caddy",
+			Description: "Simple HTTPS-ready web reverse proxy.",
+			Category:    "proxy",
+			Source:      "kitematic-style",
+			Image:       "caddy:2-alpine",
+			Tags:        []string{"proxy", "web", "tls"},
+			ComposeContent: `services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  caddy-data:
+  caddy-config:
+`,
+			EnvContent: "HTTP_PORT=80\nHTTPS_PORT=443\n",
+			Notes:      "Create a Caddyfile beside compose.yml before starting.",
+		},
+		{
+			ID:          "adminer",
+			Name:        "Adminer",
+			Description: "Small database administration UI.",
+			Category:    "database",
+			Source:      "kitematic-style",
+			Image:       "adminer:latest",
+			Tags:        []string{"database", "admin"},
+			ComposeContent: `services:
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+`,
+			EnvContent: "ADMINER_PORT=8080\n",
+		},
+		{
+			ID:          "mysql",
+			Name:        "MySQL",
+			Description: "MySQL database with persistent storage.",
+			Category:    "database",
+			Source:      "kitematic-style",
+			Image:       "mysql:8.4",
+			Tags:        []string{"database", "mysql"},
+			ComposeContent: `services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-app}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - mysql-data:/var/lib/mysql
+volumes:
+  mysql-data:
+`,
+			EnvContent: "MYSQL_PORT=3306\nMYSQL_DATABASE=app\nMYSQL_USER=app\nMYSQL_PASSWORD=change-me\nMYSQL_ROOT_PASSWORD=change-me-root\n",
+		},
+		{
+			ID:          "mongo",
+			Name:        "MongoDB",
+			Description: "MongoDB document database with root credentials.",
+			Category:    "database",
+			Source:      "kitematic-style",
+			Image:       "mongo:7",
+			Tags:        []string{"database", "mongodb"},
+			ComposeContent: `services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-change-me}
+    volumes:
+      - mongo-data:/data/db
+volumes:
+  mongo-data:
+`,
+			EnvContent: "MONGO_PORT=27017\nMONGO_ROOT_USER=admin\nMONGO_ROOT_PASSWORD=change-me\n",
+		},
+		{
+			ID:          "rabbitmq",
+			Name:        "RabbitMQ",
+			Description: "Message broker with management console.",
+			Category:    "queue",
+			Source:      "kitematic-style",
+			Image:       "rabbitmq:3-management-alpine",
+			Tags:        []string{"queue", "broker", "management"},
+			ComposeContent: `services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change-me}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+volumes:
+  rabbitmq-data:
+`,
+			EnvContent: "RABBITMQ_PORT=5672\nRABBITMQ_UI_PORT=15672\nRABBITMQ_USER=admin\nRABBITMQ_PASSWORD=change-me\n",
+		},
+		{
+			ID:          "nextcloud",
+			Name:        "Nextcloud",
+			Description: "File sync and sharing with MariaDB.",
+			Category:    "files",
+			Source:      "portainer-style",
+			Image:       "nextcloud:latest",
+			Tags:        []string{"files", "sync", "mariadb"},
+			ComposeContent: `services:
+  nextcloud:
+    image: nextcloud:latest
+    restart: unless-stopped
+    ports:
+      - "${NEXTCLOUD_PORT:-8080}:80"
+    environment:
+      MYSQL_HOST: db
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nextcloud}
+      MYSQL_USER: ${MYSQL_USER:-nextcloud}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    volumes:
+      - nextcloud-data:/var/www/html
+    depends_on:
+      - db
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-nextcloud}
+      MARIADB_USER: ${MYSQL_USER:-nextcloud}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - db-data:/var/lib/mysql
+volumes:
+  nextcloud-data:
+  db-data:
+`,
+			EnvContent: "NEXTCLOUD_PORT=8080\nMYSQL_DATABASE=nextcloud\nMYSQL_USER=nextcloud\nMYSQL_PASSWORD=change-me\nMARIADB_ROOT_PASSWORD=change-me-root\n",
+		},
+		{
+			ID:          "vaultwarden",
+			Name:        "Vaultwarden",
+			Description: "Lightweight Bitwarden-compatible password vault.",
+			Category:    "security",
+			Source:      "portainer-style",
+			Image:       "vaultwarden/server:latest",
+			Tags:        []string{"passwords", "vault", "security"},
+			ComposeContent: `services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    ports:
+      - "${VAULTWARDEN_PORT:-8080}:80"
+    environment:
+      SIGNUPS_ALLOWED: "${SIGNUPS_ALLOWED:-false}"
+    volumes:
+      - vaultwarden-data:/data
+volumes:
+  vaultwarden-data:
+`,
+			EnvContent: "VAULTWARDEN_PORT=8080\nSIGNUPS_ALLOWED=false\n",
+		},
+		{
+			ID:          "bookstack",
+			Name:        "BookStack",
+			Description: "Documentation/wiki platform with MariaDB.",
+			Category:    "docs",
+			Source:      "portainer-style",
+			Image:       "lscr.io/linuxserver/bookstack:latest",
+			Tags:        []string{"docs", "wiki", "knowledge-base"},
+			ComposeContent: `services:
+  bookstack:
+    image: lscr.io/linuxserver/bookstack:latest
+    restart: unless-stopped
+    ports:
+      - "${BOOKSTACK_PORT:-6875}:80"
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:6875}
+      DB_HOST: db
+      DB_DATABASE: ${DB_DATABASE:-bookstack}
+      DB_USERNAME: ${DB_USERNAME:-bookstack}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me}
+    volumes:
+      - bookstack-data:/config
+    depends_on:
+      - db
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE:-bookstack}
+      MARIADB_USER: ${DB_USERNAME:-bookstack}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-change-me}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - db-data:/var/lib/mysql
+volumes:
+  bookstack-data:
+  db-data:
+`,
+			EnvContent: "BOOKSTACK_PORT=6875\nAPP_URL=http://localhost:6875\nDB_DATABASE=bookstack\nDB_USERNAME=bookstack\nDB_PASSWORD=change-me\nMARIADB_ROOT_PASSWORD=change-me-root\n",
+		},
+		{
+			ID:          "n8n",
+			Name:        "n8n",
+			Description: "Workflow automation tool.",
+			Category:    "automation",
+			Source:      "portainer-style",
+			Image:       "n8nio/n8n:latest",
+			Tags:        []string{"automation", "workflow"},
+			ComposeContent: `services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+    volumes:
+      - n8n-data:/home/node/.n8n
+volumes:
+  n8n-data:
+`,
+			EnvContent: "N8N_PORT=5678\nN8N_HOST=localhost\nN8N_PROTOCOL=http\nWEBHOOK_URL=http://localhost:5678/\n",
+		},
+		{
+			ID:          "home-assistant",
+			Name:        "Home Assistant",
+			Description: "Home automation server.",
+			Category:    "automation",
+			Source:      "kitematic-style",
+			Image:       "ghcr.io/home-assistant/home-assistant:stable",
+			Tags:        []string{"automation", "home"},
+			ComposeContent: `services:
+  home-assistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - home-assistant-config:/config
+volumes:
+  home-assistant-config:
+`,
+			Notes: "This template uses host networking because many Home Assistant integrations expect it.",
+		},
+		{
+			ID:          "jellyfin",
+			Name:        "Jellyfin",
+			Description: "Self-hosted media server.",
+			Category:    "media",
+			Source:      "kitematic-style",
+			Image:       "jellyfin/jellyfin:latest",
+			Tags:        []string{"media", "video"},
+			ComposeContent: `services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    ports:
+      - "${JELLYFIN_PORT:-8096}:8096"
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ./media:/media:ro
+volumes:
+  jellyfin-config:
+  jellyfin-cache:
+`,
+			EnvContent: "JELLYFIN_PORT=8096\n",
+			Notes:      "Create a media directory or edit the bind mount before starting.",
+		},
+		{
+			ID:          "code-server",
+			Name:        "code-server",
+			Description: "Browser-based VS Code server.",
+			Category:    "devtools",
+			Source:      "kitematic-style",
+			Image:       "lscr.io/linuxserver/code-server:latest",
+			Tags:        []string{"devtools", "ide"},
+			ComposeContent: `services:
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    restart: unless-stopped
+    ports:
+      - "${CODE_SERVER_PORT:-8443}:8443"
+    environment:
+      PASSWORD: ${CODE_SERVER_PASSWORD:-change-me}
+    volumes:
+      - code-server-config:/config
+      - ./workspace:/config/workspace
+volumes:
+  code-server-config:
+`,
+			EnvContent: "CODE_SERVER_PORT=8443\nCODE_SERVER_PASSWORD=change-me\n",
+		},
+		{
+			ID:          "dozzle",
+			Name:        "Dozzle",
+			Description: "Lightweight Docker log viewer.",
+			Category:    "management",
+			Source:      "portainer-style",
+			Image:       "amir20/dozzle:latest",
+			Tags:        []string{"logs", "management"},
+			ComposeContent: `services:
+  dozzle:
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    ports:
+      - "${DOZZLE_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+`,
+			EnvContent: "DOZZLE_PORT=8080\n",
+		},
+		{
+			ID:          "changedetection",
+			Name:        "changedetection.io",
+			Description: "Website change monitoring.",
+			Category:    "monitoring",
+			Source:      "portainer-style",
+			Image:       "dgtlmoon/changedetection.io:latest",
+			Tags:        []string{"monitoring", "web"},
+			ComposeContent: `services:
+  changedetection:
+    image: dgtlmoon/changedetection.io:latest
+    restart: unless-stopped
+    ports:
+      - "${CHANGEDETECTION_PORT:-5000}:5000"
+    volumes:
+      - changedetection-data:/datastore
+volumes:
+  changedetection-data:
+`,
+			EnvContent: "CHANGEDETECTION_PORT=5000\n",
+		},
 	}
 	sort.Slice(templates, func(i, j int) bool {
 		return templates[i].Name < templates[j].Name

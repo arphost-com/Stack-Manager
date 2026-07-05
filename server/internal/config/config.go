@@ -9,22 +9,24 @@ import (
 )
 
 type Config struct {
-	Mode          string
-	Port          int
-	Root          string
-	APIKey        string
-	AgentName     string
-	AgentToken    string
-	StateDir      string
-	HooksDir      string
-	LogDir        string
-	AdminUsername string
-	AdminPassword string
-	DatabaseDSN   string
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
-	CacheTTL      time.Duration
+	Mode            string
+	Port            int
+	Root            string
+	APIKey          string
+	AgentName       string
+	AgentToken      string
+	StateDir        string
+	HooksDir        string
+	LogDir          string
+	AdminUsername   string
+	AdminPassword   string
+	DatabaseDSN     string
+	RedisAddr       string
+	RedisPassword   string
+	RedisDB         int
+	CacheTTL        time.Duration
+	MetricsInterval time.Duration
+	WarmCacheTTL    time.Duration
 
 	// Backup skill
 	BackupDir string
@@ -56,6 +58,16 @@ func Load() (*Config, error) {
 		cacheTTL = 15
 	}
 	cfg.CacheTTL = time.Duration(cacheTTL) * time.Second
+	metricsMinutes, _ := strconv.Atoi(getEnv("METRICS_REFRESH_MINUTES", "15"))
+	if metricsMinutes < 15 {
+		metricsMinutes = 15
+	}
+	cfg.MetricsInterval = time.Duration(metricsMinutes) * time.Minute
+	warmCacheMinutes, _ := strconv.Atoi(getEnv("WARM_CACHE_TTL_MINUTES", "30"))
+	if warmCacheMinutes < metricsMinutes {
+		warmCacheMinutes = metricsMinutes * 2
+	}
+	cfg.WarmCacheTTL = time.Duration(warmCacheMinutes) * time.Minute
 
 	if cfg.AgentToken == "" {
 		cfg.AgentToken = cfg.APIKey

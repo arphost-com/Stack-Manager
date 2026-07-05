@@ -1,10 +1,12 @@
 package debug
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +40,7 @@ func (s *Skill) RegisterRoutes(r chi.Router) {
 	r.Get("/stats/{name}", s.Stats)
 	r.Get("/events", s.Events)
 	r.Get("/top/{name}", s.Top)
+	r.Post("/shell/{name}", s.Shell)
 }
 
 // Logs returns container logs for a project.
@@ -229,6 +232,93 @@ func (s *Skill) Top(w http.ResponseWriter, r *http.Request) {
 		"project":   name,
 		"processes": processes,
 	})
+}
+
+// Shell runs a scoped troubleshooting command in the selected project directory.
+func (s *Skill) Shell(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	project, err := s.engine.GetProject(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var body struct {
+		Command string `json:"command"`
+		Tail    int    `json:"tail,omitempty"`
+		Timeout int    `json:"timeout,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	timeout := time.Duration(body.Timeout) * time.Second
+	if timeout <= 0 || timeout > 10*time.Minute {
+		timeout = 5 * time.Minute
+	}
+	var output string
+	var exitCode int
+	switch strings.ToLower(strings.TrimSpace(body.Command)) {
+	case "config":
+		output, exitCode = runComposeShellCommand(project, timeout, "config")
+	case "ps":
+		output, exitCode = runComposeShellCommand(project, timeout, "ps")
+	case "up":
+		output, exitCode = runComposeShellCommand(project, timeout, "up", "-d")
+	case "down":
+		output, exitCode = runComposeShellCommand(project, timeout, "down")
+	case "restart":
+		output, exitCode = runComposeShellCommand(project, timeout, "restart")
+	case "pull":
+		output, exitCode = runComposeShellCommand(project, timeout, "pull")
+	case "logs":
+		tail := body.Tail
+		if tail <= 0 || tail > 2000 {
+			tail = 200
+		}
+		output, exitCode = runComposeShellCommand(project, timeout, "logs", "--tail", strconv.Itoa(tail), "--timestamps")
+	case "recreate":
+		downOut, downExit := runComposeShellCommand(project, timeout, "down", "--remove-orphans")
+		upOut, upExit := runComposeShellCommand(project, timeout, "up", "-d")
+		output = "=== docker compose down --remove-orphans ===\n" + downOut + "\n=== docker compose up -d ===\n" + upOut
+		if downExit != 0 {
+			exitCode = downExit
+		} else {
+			exitCode = upExit
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported troubleshooting command")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"project":   project.Name,
+		"command":   body.Command,
+		"output":    output,
+		"exit_code": exitCode,
+		"success":   exitCode == 0,
+	})
+}
+
+func runComposeShellCommand(project *core.Project, timeout time.Duration, args ...string) (string, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	composeArgs := append([]string{"compose", "-f", project.ComposeFile}, args...)
+	cmd := exec.CommandContext(ctx, "docker", composeArgs...)
+	cmd.Dir = project.Dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	output := stdout.String() + stderr.String()
+	if ctx.Err() == context.DeadlineExceeded {
+		return output + "\ncommand timed out\n", 124
+	}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return output, exitErr.ExitCode()
+		}
+		return output + err.Error() + "\n", 1
+	}
+	return output, 0
 }
 
 func projectHasContainer(project *core.Project, name string) bool {

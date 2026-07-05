@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/arphost-com/Compose-Manager/server/internal/core"
@@ -163,6 +164,39 @@ func (s *Store) Migrate(ctx context.Context) error {
 			INDEX idx_backup_destinations_enabled (enabled),
 			INDEX idx_backup_destinations_type (type)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS container_metric_snapshots (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			project VARCHAR(255) NOT NULL,
+			container VARCHAR(255) NOT NULL,
+			cpu_percent DOUBLE NOT NULL DEFAULT 0,
+			memory_percent DOUBLE NOT NULL DEFAULT 0,
+			memory_usage_bytes BIGINT NOT NULL DEFAULT 0,
+			memory_limit_bytes BIGINT NOT NULL DEFAULT 0,
+			net_rx_bytes BIGINT NOT NULL DEFAULT 0,
+			net_tx_bytes BIGINT NOT NULL DEFAULT 0,
+			block_read_bytes BIGINT NOT NULL DEFAULT 0,
+			block_write_bytes BIGINT NOT NULL DEFAULT 0,
+			pids INT NOT NULL DEFAULT 0,
+			sampled_at DATETIME(6) NOT NULL,
+			INDEX idx_metric_sampled_at (sampled_at),
+			INDEX idx_metric_project_sampled_at (project, sampled_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS backup_events (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			project VARCHAR(255) NOT NULL,
+			backup_id VARCHAR(255) NOT NULL,
+			event_type VARCHAR(32) NOT NULL,
+			destination_id BIGINT NULL,
+			destination_name VARCHAR(128) NOT NULL DEFAULT '',
+			target TEXT NULL,
+			size_bytes BIGINT NOT NULL DEFAULT 0,
+			success BOOLEAN NOT NULL DEFAULT TRUE,
+			error TEXT NULL,
+			created_at DATETIME(6) NOT NULL,
+			INDEX idx_backup_events_created_at (created_at),
+			INDEX idx_backup_events_project_created_at (project, created_at),
+			INDEX idx_backup_events_event_type (event_type)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {
@@ -292,6 +326,229 @@ func (s *Store) DeleteBackupDestination(ctx context.Context, id int64) error {
 	}
 	s.DeleteCache(ctx, "backup_destinations:list")
 	return nil
+}
+
+func (s *Store) SaveContainerMetricSnapshots(ctx context.Context, snapshots []core.ContainerMetricSnapshot) error {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO container_metric_snapshots
+		(project, container, cpu_percent, memory_percent, memory_usage_bytes, memory_limit_bytes, net_rx_bytes, net_tx_bytes, block_read_bytes, block_write_bytes, pids, sampled_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, snapshot := range snapshots {
+		if _, err := stmt.ExecContext(ctx,
+			snapshot.Project, snapshot.Container, snapshot.CPUPercent, snapshot.MemoryPercent, snapshot.MemoryUsageBytes, snapshot.MemoryLimitBytes,
+			snapshot.NetRxBytes, snapshot.NetTxBytes, snapshot.BlockReadBytes, snapshot.BlockWriteBytes, snapshot.PIDs, snapshot.SampledAt.UTC(),
+		); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.DeleteCache(ctx, "metrics:summary", "metrics:history:24:", "metrics:backup_activity:24")
+	return nil
+}
+
+func (s *Store) SaveBackupEvent(ctx context.Context, event core.BackupEvent) error {
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO backup_events
+		(project, backup_id, event_type, destination_id, destination_name, target, size_bytes, success, error, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.Project, event.BackupID, event.EventType, nullableInt64(zeroNilInt64(event.DestinationID)), event.DestinationName,
+		nullableString(event.Target), event.SizeBytes, event.Success, nullableString(event.Error), event.CreatedAt.UTC())
+	if err == nil {
+		s.DeleteCache(ctx, "metrics:summary", "metrics:backup_activity:24")
+	}
+	return err
+}
+
+func (s *Store) MetricsSummary(ctx context.Context) (core.MetricsSummary, error) {
+	var cached core.MetricsSummary
+	if s.GetJSON(ctx, "metrics:summary", &cached) {
+		return cached, nil
+	}
+	var summary core.MetricsSummary
+	var latest sql.NullTime
+	if err := s.DB.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM container_metric_snapshots`).Scan(&latest); err != nil {
+		return summary, err
+	}
+	if latest.Valid {
+		summary.LastSampledAt = &latest.Time
+		rows, err := s.DB.QueryContext(ctx, `SELECT project, COUNT(*), AVG(cpu_percent), AVG(memory_percent), SUM(memory_usage_bytes), SUM(net_rx_bytes), SUM(net_tx_bytes)
+			FROM container_metric_snapshots
+			WHERE sampled_at=?
+			GROUP BY project
+			ORDER BY project`, latest.Time)
+		if err != nil {
+			return summary, err
+		}
+		for rows.Next() {
+			var point core.MetricHistoryPoint
+			if err := rows.Scan(&point.Project, &point.ContainerCount, &point.CPUPercentAvg, &point.MemoryPercentAvg, &point.MemoryUsageBytes, &point.NetRxBytes, &point.NetTxBytes); err != nil {
+				_ = rows.Close()
+				return summary, err
+			}
+			summary.ContainerCount += point.ContainerCount
+			summary.CPUPercentAvg += point.CPUPercentAvg * float64(point.ContainerCount)
+			summary.MemoryPercentAvg += point.MemoryPercentAvg * float64(point.ContainerCount)
+			summary.MemoryUsageBytes += point.MemoryUsageBytes
+			summary.NetRxBytes += point.NetRxBytes
+			summary.NetTxBytes += point.NetTxBytes
+			point.SampledAt = latest.Time
+			summary.ProjectSnapshots = append(summary.ProjectSnapshots, point)
+		}
+		if err := rows.Close(); err != nil {
+			return summary, err
+		}
+		if summary.ContainerCount > 0 {
+			summary.CPUPercentAvg = summary.CPUPercentAvg / float64(summary.ContainerCount)
+			summary.MemoryPercentAvg = summary.MemoryPercentAvg / float64(summary.ContainerCount)
+		}
+	}
+	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	rows, err := s.DB.QueryContext(ctx, `SELECT event_type, COUNT(*), COALESCE(SUM(size_bytes), 0)
+		FROM backup_events
+		WHERE created_at >= ? AND success=TRUE
+		GROUP BY event_type`, cutoff)
+	if err != nil {
+		return summary, err
+	}
+	for rows.Next() {
+		var eventType string
+		var count int
+		var bytes int64
+		if err := rows.Scan(&eventType, &count, &bytes); err != nil {
+			_ = rows.Close()
+			return summary, err
+		}
+		switch eventType {
+		case "backup":
+			summary.BackupCount24h = count
+			summary.BackupBytes24h = bytes
+		case "restore":
+			summary.RestoreCount24h = count
+		case "upload":
+			summary.UploadBytes24h = bytes
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return summary, err
+	}
+	activity, err := s.BackupActivity(ctx, 24)
+	if err == nil {
+		summary.BackupActivity24h = activity
+	}
+	s.SetJSON(ctx, "metrics:summary", summary, s.CacheTTL)
+	return summary, nil
+}
+
+func (s *Store) MetricHistory(ctx context.Context, hours int, project string) ([]core.MetricHistoryPoint, error) {
+	if hours <= 0 || hours > 720 {
+		hours = 24
+	}
+	key := fmt.Sprintf("metrics:history:%d:%s", hours, project)
+	var cached []core.MetricHistoryPoint
+	if s.GetJSON(ctx, key, &cached) {
+		return cached, nil
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	query := `SELECT sampled_at, project, COUNT(*), AVG(cpu_percent), AVG(memory_percent), SUM(memory_usage_bytes), SUM(net_rx_bytes), SUM(net_tx_bytes)
+		FROM container_metric_snapshots
+		WHERE sampled_at >= ?`
+	args := []interface{}{cutoff}
+	if project != "" {
+		query += ` AND project = ?`
+		args = append(args, project)
+	}
+	query += ` GROUP BY sampled_at, project ORDER BY sampled_at ASC, project ASC LIMIT 2000`
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	points := make([]core.MetricHistoryPoint, 0)
+	for rows.Next() {
+		var point core.MetricHistoryPoint
+		if err := rows.Scan(&point.SampledAt, &point.Project, &point.ContainerCount, &point.CPUPercentAvg, &point.MemoryPercentAvg, &point.MemoryUsageBytes, &point.NetRxBytes, &point.NetTxBytes); err != nil {
+			return nil, err
+		}
+		points = append(points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.SetJSON(ctx, key, points, s.CacheTTL)
+	return points, nil
+}
+
+func (s *Store) BackupActivity(ctx context.Context, hours int) ([]core.BackupActivityPoint, error) {
+	if hours <= 0 || hours > 720 {
+		hours = 24
+	}
+	key := fmt.Sprintf("metrics:backup_activity:%d", hours)
+	var cached []core.BackupActivityPoint
+	if s.GetJSON(ctx, key, &cached) {
+		return cached, nil
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	rows, err := s.DB.QueryContext(ctx, `SELECT created_at, event_type, size_bytes FROM backup_events WHERE created_at >= ? AND success=TRUE ORDER BY created_at ASC`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	buckets := map[time.Time]*core.BackupActivityPoint{}
+	for rows.Next() {
+		var createdAt time.Time
+		var eventType string
+		var sizeBytes int64
+		if err := rows.Scan(&createdAt, &eventType, &sizeBytes); err != nil {
+			return nil, err
+		}
+		bucket := createdAt.UTC().Truncate(time.Hour)
+		point := buckets[bucket]
+		if point == nil {
+			point = &core.BackupActivityPoint{BucketStart: bucket}
+			buckets[bucket] = point
+		}
+		switch eventType {
+		case "backup":
+			point.Backups++
+			point.BackupBytes += sizeBytes
+		case "restore":
+			point.Restores++
+			point.RestoreBytes += sizeBytes
+		case "delete":
+			point.Deletes++
+		case "upload":
+			point.Uploads++
+			point.UploadBytes += sizeBytes
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	points := make([]core.BackupActivityPoint, 0, len(buckets))
+	for _, point := range buckets {
+		points = append(points, *point)
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].BucketStart.Before(points[j].BucketStart)
+	})
+	s.SetJSON(ctx, key, points, s.CacheTTL)
+	return points, nil
 }
 
 func (s *Store) ListAgents(ctx context.Context) ([]core.ComposeAgent, error) {
@@ -785,6 +1042,13 @@ func nullableInt64(value *int64) interface{} {
 		return nil
 	}
 	return *value
+}
+
+func zeroNilInt64(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
 }
 
 func cleanStringMap(in map[string]string) map[string]string {

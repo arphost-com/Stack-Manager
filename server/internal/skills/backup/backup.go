@@ -115,9 +115,31 @@ func (s *Skill) Create(w http.ResponseWriter, r *http.Request) {
 		SizeBytes: info.Size(),
 		CreatedAt: time.Now().UTC(),
 	}
+	s.recordBackupEvent(r.Context(), core.BackupEvent{
+		Project:   name,
+		BackupID:  backupName,
+		EventType: "backup",
+		SizeBytes: info.Size(),
+		Success:   true,
+		CreatedAt: backup.CreatedAt,
+	})
 	if req.DestinationID != nil && *req.DestinationID > 0 {
 		transfer, err := s.copyToDestination(r.Context(), *req.DestinationID, backupPath, backupName)
 		backup.Destination = transfer
+		if transfer != nil {
+			s.recordBackupEvent(r.Context(), core.BackupEvent{
+				Project:         name,
+				BackupID:        backupName,
+				EventType:       "upload",
+				DestinationID:   transfer.DestinationID,
+				DestinationName: transfer.DestinationName,
+				Target:          transfer.Target,
+				SizeBytes:       info.Size(),
+				Success:         transfer.Success,
+				Error:           transfer.Error,
+				CreatedAt:       transfer.CompletedAt,
+			})
+		}
 		if err != nil {
 			writeJSON(w, http.StatusCreated, backup)
 			return
@@ -237,6 +259,7 @@ func (s *Skill) Restore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "backup not found: "+backupID)
 		return
 	}
+	info, _ := os.Stat(backupPath)
 
 	project, err := s.engine.GetProject(name)
 	if err != nil {
@@ -260,6 +283,18 @@ func (s *Skill) Restore(w http.ResponseWriter, r *http.Request) {
 
 	// Bring containers back up
 	upResult := s.engine.Up(project)
+	var sizeBytes int64
+	if info != nil {
+		sizeBytes = info.Size()
+	}
+	s.recordBackupEvent(r.Context(), core.BackupEvent{
+		Project:   name,
+		BackupID:  backupID,
+		EventType: "restore",
+		SizeBytes: sizeBytes,
+		Success:   true,
+		CreatedAt: time.Now().UTC(),
+	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"project":  name,
@@ -312,15 +347,35 @@ func (s *Skill) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "backup not found: "+backupID)
 		return
 	}
+	info, _ := os.Stat(backupPath)
 
 	if err := os.Remove(backupPath); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	var sizeBytes int64
+	if info != nil {
+		sizeBytes = info.Size()
+	}
+	s.recordBackupEvent(r.Context(), core.BackupEvent{
+		Project:   strings.SplitN(backupID, "__", 2)[0],
+		BackupID:  backupID,
+		EventType: "delete",
+		SizeBytes: sizeBytes,
+		Success:   true,
+		CreatedAt: time.Now().UTC(),
+	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"deleted": backupID,
 	})
+}
+
+func (s *Skill) recordBackupEvent(ctx context.Context, event core.BackupEvent) {
+	if s.store == nil {
+		return
+	}
+	_ = s.store.SaveBackupEvent(ctx, event)
 }
 
 func validBackupID(backupID string) bool {

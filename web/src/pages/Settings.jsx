@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auth, users, backup } from '../api/client';
+import { getThemePreference, setThemePreference } from '../theme';
 
 const DESTINATION_TYPES = [
   { value: 'local', label: 'Linux path' },
@@ -45,6 +46,7 @@ export default function Settings() {
   const [form, setForm] = useState({ username: '', password: '', role: 'operator' });
   const [resetForm, setResetForm] = useState({ username: '', password: '' });
   const [destinationForm, setDestinationForm] = useState(emptyDestinationForm);
+  const [theme, setTheme] = useState(getThemePreference());
 
   const load = async () => {
     setError('');
@@ -175,6 +177,11 @@ export default function Settings() {
     }
   };
 
+  const updateTheme = (value) => {
+    setTheme(value);
+    setThemePreference(value);
+  };
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="section-panel">
@@ -183,7 +190,17 @@ export default function Settings() {
             <h1 className="text-xl font-semibold text-gray-950">Account</h1>
             <p className="mt-1 text-sm text-gray-600">{me ? `${me.username} (${me.role})` : 'Loading account...'}</p>
           </div>
-          <button onClick={logout} className="btn-secondary">Sign Out</button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700" title="Choose light, dark, or follow the operating system theme.">
+              Theme
+              <select value={theme} onChange={e => updateTheme(e.target.value)} className="input w-36">
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <button onClick={logout} className="btn-secondary">Sign Out</button>
+          </div>
         </div>
       </div>
 

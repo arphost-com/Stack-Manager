@@ -7,7 +7,7 @@ Repository guidance for coding agents working on Compose Manager.
 Compose Manager has two supported surfaces:
 
 1. `compose-manager.sh` - Bash CLI for discovering and managing Docker Compose projects under a root directory.
-2. `server/` + `web/` - Go REST API with a React dashboard for compose operations, logs, stats, backups, database checks, security scans, registry login, stack templates, schedules, agents, and project creation/deletion.
+2. `server/` + `web/` - Go REST API with a React dashboard for compose operations, logs, stats, backups, database checks, security scans, registry login, stack templates, schedules, agents, background metrics, scoped project shell, and project creation/deletion.
 
 Use the existing patterns. Keep CLI and API behavior aligned when both surfaces implement the same operation.
 
@@ -120,7 +120,7 @@ Every skill implements `server/internal/skills/registry.go:Skill`:
 Built-in skills:
 
 - `security` - image scans and compose config audit.
-- `debug` - logs, stats, inspect, events, top/processes.
+- `debug` - logs, stats, inspect, events, top/processes, and scoped project shell troubleshooting.
 - `backup` - create, list, download, restore, delete project backups, and manage backup endpoints.
 - `dbadmin` - discover, health check, and dump supported DB containers.
 - `frontend` - serves the React SPA when embedded.
@@ -171,6 +171,7 @@ Required environment:
 
 The server container runs as the numeric host UID:GID configured by `SERVER_USER` and is added to the host Docker socket group via `DOCKER_GID`. For hosts that intentionally require root compose management, set `SERVER_USER=0:0`.
 `SERVER_USER` is host-specific and may be `0:0`, `1000:1000`, `998:998`, or another numeric UID:GID depending on the box. Keep prepared `STATE_DIR` ownership aligned with this value.
+For mixed-permission stacks such as GitLab or PMM, prefer keeping Compose Manager as the host service UID and making the compose project files readable by that UID/GID. Docker can still run the target containers as root. If a project directory must stay root-only, use a separate root-capable agent with `SERVER_USER=0:0`.
 
 Docker credentials from registry login are stored under:
 
@@ -236,6 +237,8 @@ Server env vars:
 | `REDIS_PASSWORD` | none | yes | Redis password for sessions and cache. |
 | `REDIS_DB` | `0` | no | Redis logical database index. `0` is the first/default Redis DB; keep it for the bundled dedicated Redis service. |
 | `CACHE_TTL_SECONDS` | `15` | no | Redis cache TTL for project/image/job/settings reads. Lower values refresh faster; higher values reduce Docker/API load. |
+| `METRICS_REFRESH_MINUTES` | `15` | no | Background interval for project cache warmup and Docker stats snapshots. Minimum 15. |
+| `WARM_CACHE_TTL_MINUTES` | `30` | no | Redis TTL for background-warmed project/image metadata. |
 | `ROOT` | `/docker` | no | In-container path where managed Compose projects are mounted. |
 | `STATE_DIR` | `.compose-manager` | no | Host state directory before container mount. Relative paths resolve under the Compose Manager root; in Compose the server uses `/state` inside the container. |
 | `PORT` | `8192` | no | API server listen port. |

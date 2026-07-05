@@ -106,6 +106,8 @@ ensure_setting DB_NAME compose_manager
 ensure_setting DB_USER compose_manager
 ensure_setting REDIS_DB 0
 ensure_setting CACHE_TTL_SECONDS 15
+ensure_setting METRICS_REFRESH_MINUTES 15
+ensure_setting WARM_CACHE_TTL_MINUTES 30
 ensure_setting DOCKER_ROOT "${HOME}/docker"
 ensure_setting STATE_DIR .compose-manager
 ensure_setting BACKUP_TARGET_ROOT .compose-manager/backup-targets
@@ -217,6 +219,8 @@ for key in \
   REDIS_PASSWORD \
   REDIS_DB \
   CACHE_TTL_SECONDS \
+  METRICS_REFRESH_MINUTES \
+  WARM_CACHE_TTL_MINUTES \
   DOCKER_ROOT \
   STATE_DIR \
   BACKUP_TARGET_ROOT \

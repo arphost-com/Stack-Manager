@@ -99,6 +99,11 @@ type BulkRequest struct {
 	Timeout  int      `json:"timeout,omitempty"`
 }
 
+// PruneRequest chooses the Docker prune command to run.
+type PruneRequest struct {
+	Mode string `json:"mode"`
+}
+
 // BulkResult collects results from a bulk operation.
 type BulkResult struct {
 	Results  []OpResult `json:"results"`
@@ -156,6 +161,77 @@ type BackupTransferResult struct {
 	Output          string    `json:"output,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	CompletedAt     time.Time `json:"completed_at"`
+}
+
+// ContainerMetricSnapshot is one sampled docker stats row.
+type ContainerMetricSnapshot struct {
+	Project          string    `json:"project"`
+	Container        string    `json:"container"`
+	CPUPercent       float64   `json:"cpu_percent"`
+	MemoryPercent    float64   `json:"memory_percent"`
+	MemoryUsageBytes int64     `json:"memory_usage_bytes"`
+	MemoryLimitBytes int64     `json:"memory_limit_bytes"`
+	NetRxBytes       int64     `json:"net_rx_bytes"`
+	NetTxBytes       int64     `json:"net_tx_bytes"`
+	BlockReadBytes   int64     `json:"block_read_bytes"`
+	BlockWriteBytes  int64     `json:"block_write_bytes"`
+	PIDs             int       `json:"pids"`
+	SampledAt        time.Time `json:"sampled_at"`
+}
+
+// MetricHistoryPoint is an aggregated time-series point for dashboard graphing.
+type MetricHistoryPoint struct {
+	SampledAt        time.Time `json:"sampled_at"`
+	Project          string    `json:"project,omitempty"`
+	ContainerCount   int       `json:"container_count"`
+	CPUPercentAvg    float64   `json:"cpu_percent_avg"`
+	MemoryPercentAvg float64   `json:"memory_percent_avg"`
+	MemoryUsageBytes int64     `json:"memory_usage_bytes"`
+	NetRxBytes       int64     `json:"net_rx_bytes"`
+	NetTxBytes       int64     `json:"net_tx_bytes"`
+}
+
+// BackupEvent records backup/restore/delete activity for historical reporting.
+type BackupEvent struct {
+	Project         string    `json:"project"`
+	BackupID        string    `json:"backup_id"`
+	EventType       string    `json:"event_type"`
+	DestinationID   int64     `json:"destination_id,omitempty"`
+	DestinationName string    `json:"destination_name,omitempty"`
+	Target          string    `json:"target,omitempty"`
+	SizeBytes       int64     `json:"size_bytes"`
+	Success         bool      `json:"success"`
+	Error           string    `json:"error,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// BackupActivityPoint is an aggregated backup event bucket.
+type BackupActivityPoint struct {
+	BucketStart  time.Time `json:"bucket_start"`
+	Backups      int       `json:"backups"`
+	Restores     int       `json:"restores"`
+	Deletes      int       `json:"deletes"`
+	Uploads      int       `json:"uploads"`
+	BackupBytes  int64     `json:"backup_bytes"`
+	RestoreBytes int64     `json:"restore_bytes"`
+	UploadBytes  int64     `json:"upload_bytes"`
+}
+
+// MetricsSummary is the dashboard's cached observability overview.
+type MetricsSummary struct {
+	LastSampledAt     *time.Time            `json:"last_sampled_at,omitempty"`
+	ContainerCount    int                   `json:"container_count"`
+	CPUPercentAvg     float64               `json:"cpu_percent_avg"`
+	MemoryPercentAvg  float64               `json:"memory_percent_avg"`
+	MemoryUsageBytes  int64                 `json:"memory_usage_bytes"`
+	NetRxBytes        int64                 `json:"net_rx_bytes"`
+	NetTxBytes        int64                 `json:"net_tx_bytes"`
+	BackupCount24h    int                   `json:"backup_count_24h"`
+	RestoreCount24h   int                   `json:"restore_count_24h"`
+	BackupBytes24h    int64                 `json:"backup_bytes_24h"`
+	UploadBytes24h    int64                 `json:"upload_bytes_24h"`
+	ProjectSnapshots  []MetricHistoryPoint  `json:"project_snapshots,omitempty"`
+	BackupActivity24h []BackupActivityPoint `json:"backup_activity_24h,omitempty"`
 }
 
 // DatabaseInfo describes a database found inside a container.

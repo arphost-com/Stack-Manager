@@ -196,7 +196,7 @@ func (h *AgentRuntimeHandler) RegistryLogin(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *AgentRuntimeHandler) Prune(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.Engine.Prune())
+	writeJSON(w, http.StatusOK, h.Engine.Prune("safe"))
 }
 
 func (h *AgentRuntimeHandler) projectFromRequest(w http.ResponseWriter, r *http.Request) (*core.Project, error) {

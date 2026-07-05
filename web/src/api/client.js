@@ -107,6 +107,17 @@ export const schedules = {
   run: (id) => request(`/schedules/${id}/run`, { method: 'POST' }),
 };
 
+export const metrics = {
+  summary: () => request('/metrics/summary'),
+  history: (hours = 24, project = '') => {
+    const params = new URLSearchParams({ hours: String(hours) });
+    if (project) params.set('project', project);
+    return request(`/metrics/history?${params}`);
+  },
+  backupActivity: (hours = 24) => request(`/metrics/backup-activity?hours=${hours}`),
+  refresh: () => request('/metrics/refresh', { method: 'POST' }),
+};
+
 export const skills = {
   list: () => request('/skills'),
   get: (name) => request(`/skills/${name}`),
@@ -124,6 +135,7 @@ export const debug = {
     if (container) params.set('container', container);
     return request(`/skills/debug/logs/${name}?${params}`);
   },
+  shell: (name, body) => request(`/skills/debug/shell/${name}`, { method: 'POST', body: JSON.stringify(body) }),
   inspect: (name) => request(`/skills/debug/inspect/${name}`),
   stats: (name) => request(`/skills/debug/stats/${name}`),
   events: (since = '1h', limit = 50) => request(`/skills/debug/events?since=${since}&limit=${limit}`),
@@ -153,7 +165,7 @@ export const dbadmin = {
 };
 
 export const system = {
-  prune: () => request('/prune', { method: 'POST' }),
+  prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
 };
 
 export const registries = {

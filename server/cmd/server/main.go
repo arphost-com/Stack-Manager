@@ -50,8 +50,10 @@ func main() {
 
 	jobs := core.NewJobManager(appStore)
 	scheduler := core.NewScheduleManager(engine, jobs, appStore)
+	metricsCollector := core.NewMetricsCollector(engine, appStore, cfg.MetricsInterval, cfg.WarmCacheTTL)
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	scheduler.Start(schedulerCtx)
+	metricsCollector.Start(schedulerCtx)
 	userStore, err := cmauth.NewStore(appStore, cfg.AdminUsername, cfg.AdminPassword)
 	if err != nil {
 		log.Fatalf("users init: %v", err)
@@ -80,6 +82,7 @@ func main() {
 	projectHandler := handlers.NewProjectHandler(engine, jobs, appStore)
 	agentHandler := handlers.NewAgentHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
+	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
 	skillHandler := handlers.NewSkillHandler(registry)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 
@@ -152,6 +155,10 @@ func main() {
 			r.Post("/schedules", scheduleHandler.Save)
 			r.Delete("/schedules/{scheduleID}", scheduleHandler.Delete)
 			r.Post("/schedules/{scheduleID}/run", scheduleHandler.RunNow)
+			r.Get("/metrics/summary", metricsHandler.Summary)
+			r.Get("/metrics/history", metricsHandler.History)
+			r.Get("/metrics/backup-activity", metricsHandler.BackupActivity)
+			r.Post("/metrics/refresh", metricsHandler.Refresh)
 
 			// Skills
 			r.Route("/skills", func(sr chi.Router) {
@@ -190,6 +197,7 @@ func main() {
 	defer cancel()
 
 	stopScheduler()
+	metricsCollector.Stop()
 	registry.ShutdownAll(shutCtx)
 	srv.Shutdown(shutCtx)
 	log.Println("server stopped")

@@ -171,35 +171,57 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 	return result, nil
 }
 
-// Prune runs docker system prune.
-func (e *Engine) Prune() *OpResult {
+// Prune runs a selected Docker prune command.
+func (e *Engine) Prune(mode string) *OpResult {
+	mode = strings.TrimSpace(strings.ToLower(mode))
+	if mode == "" {
+		mode = "safe"
+	}
 	result := &OpResult{
 		Project: "(system)",
-		Action:  "prune",
+		Action:  "prune:" + mode,
 	}
 
 	var outputs []string
-
-	// Image prune
-	imgResult, _ := DockerExec("image", "prune", "-f")
-	if imgResult != nil {
-		outputs = append(outputs, "=== Image Prune ===\n"+imgResult.Stdout+imgResult.Stderr)
+	run := func(label string, args ...string) bool {
+		cmdResult, _ := DockerExec(args...)
+		if cmdResult == nil {
+			outputs = append(outputs, "=== "+label+" ===\nfailed to run command")
+			return false
+		}
+		outputs = append(outputs, "=== "+label+" ===\n"+cmdResult.Stdout+cmdResult.Stderr)
+		if cmdResult.ExitCode != 0 {
+			result.ExitCode = cmdResult.ExitCode
+			return false
+		}
+		return true
 	}
-
-	// Network prune
-	netResult, _ := DockerExec("network", "prune", "-f")
-	if netResult != nil {
-		outputs = append(outputs, "=== Network Prune ===\n"+netResult.Stdout+netResult.Stderr)
+	success := true
+	switch mode {
+	case "safe":
+		success = run("Image Prune", "image", "prune", "-f") && success
+		success = run("Network Prune", "network", "prune", "-f") && success
+		success = run("Volume Prune", "volume", "prune", "-f") && success
+	case "system":
+		success = run("System Prune", "system", "prune", "-f")
+	case "system-all":
+		success = run("System Prune All", "system", "prune", "--all", "--volumes", "-f")
+	case "images":
+		success = run("Image Prune All", "image", "prune", "--all", "-f")
+	case "volumes":
+		success = run("Volume Prune", "volume", "prune", "-f")
+	case "networks":
+		success = run("Network Prune", "network", "prune", "-f")
+	case "builder":
+		success = run("Builder Prune", "builder", "prune", "--all", "-f")
+	default:
+		result.Success = false
+		result.ExitCode = 1
+		result.Output = "unsupported prune mode: " + mode + "\n"
+		return result
 	}
-
-	// Volume prune
-	volResult, _ := DockerExec("volume", "prune", "-f")
-	if volResult != nil {
-		outputs = append(outputs, "=== Volume Prune ===\n"+volResult.Stdout+volResult.Stderr)
-	}
-
 	result.Output = joinOutputs(outputs)
-	result.Success = true
+	result.Success = success
 	return result
 }
 

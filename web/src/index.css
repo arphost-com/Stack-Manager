@@ -41,3 +41,131 @@
     @apply rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100;
   }
 }
+
+html.dark body {
+  background: #0b1220;
+  color: #e5e7eb;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-white {
+  background-color: #0b1220;
+}
+
+html.dark .section-panel,
+html.dark .rounded-md.border,
+html.dark .rounded.border {
+  border-color: #334155;
+  background-color: #111827;
+  box-shadow: none;
+}
+
+html.dark nav {
+  border-color: #334155;
+  background-color: #111827;
+}
+
+html.dark .text-gray-950,
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700 {
+  color: #e5e7eb;
+}
+
+html.dark .text-gray-600,
+html.dark .text-gray-500 {
+  color: #94a3b8;
+}
+
+html.dark .border-gray-300,
+html.dark .border-gray-200,
+html.dark .border-gray-100 {
+  border-color: #334155;
+}
+
+html.dark .input,
+html.dark .textarea {
+  border-color: #475569;
+  background-color: #0f172a;
+  color: #e5e7eb;
+}
+
+html.dark .input::placeholder,
+html.dark .textarea::placeholder {
+  color: #64748b;
+}
+
+html.dark .btn-secondary,
+html.dark .mini-button {
+  border-color: #475569;
+  background-color: #1e293b;
+  color: #e5e7eb;
+}
+
+html.dark .btn-secondary:hover,
+html.dark .mini-button:hover,
+html.dark .hover\:bg-gray-100:hover {
+  background-color: #334155;
+}
+
+html.dark .bg-gray-100 {
+  background-color: #1e293b;
+}
+
+html.dark .bg-blue-100 {
+  background-color: #1e3a8a;
+}
+
+html.dark .text-blue-700,
+html.dark .text-blue-800,
+html.dark .text-blue-900 {
+  color: #93c5fd;
+}
+
+html.dark .bg-green-100 {
+  background-color: #064e3b;
+}
+
+html.dark .text-green-700,
+html.dark .text-green-800 {
+  color: #86efac;
+}
+
+html.dark .bg-amber-100 {
+  background-color: #78350f;
+}
+
+html.dark .text-amber-800 {
+  color: #fcd34d;
+}
+
+html.dark .bg-red-50,
+html.dark .bg-red-100 {
+  background-color: #7f1d1d;
+}
+
+html.dark .text-red-700,
+html.dark .text-red-800,
+html.dark .text-red-900 {
+  color: #fecaca;
+}
+
+html.dark .bg-cyan-100 {
+  background-color: #164e63;
+}
+
+html.dark .text-cyan-800 {
+  color: #a5f3fc;
+}
+
+html.dark .bg-violet-100 {
+  background-color: #4c1d95;
+}
+
+html.dark .text-violet-800 {
+  color: #ddd6fe;
+}
+
+html.dark .bg-gray-950 {
+  background-color: #020617;
+}

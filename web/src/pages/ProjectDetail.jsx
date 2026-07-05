@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { projects, jobs, debug as debugApi, security, backup, dbadmin } from '../api/client';
 
-const TABS = ['overview', 'sessions', 'sources', 'logs', 'stats', 'security', 'backups', 'databases', 'inspect', 'processes'];
+const TABS = ['overview', 'sessions', 'sources', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull and recreate containers, unless an update hook exists.' },
   { key: 'pull', label: 'Pull', title: 'Pull images without restarting containers.' },
@@ -24,6 +24,8 @@ export default function ProjectDetail() {
   const [policyForm, setPolicyForm] = useState({ mode: 'auto', notes: '' });
   const [backupDestinationId, setBackupDestinationId] = useState('');
   const [backupDestinations, setBackupDestinations] = useState([]);
+  const [shellForm, setShellForm] = useState({ command: 'ps', tail: 200, timeout: 300 });
+  const [shellResult, setShellResult] = useState(null);
 
   const fetchProject = async () => {
     try {
@@ -63,6 +65,7 @@ export default function ProjectDetail() {
         case 'sessions': res = await jobs.list(); break;
         case 'logs': res = await debugApi.logs(name, logOptions.tail, logOptions.container || undefined); break;
         case 'stats': res = await debugApi.stats(name); break;
+        case 'shell': res = { data: shellResult }; break;
         case 'security': res = await security.scan(name); break;
         case 'backups': res = await backup.listProject(name); break;
         case 'databases': res = await dbadmin.health(name); break;
@@ -153,6 +156,20 @@ export default function ProjectDetail() {
     }
   };
 
+  const runShell = async (event) => {
+    event.preventDefault();
+    setShellResult({ running: true, output: 'Running...' });
+    try {
+      const res = await debugApi.shell(name, shellForm);
+      setShellResult(res.data);
+      setTabData(res.data);
+    } catch (err) {
+      const failed = { success: false, error: err.message, output: err.message };
+      setShellResult(failed);
+      setTabData(failed);
+    }
+  };
+
   if (loading) return <div className="text-center py-12 text-gray-500">Loading project...</div>;
   if (!project) return <div className="text-center py-12 text-red-700">Project not found</div>;
 
@@ -229,6 +246,10 @@ export default function ProjectDetail() {
                 Watch
               </label>
             </div>
+          )}
+
+          {activeTab === 'shell' && (
+            <ShellPanel form={shellForm} setForm={setShellForm} result={shellResult || tabData} runShell={runShell} />
           )}
 
           {tabLoading && <div className="py-8 text-center text-gray-500">Loading...</div>}
@@ -382,6 +403,49 @@ function Stats({ data }) {
         </div>
       ))}
       {(!data?.stats || data.stats.length === 0) && <div className="py-6 text-gray-500">No running containers to measure.</div>}
+    </div>
+  );
+}
+
+function ShellPanel({ form, setForm, result, runShell }) {
+  const commands = [
+    { value: 'ps', label: 'Compose ps', title: 'Show project container state.' },
+    { value: 'config', label: 'Validate config', title: 'Run docker compose config.' },
+    { value: 'up', label: 'Start', title: 'Run docker compose up -d.' },
+    { value: 'recreate', label: 'Recreate network + start', title: 'Run docker compose down --remove-orphans, then docker compose up -d. Useful for stale Docker network errors.' },
+    { value: 'pull', label: 'Pull', title: 'Run docker compose pull.' },
+    { value: 'restart', label: 'Restart', title: 'Run docker compose restart.' },
+    { value: 'logs', label: 'Logs', title: 'Run docker compose logs with timestamps.' },
+    { value: 'down', label: 'Stop', title: 'Run docker compose down.' },
+  ];
+  return (
+    <div className="space-y-4">
+      <form onSubmit={runShell} className="grid gap-3 md:grid-cols-[260px_120px_120px_auto] md:items-end">
+        <Field label="Command" title="Scoped troubleshooting command. Raw shell input is not accepted.">
+          <select className="input" value={form.command} onChange={e => setForm({ ...form, command: e.target.value })}>
+            {commands.map(command => <option key={command.value} value={command.value}>{command.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Tail" title="Log lines for the Logs command.">
+          <input className="input" type="number" min="1" max="2000" value={form.tail} onChange={e => setForm({ ...form, tail: Number(e.target.value) })} />
+        </Field>
+        <Field label="Timeout" title="Seconds before the troubleshooting command is stopped.">
+          <input className="input" type="number" min="1" max="600" value={form.timeout} onChange={e => setForm({ ...form, timeout: Number(e.target.value) })} />
+        </Field>
+        <button className="btn-secondary" title={commands.find(c => c.value === form.command)?.title || 'Run command'}>Run</button>
+      </form>
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        Commands run from this project directory using Docker Compose. For root-owned projects, make the compose files readable by the Compose Manager service UID or manage them from a root-capable agent.
+      </div>
+      {result && (
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-sm">
+            <Badge tone={result.success ? 'green' : result.running ? 'blue' : 'red'}>{result.running ? 'running' : result.success ? 'success' : 'failed'}</Badge>
+            {typeof result.exit_code === 'number' && <span className="text-gray-500">exit {result.exit_code}</span>}
+          </div>
+          <pre className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs text-gray-100 whitespace-pre-wrap">{result.output || result.error || ''}</pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -556,6 +620,7 @@ function tabTitle(tab) {
     sources: 'Classify custom builds, public registry images, and private images.',
     logs: 'Read docker compose logs with optional container and tail filters.',
     stats: 'Show docker stats for running containers.',
+    shell: 'Run scoped troubleshooting commands in this project directory.',
     security: 'Scan images and audit compose configuration.',
     backups: 'List, restore, and delete project backups.',
     databases: 'Check supported database containers.',

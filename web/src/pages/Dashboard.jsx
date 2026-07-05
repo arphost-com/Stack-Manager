@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, jobs, skills as skillsApi, system, registries, stackTemplates, agents as agentsApi, schedules as schedulesApi } from '../api/client';
+import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi } from '../api/client';
 
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull newer images, then recreate containers. Projects with update hooks run only their hook.' },
@@ -13,9 +13,10 @@ const ACTIONS = [
 export default function Dashboard() {
   const [projectList, setProjectList] = useState([]);
   const [skillList, setSkillList] = useState([]);
-  const [templateList, setTemplateList] = useState([]);
   const [agentList, setAgentList] = useState([]);
   const [scheduleList, setScheduleList] = useState([]);
+  const [metricsSummary, setMetricsSummary] = useState(null);
+  const [metricsHistory, setMetricsHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionResult, setActionResult] = useState(null);
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [filters, setFilters] = useState({ includeInactive: true, runningOnly: false, query: '' });
   const [quickFilter, setQuickFilter] = useState('all');
   const [timeout, setTimeoutValue] = useState(300);
+  const [pruneMode, setPruneMode] = useState('safe');
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: '',
@@ -46,18 +48,20 @@ export default function Dashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [projRes, skillRes, templateRes, agentRes, scheduleRes] = await Promise.all([
+      const [projRes, skillRes, agentRes, scheduleRes, metricsRes, historyRes] = await Promise.all([
         projects.list({ include_inactive: filters.includeInactive ? 'true' : 'false', running_only: filters.runningOnly ? 'true' : 'false' }),
         skillsApi.list(),
-        stackTemplates.list(),
         agentsApi.list(),
         schedulesApi.list(),
+        metricsApi.summary(),
+        metricsApi.history(24),
       ]);
       setProjectList(projRes.data || []);
       setSkillList(skillRes.data || []);
-      setTemplateList(templateRes.data || []);
       setAgentList(agentRes.data || []);
       setScheduleList(scheduleRes.data || []);
+      setMetricsSummary(metricsRes.data || null);
+      setMetricsHistory(historyRes.data || []);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -165,18 +169,6 @@ export default function Dashboard() {
     } catch (err) {
       setActionResult({ label: `create ${createForm.name}`, status: 'error', error: err.message });
     }
-  };
-
-  const useTemplate = async (template) => {
-    setCreateForm({
-      name: template.id,
-      compose_content: template.compose_content,
-      env_content: template.env_content || '',
-      inactive: false,
-      overwrite: false,
-    });
-    setShowCreate(true);
-    setActionResult({ label: `template ${template.name}`, status: 'done', result: { output: template.notes || 'Template loaded into the project editor.' } });
   };
 
   const saveSchedule = async (event) => {
@@ -291,16 +283,26 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="brand-wordmark text-4xl text-blue-900">ARPHost Compose Manager</h1>
+          <h1 className="text-2xl font-semibold text-gray-950">Compose Manager</h1>
           <p className="text-sm text-gray-600">Manage compose projects from the configured Docker root.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button title="Refresh project discovery, status, containers, hooks, and image sources." onClick={fetchData} className="btn-secondary">Refresh</button>
           <button title="Create a new project directory with a compose.yml file." onClick={() => setShowCreate(!showCreate)} className="btn-primary">Create Project</button>
-          <button title="Remove unused Docker images, networks, and volumes on this host." onClick={async () => {
+          <select value={pruneMode} onChange={e => setPruneMode(e.target.value)} className="input w-56" title="Choose which Docker prune command to run.">
+            <option value="safe">Safe: images, networks, volumes</option>
+            <option value="system">System prune</option>
+            <option value="system-all">System prune --all --volumes</option>
+            <option value="images">Images --all</option>
+            <option value="volumes">Volumes</option>
+            <option value="networks">Networks</option>
+            <option value="builder">Builder cache --all</option>
+          </select>
+          <button title="Run the selected Docker prune command on this host." onClick={async () => {
+            if (pruneMode === 'system-all' && !window.confirm('Run docker system prune --all --volumes? This removes unused images, build cache, networks, and volumes.')) return;
             setActionResult({ label: 'system prune', status: 'running' });
             try {
-              const res = await system.prune();
+              const res = await system.prune(pruneMode);
               setActionResult({ label: 'system prune', status: 'done', result: res.data });
             } catch (err) {
               setActionResult({ label: 'system prune', status: 'error', error: err.message });
@@ -318,36 +320,20 @@ export default function Dashboard() {
         <StatCard label="Custom builds" value={customServices} active={quickFilter === 'custom'} title="Show projects with custom build services." onClick={() => setSummaryFilter('custom')} />
       </div>
 
-      {actionResult && <ActionResult result={actionResult} onDismiss={() => setActionResult(null)} />}
+      <MetricsPanel summary={metricsSummary} history={metricsHistory} onRefresh={async () => {
+        setActionResult({ label: 'metrics refresh', status: 'running' });
+        try {
+          const res = await metricsApi.refresh();
+          const hist = await metricsApi.history(24);
+          setMetricsSummary(res.data || null);
+          setMetricsHistory(hist.data || []);
+          setActionResult({ label: 'metrics refresh', status: 'done' });
+        } catch (err) {
+          setActionResult({ label: 'metrics refresh', status: 'error', error: err.message });
+        }
+      }} />
 
-      <div className="section-panel">
-        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-950">Stack Catalog</h2>
-            <p className="text-sm text-gray-600">Pick a common stack, edit the generated compose.yml and .env, then create it.</p>
-          </div>
-          <Badge tone="blue">{templateList.length} templates</Badge>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {templateList.map(template => (
-            <div key={template.id} className="rounded-md border border-gray-200 p-3 text-sm">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium text-gray-950">{template.name}</div>
-                  <div className="mt-1 text-xs text-gray-500">{template.description}</div>
-                </div>
-                <Badge tone="gray">{template.category}</Badge>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {(template.tags || []).slice(0, 3).map(tag => <Badge key={tag} tone="cyan">{tag}</Badge>)}
-              </div>
-              <button title="Load this stack into the create-project editor so you can review and edit it before writing files." onClick={() => useTemplate(template)} className="mini-button mt-3">
-                Use
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
+      {actionResult && <ActionResult result={actionResult} onDismiss={() => setActionResult(null)} />}
 
       {showCreate && (
         <form onSubmit={createProject} className="section-panel space-y-4">
@@ -607,6 +593,159 @@ export default function Dashboard() {
   );
 }
 
+function MetricsPanel({ summary, history, onRefresh }) {
+  const lastSample = summary?.last_sampled_at ? new Date(summary.last_sampled_at).toLocaleString() : 'No samples yet';
+  const hostHistory = aggregateHistory(history);
+  return (
+    <div className="section-panel">
+      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-950">Operations History</h2>
+          <p className="text-sm text-gray-600">Background sampled every 15-30 minutes. Last sample: {lastSample}</p>
+        </div>
+        <button title="Run project cache warmup and metrics collection now." onClick={onRefresh} className="btn-secondary">Refresh Metrics</button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard label="Containers" value={summary?.container_count || 0} />
+        <MetricCard label="CPU avg" value={`${(summary?.cpu_percent_avg || 0).toFixed(1)}%`} />
+        <MetricCard label="Memory avg" value={`${(summary?.memory_percent_avg || 0).toFixed(1)}%`} />
+        <MetricCard label="Inbound" value={formatBytes(summary?.net_rx_bytes || 0)} />
+        <MetricCard label="Outbound" value={formatBytes(summary?.net_tx_bytes || 0)} />
+        <MetricCard label="Backups 24h" value={summary?.backup_count_24h || 0} sub={formatBytes(summary?.backup_bytes_24h || 0)} />
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <LineChart
+          title="CPU and memory trend"
+          points={hostHistory}
+          series={[
+            { key: 'cpu_percent_avg', label: 'CPU %', color: '#2563eb' },
+            { key: 'memory_percent_avg', label: 'Memory %', color: '#16a34a' },
+          ]}
+          valueSuffix="%"
+        />
+        <LineChart
+          title="Network traffic counters"
+          points={hostHistory}
+          series={[
+            { key: 'net_rx_bytes', label: 'Inbound', color: '#0891b2' },
+            { key: 'net_tx_bytes', label: 'Outbound', color: '#dc2626' },
+          ]}
+          formatter={formatBytes}
+        />
+      </div>
+      <BackupActivity activity={summary?.backup_activity_24h || []} />
+    </div>
+  );
+}
+
+function aggregateHistory(points) {
+  const grouped = new Map();
+  for (const point of points || []) {
+    const key = point.sampled_at;
+    const current = grouped.get(key) || {
+      sampled_at: key,
+      container_count: 0,
+      cpu_weighted: 0,
+      memory_weighted: 0,
+      memory_usage_bytes: 0,
+      net_rx_bytes: 0,
+      net_tx_bytes: 0,
+    };
+    const count = Number(point.container_count || 0);
+    current.container_count += count;
+    current.cpu_weighted += Number(point.cpu_percent_avg || 0) * count;
+    current.memory_weighted += Number(point.memory_percent_avg || 0) * count;
+    current.memory_usage_bytes += Number(point.memory_usage_bytes || 0);
+    current.net_rx_bytes += Number(point.net_rx_bytes || 0);
+    current.net_tx_bytes += Number(point.net_tx_bytes || 0);
+    grouped.set(key, current);
+  }
+  return Array.from(grouped.values()).map(point => ({
+    sampled_at: point.sampled_at,
+    container_count: point.container_count,
+    cpu_percent_avg: point.container_count ? point.cpu_weighted / point.container_count : 0,
+    memory_percent_avg: point.container_count ? point.memory_weighted / point.container_count : 0,
+    memory_usage_bytes: point.memory_usage_bytes,
+    net_rx_bytes: point.net_rx_bytes,
+    net_tx_bytes: point.net_tx_bytes,
+  }));
+}
+
+function MetricCard({ label, value, sub }) {
+  return (
+    <div className="rounded-md border border-gray-200 p-3">
+      <div className="text-lg font-semibold text-gray-950">{value}</div>
+      <div className="text-xs text-gray-500">{label}</div>
+      {sub && <div className="mt-1 text-xs text-gray-500">{sub}</div>}
+    </div>
+  );
+}
+
+function LineChart({ title, points, series, formatter, valueSuffix = '' }) {
+  const width = 720;
+  const height = 190;
+  const pad = 28;
+  const values = points.flatMap(p => series.map(s => Number(p[s.key] || 0)));
+  const max = Math.max(1, ...values);
+  const x = (i) => points.length <= 1 ? pad : pad + (i * (width - pad * 2)) / (points.length - 1);
+  const y = (value) => height - pad - (Number(value || 0) / max) * (height - pad * 2);
+  const label = formatter ? formatter(max) : `${max.toFixed(1)}${valueSuffix}`;
+  return (
+    <div className="rounded-md border border-gray-200 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-950">{title}</h3>
+        <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+          {series.map(s => <span key={s.key}><span style={{ backgroundColor: s.color }} className="mr-1 inline-block h-2 w-2 rounded-full" />{s.label}</span>)}
+        </div>
+      </div>
+      {points.length === 0 ? (
+        <div className="py-12 text-center text-sm text-gray-500">No history collected yet.</div>
+      ) : (
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} className="h-52 w-full">
+          <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="#94a3b8" strokeWidth="1" />
+          <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="#94a3b8" strokeWidth="1" />
+          <text x={pad + 4} y={pad - 8} fill="#64748b" fontSize="12">{label}</text>
+          {series.map(s => (
+            <polyline
+              key={s.key}
+              fill="none"
+              stroke={s.color}
+              strokeWidth="2.5"
+              points={points.map((p, i) => `${x(i)},${y(p[s.key])}`).join(' ')}
+            />
+          ))}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+function BackupActivity({ activity }) {
+  const max = Math.max(1, ...activity.map(p => (p.backups || 0) + (p.restores || 0) + (p.uploads || 0)));
+  return (
+    <div className="mt-4 rounded-md border border-gray-200 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-950">Backup and restore activity</h3>
+        <span className="text-xs text-gray-500">24h</span>
+      </div>
+      {activity.length === 0 ? (
+        <div className="py-8 text-center text-sm text-gray-500">No backup activity recorded yet.</div>
+      ) : (
+        <div className="flex h-28 items-end gap-1">
+          {activity.map(point => {
+            const total = (point.backups || 0) + (point.restores || 0) + (point.uploads || 0);
+            return (
+              <div key={point.bucket_start} title={`${new Date(point.bucket_start).toLocaleString()}: ${total} events`} className="flex flex-1 items-end">
+                <div className="w-full rounded-t bg-blue-600" style={{ height: `${Math.max(8, (total / max) * 100)}%` }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SourceSummary({ sources }) {
   const registry = sources.filter(s => s.source_type === 'registry').length;
   const custom = sources.filter(s => s.source_type === 'custom').length;
@@ -619,6 +758,19 @@ function SourceSummary({ sources }) {
       {sources.length === 0 && <span className="text-gray-400">not parsed</span>}
     </div>
   );
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unit]}`;
 }
 
 function StatCard({ label, value, active, title, onClick }) {
