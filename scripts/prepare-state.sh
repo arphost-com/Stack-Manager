@@ -5,6 +5,10 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(dirname "${script_dir}")"
 env_file="${1:-${project_root}/.env}"
 example_env="${project_root}/.env.example"
+case "${env_file}" in
+  /*) ;;
+  *) env_file="$(pwd)/${env_file}" ;;
+esac
 
 rand_secret() {
   if command -v openssl >/dev/null 2>&1; then
