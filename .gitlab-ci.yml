@@ -259,7 +259,8 @@ deploy:docker02:
       SH
     - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --user root --entrypoint sh mariadb -c "chown -R mysql:mysql /var/lib/mysql"' sh "${DEPLOY_PATH}"
     - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --user root --entrypoint sh redis -c "chown -R redis:redis /data"' sh "${DEPLOY_PATH}"
-    - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml up -d --build --remove-orphans' sh "${DEPLOY_PATH}"
+    - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml up -d --build --remove-orphans --force-recreate state-init server web' sh "${DEPLOY_PATH}"
+    - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml up -d --no-build mariadb redis' sh "${DEPLOY_PATH}"
 
 smoke:docker02:
   stage: smoke
@@ -270,12 +271,31 @@ smoke:docker02:
   script:
     - export SMOKE_API_KEY="$(sudo -n -u "${DEPLOY_USER}" awk -F= '$1 == "API_KEY" { sub(/^[^=]*=/, ""); print; exit }' "${DEPLOY_PATH}/.env")"
     - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml ps' sh "${DEPLOY_PATH}"
-    - curl -fsS "http://127.0.0.1:${WEB_PORT}/health"
     - |
-      curl -fsS \
-        -H "X-API-Key: ${SMOKE_API_KEY}" \
-        "http://127.0.0.1:${WEB_PORT}/api/v1/projects" \
-        >"${CI_PROJECT_DIR}/compose-manager-projects.json"
+      for i in $(seq 1 60); do
+        if curl -fsS "http://127.0.0.1:${WEB_PORT}/health"; then
+          break
+        fi
+        if [ "$i" -eq 60 ]; then
+          sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml ps && docker compose --env-file .env -f docker-compose.yml logs --tail=120 server web mariadb redis state-init' sh "${DEPLOY_PATH}"
+          exit 1
+        fi
+        sleep 2
+      done
+    - |
+      for i in $(seq 1 30); do
+        if curl -fsS \
+          -H "X-API-Key: ${SMOKE_API_KEY}" \
+          "http://127.0.0.1:${WEB_PORT}/api/v1/projects" \
+          >"${CI_PROJECT_DIR}/compose-manager-projects.json"; then
+          break
+        fi
+        if [ "$i" -eq 30 ]; then
+          sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml logs --tail=120 server web' sh "${DEPLOY_PATH}"
+          exit 1
+        fi
+        sleep 2
+      done
     - sudo -n find "${DEPLOY_PATH}" "${STATE_DIR}" -maxdepth 2 -printf '%M %u:%g %p\n'
 
 push:github:
