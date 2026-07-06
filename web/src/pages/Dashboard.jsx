@@ -2,6 +2,21 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi } from '../api/client';
 
+// Client-side snapshot cache so the Dashboard paints the last-known state
+// immediately on mount, then refreshes in the background. Keyed by the
+// filter combo so include-inactive / running-only don't leak into each other.
+const SNAPSHOT_VERSION = 1;
+const snapshotKey = (filters) => `cm_dashboard_v${SNAPSHOT_VERSION}_${filters.includeInactive ? 1 : 0}_${filters.runningOnly ? 1 : 0}`;
+const readSnapshot = (filters) => {
+  try {
+    const raw = localStorage.getItem(snapshotKey(filters));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+const writeSnapshot = (filters, data) => {
+  try { localStorage.setItem(snapshotKey(filters), JSON.stringify({ ...data, cached_at: Date.now() })); } catch {}
+};
+
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull newer images, then recreate containers. Projects with update hooks run only their hook.' },
   { key: 'pull', label: 'Pull', title: 'Download newer images without recreating containers.' },
@@ -21,21 +36,36 @@ const PRUNE_MODES = [
 ];
 
 export default function Dashboard() {
-  const [projectList, setProjectList] = useState([]);
-  const [skillList, setSkillList] = useState([]);
-  const [agentList, setAgentList] = useState([]);
-  const [scheduleList, setScheduleList] = useState([]);
-  const [metricsSummary, setMetricsSummary] = useState(null);
-  const [metricsHistory, setMetricsHistory] = useState([]);
-  const [backupList, setBackupList] = useState([]);
-  const [backupDestinations, setBackupDestinations] = useState([]);
-  const [backupSchedules, setBackupSchedules] = useState([]);
+  // Initial state hydrates from localStorage snapshot when one exists so
+  // the page paints instantly on a return visit.
+  const initialFilters = { includeInactive: true, runningOnly: false, query: '' };
+  const initialSnapshot = readSnapshot(initialFilters);
+  const [projectList, setProjectList] = useState(initialSnapshot?.projectList || []);
+  const [skillList, setSkillList] = useState(initialSnapshot?.skillList || []);
+  const [agentList, setAgentList] = useState(initialSnapshot?.agentList || []);
+  const [scheduleList, setScheduleList] = useState(initialSnapshot?.scheduleList || []);
+  const [metricsSummary, setMetricsSummary] = useState(initialSnapshot?.metricsSummary || null);
+  const [metricsHistory, setMetricsHistory] = useState(initialSnapshot?.metricsHistory || []);
+  const [backupList, setBackupList] = useState(initialSnapshot?.backupList || []);
+  const [backupDestinations, setBackupDestinations] = useState(initialSnapshot?.backupDestinations || []);
+  const [backupSchedules, setBackupSchedules] = useState(initialSnapshot?.backupSchedules || []);
   const [mainTab, setMainTab] = useState('projects');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialSnapshot);
+  const [refreshing, setRefreshing] = useState(false);
+  // Tracks in-flight actions so the specific button that was clicked can show
+  // a spinner and disabled state instead of leaving the user guessing.
+  // Keys: `${project}:${action}` for per-row; `bulk:${action}` for bulk bar.
+  const [pendingActions, setPendingActions] = useState(new Set());
+  const markPending = (key, on) => setPendingActions(prev => {
+    const next = new Set(prev);
+    if (on) next.add(key); else next.delete(key);
+    return next;
+  });
+  const isPending = (key) => pendingActions.has(key);
   const [error, setError] = useState(null);
   const [actionResult, setActionResult] = useState(null);
   const [selected, setSelected] = useState([]);
-  const [filters, setFilters] = useState({ includeInactive: true, runningOnly: false, query: '' });
+  const [filters, setFilters] = useState(initialFilters);
   const [quickFilter, setQuickFilter] = useState('all');
   const [updatePageSize, setUpdatePageSize] = useState(10);
   const [updatePage, setUpdatePage] = useState(1);
@@ -73,9 +103,9 @@ export default function Dashboard() {
     interval_minutes: 1440,
   });
 
-  const fetchData = async () => {
+  const fetchData = async ({ background = false } = {}) => {
     try {
-      setLoading(true);
+      if (background) setRefreshing(true); else setLoading(true);
       const [projRes, skillRes, agentRes, scheduleRes, metricsRes, historyRes, backupRes, backupDestRes, backupScheduleRes] = await Promise.all([
         projects.list({ include_inactive: filters.includeInactive ? 'true' : 'false', running_only: filters.runningOnly ? 'true' : 'false' }),
         skillsApi.list(),
@@ -87,24 +117,56 @@ export default function Dashboard() {
         backupApi.destinations(),
         backupApi.schedules(),
       ]);
-      setProjectList(projRes.data || []);
-      setSkillList(skillRes.data || []);
-      setAgentList(agentRes.data || []);
-      setScheduleList(scheduleRes.data || []);
-      setMetricsSummary(metricsRes.data || null);
-      setMetricsHistory(historyRes.data || []);
-      setBackupList(backupRes.data || []);
-      setBackupDestinations(backupDestRes.data || []);
-      setBackupSchedules(backupScheduleRes.data || []);
+      const fresh = {
+        projectList: projRes.data || [],
+        skillList: skillRes.data || [],
+        agentList: agentRes.data || [],
+        scheduleList: scheduleRes.data || [],
+        metricsSummary: metricsRes.data || null,
+        metricsHistory: historyRes.data || [],
+        backupList: backupRes.data || [],
+        backupDestinations: backupDestRes.data || [],
+        backupSchedules: backupScheduleRes.data || [],
+      };
+      setProjectList(fresh.projectList);
+      setSkillList(fresh.skillList);
+      setAgentList(fresh.agentList);
+      setScheduleList(fresh.scheduleList);
+      setMetricsSummary(fresh.metricsSummary);
+      setMetricsHistory(fresh.metricsHistory);
+      setBackupList(fresh.backupList);
+      setBackupDestinations(fresh.backupDestinations);
+      setBackupSchedules(fresh.backupSchedules);
+      writeSnapshot(filters, fresh);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      // Preserve cached data on background failures so a blip doesn't blank the page.
+      if (!background) setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => { fetchData(); }, [filters.includeInactive, filters.runningOnly]);
+  // On mount (or filter change) do a background refresh if we already have
+  // cached data, otherwise show the loading state.
+  useEffect(() => {
+    const snapshot = readSnapshot(filters);
+    if (snapshot) {
+      setProjectList(snapshot.projectList || []);
+      setSkillList(snapshot.skillList || []);
+      setAgentList(snapshot.agentList || []);
+      setScheduleList(snapshot.scheduleList || []);
+      setMetricsSummary(snapshot.metricsSummary || null);
+      setMetricsHistory(snapshot.metricsHistory || []);
+      setBackupList(snapshot.backupList || []);
+      setBackupDestinations(snapshot.backupDestinations || []);
+      setBackupSchedules(snapshot.backupSchedules || []);
+      fetchData({ background: true });
+    } else {
+      fetchData();
+    }
+  }, [filters.includeInactive, filters.runningOnly]);
 
   const filteredProjects = projectList.filter((p) => {
     const q = filters.query.trim().toLowerCase();
@@ -137,16 +199,19 @@ export default function Dashboard() {
   };
 
   const runAction = async (name, action) => {
+    const key = `${name}:${action}`;
+    markPending(key, true);
     try {
       const res = await projects.startJob(name, action, timeout);
       setActionResult({ label: `${action} ${name}`, status: 'running', job: res.data });
-      pollJob(res.data.id, `${action} ${name}`);
+      pollJob(res.data.id, `${action} ${name}`, key);
     } catch (err) {
       setActionResult({ label: `${action} ${name}`, status: 'error', error: err.message });
+      markPending(key, false);
     }
   };
 
-  const pollJob = (jobId, label) => {
+  const pollJob = (jobId, label, pendingKey) => {
     const tick = async () => {
       try {
         const res = await jobs.get(jobId);
@@ -155,17 +220,21 @@ export default function Dashboard() {
         if (job.status === 'running') {
           window.setTimeout(tick, 1500);
         } else {
+          if (pendingKey) markPending(pendingKey, false);
           fetchData();
         }
       } catch (err) {
         setActionResult({ label, status: 'error', error: err.message });
+        if (pendingKey) markPending(pendingKey, false);
       }
     };
     window.setTimeout(tick, 750);
   };
 
   const runBulk = async (action) => {
+    const key = `bulk:${action}`;
     const targets = selected.length > 0 ? selected : filteredProjects.map(p => p.name);
+    markPending(key, true);
     try {
       setActionResult({ label: `${action} ${targets.length} project${targets.length === 1 ? '' : 's'}`, status: 'running' });
       const res = await projects.bulk(action, { projects: targets, timeout });
@@ -174,6 +243,8 @@ export default function Dashboard() {
       fetchData();
     } catch (err) {
       setActionResult({ label: `bulk ${action}`, status: 'error', error: err.message });
+    } finally {
+      markPending(key, false);
     }
   };
 
@@ -571,7 +642,8 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-wrap gap-2">
             {ACTIONS.map(action => (
-              <button key={action.key} title={`${action.title} Applies to selected rows, or the current filtered list if none are selected.`} onClick={() => runBulk(action.key)} className={action.key === 'down' ? 'btn-danger' : 'btn-secondary'}>
+              <button key={action.key} disabled={isPending(`bulk:${action.key}`)} title={`${action.title} Applies to selected rows, or the current filtered list if none are selected.`} onClick={() => runBulk(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} inline-flex items-center gap-2`}>
+                {isPending(`bulk:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
                 {action.label} {selected.length || filteredProjects.length}
               </button>
             ))}
@@ -612,7 +684,8 @@ export default function Dashboard() {
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
                       {ACTIONS.map(action => (
-                        <button key={action.key} title={action.key === 'update' && p.update_policy?.effective_policy === 'no_updates' ? 'Updates are disabled for this project; this records a skipped session.' : action.title} onClick={() => runAction(p.name, action.key)} className={action.key === 'down' ? 'mini-danger' : 'mini-button'}>
+                        <button key={action.key} disabled={isPending(`${p.name}:${action.key}`)} title={action.key === 'update' && p.update_policy?.effective_policy === 'no_updates' ? 'Updates are disabled for this project; this records a skipped session.' : action.title} onClick={() => runAction(p.name, action.key)} className={`${action.key === 'down' ? 'mini-danger' : 'mini-button'} inline-flex items-center gap-1`}>
+                          {isPending(`${p.name}:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
                           {action.label}
                         </button>
                       ))}
