@@ -25,6 +25,53 @@ type RegistryLogin struct {
 	StoredIn     string `json:"stored_in"`     // path to the docker config that holds this auth
 }
 
+// HasStoredAuthForRegistry reports whether the docker config already has an
+// auth entry that would be sent to the given image registry. The image
+// registry format follows parseImageReference (docker.io / hostname[:port])
+// while the config keys are the canonical Docker forms
+// (https://index.docker.io/v1/ / hostname[:port]).
+func HasStoredAuthForRegistry(registry string) bool {
+	registry = strings.TrimSpace(registry)
+	if registry == "" {
+		return false
+	}
+	logins, err := ListSavedRegistryLogins()
+	if err != nil {
+		return false
+	}
+	for _, login := range logins {
+		if registryMatchesLogin(registry, login.Registry) {
+			return true
+		}
+	}
+	return false
+}
+
+func registryMatchesLogin(imageRegistry, loginRegistry string) bool {
+	if imageRegistry == "" || loginRegistry == "" {
+		return false
+	}
+	// Docker Hub is stored under one of several forms in config.json.
+	dockerHubLogin := loginRegistry == "https://index.docker.io/v1/" ||
+		loginRegistry == "https://index.docker.io/v2/" ||
+		loginRegistry == "index.docker.io" ||
+		loginRegistry == "docker.io"
+	if imageRegistry == "docker.io" && dockerHubLogin {
+		return true
+	}
+	// Normalize away scheme prefixes so registry.example.com matches
+	// https://registry.example.com/v1/.
+	normalize := func(s string) string {
+		s = strings.TrimPrefix(s, "https://")
+		s = strings.TrimPrefix(s, "http://")
+		if idx := strings.Index(s, "/"); idx >= 0 {
+			s = s[:idx]
+		}
+		return s
+	}
+	return normalize(imageRegistry) == normalize(loginRegistry)
+}
+
 // ListSavedRegistryLogins reads the docker config from DOCKER_CONFIG (or the
 // default location) and returns each saved login with the password redacted.
 func ListSavedRegistryLogins() ([]RegistryLogin, error) {

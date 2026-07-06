@@ -68,6 +68,10 @@ func (e *Engine) ImageSources(project *Project) []ImageSource {
 }
 
 // CheckImageSources returns service image metadata and probes registry access.
+// Optimized to hit Docker Hub as little as possible: when a saved auth exists
+// for the image's registry we skip the anonymous probe entirely, so a logged
+// in user consumes ~half as many pulls as before. Every result is cached in
+// process for 24 hours (see manifestCache).
 func (e *Engine) CheckImageSources(project *Project) []ImageSource {
 	sources := e.ImageSources(project)
 	for i := range sources {
@@ -82,26 +86,32 @@ func (e *Engine) CheckImageSources(project *Project) []ImageSource {
 			continue
 		}
 
+		if HasStoredAuthForRegistry(sources[i].Registry) {
+			// Logged in for this registry: authenticated probe is enough,
+			// skip the anonymous call so we do not double-charge the pull
+			// budget just to detect "is this image public".
+			authOK, authMsg := manifestInspect(sources[i].Image, false)
+			if authOK {
+				sources[i].Access = "authenticated"
+				sources[i].Message = "registry manifest is reachable with saved credentials"
+				continue
+			}
+			sources[i].Access = classifyRegistryFailure(authMsg)
+			sources[i].Message = strings.TrimSpace(authMsg)
+			continue
+		}
+
+		// No stored auth for this registry, so an anonymous check is the
+		// only signal we have. On success we know it is public; on failure
+		// the user needs to log in.
 		anonymousOK, anonymousMsg := manifestInspect(sources[i].Image, true)
 		if anonymousOK {
 			sources[i].Access = "public"
 			sources[i].Message = "registry manifest is reachable without credentials"
 			continue
 		}
-
-		authOK, authMsg := manifestInspect(sources[i].Image, false)
-		if authOK {
-			sources[i].Access = "private-authenticated"
-			sources[i].Message = "registry manifest is reachable with current Docker credentials"
-			continue
-		}
-
-		sources[i].Access = classifyRegistryFailure(anonymousMsg, authMsg)
-		if strings.TrimSpace(authMsg) != "" {
-			sources[i].Message = strings.TrimSpace(authMsg)
-		} else {
-			sources[i].Message = strings.TrimSpace(anonymousMsg)
-		}
+		sources[i].Access = classifyRegistryFailure(anonymousMsg)
+		sources[i].Message = strings.TrimSpace(anonymousMsg)
 	}
 	return sources
 }
