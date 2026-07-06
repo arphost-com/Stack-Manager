@@ -22,13 +22,16 @@ type dockerDaemonSaveRequest struct {
 }
 
 type dockerDaemonResponse struct {
-	Path            string                 `json:"path"`
-	Exists          bool                   `json:"exists"`
-	Config          map[string]interface{} `json:"config"`
-	Raw             string                 `json:"raw"`
-	Backup          string                 `json:"backup,omitempty"`
-	RestartRequired bool                   `json:"restart_required"`
-	Warnings        []string               `json:"warnings,omitempty"`
+	Path              string                 `json:"path"`
+	Exists            bool                   `json:"exists"`
+	Config            map[string]interface{} `json:"config"`
+	Raw               string                 `json:"raw"`
+	Backup            string                 `json:"backup,omitempty"`
+	RestartRequired   bool                   `json:"restart_required"`
+	NetworkChange     bool                   `json:"network_change"`
+	NetworkFields     []string               `json:"network_fields,omitempty"`
+	TeardownGuide     []string               `json:"teardown_guide,omitempty"`
+	Warnings          []string               `json:"warnings,omitempty"`
 }
 
 func NewDockerSettingsHandler(daemonDir, baseImagePrefix string) *DockerSettingsHandler {
@@ -81,13 +84,25 @@ func (h *DockerSettingsHandler) SaveDaemon(w http.ResponseWriter, r *http.Reques
 	if config == nil {
 		config = map[string]interface{}{}
 	}
+
+	// Snapshot the previous config before overwriting so we can diff the
+	// network-affecting keys. A simple restart is not enough for those - the
+	// bridge and every user network has to be torn down and rebuilt or the
+	// new settings never actually take effect.
+	previousRaw, _, _ := h.readDaemonJSON()
+	previousConfig := map[string]interface{}{}
+	if strings.TrimSpace(previousRaw) != "" {
+		_ = json.Unmarshal([]byte(previousRaw), &previousConfig)
+	}
+
 	raw := prettyJSON(config)
 	backup, _ := h.backupDaemonJSON()
 	if err := h.writeDaemonJSON(raw); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, dockerDaemonResponse{
+	networkFields := detectNetworkChanges(previousConfig, config)
+	resp := dockerDaemonResponse{
 		Path:            filepath.Join(h.hostDaemonDir(), "daemon.json"),
 		Exists:          true,
 		Config:          config,
@@ -95,7 +110,13 @@ func (h *DockerSettingsHandler) SaveDaemon(w http.ResponseWriter, r *http.Reques
 		Backup:          backup,
 		RestartRequired: true,
 		Warnings:        dockerDaemonWarnings(config),
-	})
+	}
+	if len(networkFields) > 0 {
+		resp.NetworkChange = true
+		resp.NetworkFields = networkFields
+		resp.TeardownGuide = networkTeardownGuide(networkFields)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *DockerSettingsHandler) readDaemonJSON() (string, bool, error) {
@@ -154,6 +175,69 @@ func prettyJSON(config map[string]interface{}) string {
 		return "{}\n"
 	}
 	return out.String()
+}
+
+// networkAffectingKeys are the daemon.json fields whose changes only take
+// effect after every user network and every container has been torn down and
+// recreated. A plain `systemctl restart docker` reloads these values into the
+// daemon process but the existing bridges and iptables rules already reflect
+// the OLD settings and are not rebuilt on restart. Operators who edit these
+// then wonder why containers still get the old IP range - hence the guide.
+var networkAffectingKeys = []string{
+	"bip",
+	"default-address-pools",
+	"fixed-cidr",
+	"fixed-cidr-v6",
+	"ipv6",
+	"default-gateway",
+	"default-gateway-v6",
+	"mtu",
+	"ip",
+	"ip6tables",
+	"iptables",
+	"userland-proxy",
+	"experimental",
+}
+
+func detectNetworkChanges(oldCfg, newCfg map[string]interface{}) []string {
+	changed := []string{}
+	for _, key := range networkAffectingKeys {
+		oldVal := normaliseJSON(oldCfg[key])
+		newVal := normaliseJSON(newCfg[key])
+		if oldVal != newVal {
+			changed = append(changed, key)
+		}
+	}
+	return changed
+}
+
+// normaliseJSON reduces a value to a stable string so we can compare
+// interface{} bags after the encoder/decoder round-trip. Nil normalises to
+// "" so a key that used to be absent and is now absent stays equal.
+func normaliseJSON(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// networkTeardownGuide returns the ordered command sequence an operator can
+// paste into a root shell on the Docker host to bring the daemon up cleanly
+// with the new network settings. Non-destructive to volumes and images -
+// only bridges, iptables rules, and containers are affected.
+func networkTeardownGuide(changed []string) []string {
+	return []string{
+		fmt.Sprintf("# Docker network settings changed (%s). A plain restart is not enough - work through these steps as root on the host:", strings.Join(changed, ", ")),
+		"docker ps -q | xargs -r docker stop",
+		"docker ps -aq | xargs -r docker rm",
+		"docker network ls --filter type=custom -q | xargs -r docker network rm",
+		"systemctl restart docker",
+		"# Bring your projects back up (e.g. from Stack Manager, or per-project: cd <project> && docker compose up -d)",
+	}
 }
 
 func dockerDaemonWarnings(config map[string]interface{}) []string {

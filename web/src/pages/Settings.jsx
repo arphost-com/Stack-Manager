@@ -834,6 +834,34 @@ export default function Settings() {
               </div>
             )}
 
+            {dockerStatus?.network_change && (
+              <div className="mb-4 rounded-md border-2 border-red-300 bg-red-50 p-4 text-sm text-red-900">
+                <div className="mb-2 flex items-center gap-2 font-semibold">
+                  <span>⚠</span>
+                  <span>Network fields changed — full teardown required</span>
+                </div>
+                <p className="mb-3">
+                  You changed <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs">{(dockerStatus.network_fields || []).join(', ')}</code>. A plain <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs">systemctl restart docker</code> reloads these values into the daemon but existing bridges and iptables rules keep the OLD settings until every container and every user network is torn down. Run these commands as root on the host in order:
+                </p>
+                <pre className="mb-3 max-h-64 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
+                  {(dockerStatus.teardown_guide || []).join('\n')}
+                </pre>
+                <p className="text-xs text-red-800">
+                  Volumes and images are preserved. Only containers, custom bridge networks, and iptables rules get rebuilt. Data-backed containers will re-attach their volumes on the next <code className="rounded bg-red-100 px-1 py-0.5">docker compose up -d</code>.
+                </p>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => navigator.clipboard?.writeText((dockerStatus.teardown_guide || []).join('\n'))}
+                    title="Copy the full teardown sequence to the clipboard."
+                  >
+                    Copy commands
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase text-gray-500">Runtime</h3>
