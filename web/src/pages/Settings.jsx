@@ -686,13 +686,19 @@ export default function Settings() {
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold uppercase text-gray-500">Runtime</h3>
-                <label className="flex items-center gap-2 text-sm text-gray-700" title="Zero-downtime daemon restart: containers keep running while dockerd is restarted (e.g. Docker upgrade or daemon.json edit). Off means every restart stops all containers until they come back up. Does not affect host reboots.">
-                  <input type="checkbox" checked={dockerForm.live_restore} onChange={e => setDockerForm({ ...dockerForm, live_restore: e.target.checked })} />
-                  Live restore
+                <label className="block text-sm text-gray-700" title="Zero-downtime daemon restart: containers keep running while dockerd is restarted (e.g. Docker upgrade or daemon.json edit). Off means every restart stops all containers until they come back up. Does not affect host reboots.">
+                  <span className="flex items-center gap-2">
+                    <input type="checkbox" checked={dockerForm.live_restore} onChange={e => setDockerForm({ ...dockerForm, live_restore: e.target.checked })} />
+                    Live restore
+                  </span>
+                  <span className="mt-1 block text-xs text-gray-500">Keeps containers running when the Docker daemon restarts (e.g. after upgrade or daemon.json edit). Doesn't apply to host reboots.</span>
                 </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700" title="Give containers IPv6 addresses in addition to IPv4. You almost always also need a routed IPv6 subnet in Fixed CIDR v6 for this to be useful.">
-                  <input type="checkbox" checked={dockerForm.ipv6} onChange={e => setDockerForm({ ...dockerForm, ipv6: e.target.checked })} />
-                  Enable IPv6
+                <label className="block text-sm text-gray-700" title="Give containers IPv6 addresses in addition to IPv4. You almost always also need a routed IPv6 subnet in Fixed CIDR v6 for this to be useful.">
+                  <span className="flex items-center gap-2">
+                    <input type="checkbox" checked={dockerForm.ipv6} onChange={e => setDockerForm({ ...dockerForm, ipv6: e.target.checked })} />
+                    Enable IPv6
+                  </span>
+                  <span className="mt-1 block text-xs text-gray-500">Gives containers IPv6 addresses. Also needs a routed IPv6 subnet in Fixed CIDR v6 below.</span>
                 </label>
                 <Field label="Fixed CIDR v6" title="IPv6 subnet Docker carves container addresses from, e.g. fd00:dead:beef::/48. Leave blank unless your host has real IPv6 connectivity.">
                   <input className="input" value={dockerForm.fixed_cidr_v6} onChange={e => setDockerForm({ ...dockerForm, fixed_cidr_v6: e.target.value })} placeholder="fd00:dead:beef::/48" />
