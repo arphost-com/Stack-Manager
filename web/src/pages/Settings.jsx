@@ -93,6 +93,7 @@ export default function Settings() {
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
   const [registryForm, setRegistryForm] = useState({ registry: '', username: '', password: '' });
   const [dockerHubForm, setDockerHubForm] = useState({ username: '', password: '' });
+  const [savedRegistries, setSavedRegistries] = useState([]);
   const [dockerForm, setDockerForm] = useState(emptyDockerForm);
   const [dockerRaw, setDockerRaw] = useState('{}\n');
   const [dockerStatus, setDockerStatus] = useState(null);
@@ -145,6 +146,19 @@ export default function Settings() {
   useEffect(() => {
     if (admin && activeTab === 'docker') loadDockerSettings();
   }, [admin, activeTab]);
+
+  useEffect(() => {
+    if (admin && activeTab === 'registries') loadSavedRegistries();
+  }, [admin, activeTab]);
+
+  const loadSavedRegistries = async () => {
+    try {
+      const res = await registries.list();
+      setSavedRegistries(res.data || []);
+    } catch (err) {
+      showError(err);
+    }
+  };
 
   const showMessage = (text) => {
     setError('');
@@ -302,6 +316,7 @@ export default function Settings() {
       await registries.login(registryForm);
       showMessage(`Logged in to ${registryForm.registry || 'Docker Hub'}`);
       setRegistryForm({ registry: registryForm.registry, username: registryForm.username, password: '' });
+      loadSavedRegistries();
     } catch (err) {
       showError(err);
     }
@@ -313,6 +328,27 @@ export default function Settings() {
       await registries.login({ registry: '', username: dockerHubForm.username, password: dockerHubForm.password });
       showMessage(`Logged in to Docker Hub as ${dockerHubForm.username}`);
       setDockerHubForm({ username: dockerHubForm.username, password: '' });
+      loadSavedRegistries();
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const editSavedRegistry = (login) => {
+    if (login.registry === 'https://index.docker.io/v1/') {
+      setDockerHubForm({ username: login.username, password: '' });
+    } else {
+      setRegistryForm({ registry: login.registry, username: login.username, password: '' });
+    }
+    showMessage(`Loaded ${login.display} into the form. Enter a new password/token and click Login to update.`);
+  };
+
+  const deleteSavedRegistry = async (login) => {
+    if (!window.confirm(`Delete saved login for ${login.display}?`)) return;
+    try {
+      await registries.delete(login.registry);
+      showMessage(`Removed saved login for ${login.display}`);
+      loadSavedRegistries();
     } catch (err) {
       showError(err);
     }
@@ -634,6 +670,44 @@ export default function Settings() {
 
       {admin && activeTab === 'registries' && (
         <div className="space-y-4">
+          <div className="section-panel space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-950">Saved logins</h2>
+              <button type="button" onClick={loadSavedRegistries} className="btn-secondary" title="Reload saved logins from the Docker config on disk.">Reload</button>
+            </div>
+            <p className="text-sm text-gray-600">Passwords never leave the host. Docker Hub requires your <strong>username</strong>, not your email — email logins silently fail even though Docker Hub says "login succeeded".</p>
+            {savedRegistries.length === 0 ? (
+              <div className="rounded-md border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500">No saved Docker logins. Use the forms below to log in.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-left text-sm">
+                  <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Registry</th><th>Username</th><th>Password</th><th>Config</th><th className="text-right">Actions</th></tr></thead>
+                  <tbody>
+                    {savedRegistries.map(login => {
+                      const looksLikeEmail = login.username.includes('@');
+                      const isDockerHub = login.registry === 'https://index.docker.io/v1/';
+                      return (
+                        <tr key={login.registry} className="border-b border-gray-100">
+                          <td className="py-2 font-medium">{login.display}</td>
+                          <td className="font-mono text-xs" title={looksLikeEmail && isDockerHub ? 'Docker Hub does not accept email logins — this login silently fails on pulls. Delete it and re-login with your username.' : login.username}>
+                            {login.masked_user || '(none)'}
+                            {looksLikeEmail && isDockerHub && <Badge tone="red">email won't work</Badge>}
+                          </td>
+                          <td className="font-mono text-xs text-gray-400">{'*'.repeat(12)}</td>
+                          <td className="font-mono text-[11px] text-gray-500" title={login.stored_in}>{(login.stored_in || '').split('/').slice(-2).join('/')}</td>
+                          <td className="space-x-2 text-right">
+                            <button title={isDockerHub ? 'Load into the Docker Hub form to update the password/token.' : 'Load this login into the private registry form.'} onClick={() => editSavedRegistry(login)} className="mini-button">Edit</button>
+                            <button title={`Remove this saved login. Runs \`docker logout ${login.display}\`.`} onClick={() => deleteSavedRegistry(login)} className="mini-danger">Delete</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <form onSubmit={loginDockerHub} className="section-panel space-y-3">
             <h2 className="text-lg font-semibold text-gray-950">Docker Hub Account</h2>
             <p className="text-sm text-gray-600">Authenticated Docker Hub pulls raise this host's rate limit from 100 to 200 pulls per 6 hours and are required for private Docker Hub repos. Use a Docker Hub personal access token when possible.</p>

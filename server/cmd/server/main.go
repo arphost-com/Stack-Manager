@@ -145,6 +145,8 @@ func main() {
 			// System
 			r.Post("/prune", projectHandler.Prune)
 			r.Post("/registries/login", projectHandler.RegistryLogin)
+			r.Get("/registries", projectHandler.ListRegistryLogins)
+			r.Delete("/registries/{registry}", projectHandler.DeleteRegistryLogin)
 			r.Get("/jobs", projectHandler.ListJobs)
 			r.Get("/jobs/{jobId}", projectHandler.GetJob)
 			r.Get("/stack-templates", handlers.ListStackTemplates)
@@ -235,6 +237,8 @@ func runAgent(cfg *config.Config, engine *core.Engine) {
 		r.Get("/debug/logs/{name}", agentHandler.Logs)
 		r.Get("/debug/stats/{name}", agentHandler.Stats)
 		r.Post("/registries/login", agentHandler.RegistryLogin)
+		r.Get("/registries", agentHandler.ListRegistryLogins)
+		r.Delete("/registries/{registry}", agentHandler.DeleteRegistryLogin)
 		r.Post("/prune", agentHandler.Prune)
 	})
 

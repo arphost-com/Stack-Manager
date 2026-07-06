@@ -195,6 +195,25 @@ func (h *AgentRuntimeHandler) RegistryLogin(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *AgentRuntimeHandler) ListRegistryLogins(w http.ResponseWriter, r *http.Request) {
+	logins, err := core.ListSavedRegistryLogins()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, logins)
+}
+
+func (h *AgentRuntimeHandler) DeleteRegistryLogin(w http.ResponseWriter, r *http.Request) {
+	registry := chi.URLParam(r, "registry")
+	result := core.DeleteSavedRegistryLogin(registry)
+	if !result.Success {
+		writeJSON(w, http.StatusBadRequest, result)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *AgentRuntimeHandler) Prune(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.Engine.Prune("safe"))
 }

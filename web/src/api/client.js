@@ -206,6 +206,8 @@ export const system = {
 
 export const registries = {
   login: (body) => request('/registries/login', { method: 'POST', body: JSON.stringify(body) }),
+  list: () => request('/registries'),
+  delete: (registry) => request(`/registries/${encodeURIComponent(registry)}`, { method: 'DELETE' }),
 };
 
 export const dockerSettings = {

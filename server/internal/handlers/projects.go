@@ -377,6 +377,29 @@ func (h *ProjectHandler) RegistryLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// ListRegistryLogins returns saved docker logins with passwords redacted.
+func (h *ProjectHandler) ListRegistryLogins(w http.ResponseWriter, r *http.Request) {
+	logins, err := core.ListSavedRegistryLogins()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, logins)
+}
+
+// DeleteRegistryLogin removes a saved docker login by registry name.
+func (h *ProjectHandler) DeleteRegistryLogin(w http.ResponseWriter, r *http.Request) {
+	registry := chi.URLParam(r, "registry")
+	// The registry key from URL is URL-encoded. Common Docker Hub value:
+	// "https%3A%2F%2Findex.docker.io%2Fv1%2F" — chi decodes this automatically.
+	result := core.DeleteSavedRegistryLogin(registry)
+	if !result.Success {
+		writeJSON(w, http.StatusBadRequest, result)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // getProject is a helper that extracts and validates the project name from URL.
 func (h *ProjectHandler) getProject(w http.ResponseWriter, r *http.Request) (*core.Project, error) {
 	name := chi.URLParam(r, "name")
