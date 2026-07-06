@@ -9,6 +9,7 @@ type Project struct {
 	ComposeFile  string              `json:"compose_file"`
 	Inactive     bool                `json:"inactive"`
 	Running      bool                `json:"running"`
+	IsGit        bool                `json:"is_git"`
 	Containers   []Container         `json:"containers,omitempty"`
 	HasHook      map[string]bool     `json:"has_hook,omitempty"`
 	ImageSources []ImageSource       `json:"image_sources,omitempty"`

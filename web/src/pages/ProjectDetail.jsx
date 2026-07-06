@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { projects, jobs, debug as debugApi, security, backup, dbadmin } from '../api/client';
+import { projects, jobs, debug as debugApi, security, backup, dbadmin, watch as watchApi } from '../api/client';
 
-const TABS = ['overview', 'sessions', 'sources', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
+const TABS = ['overview', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull and recreate containers, unless an update hook exists.' },
   { key: 'pull', label: 'Pull', title: 'Pull images without restarting containers.' },
@@ -63,6 +63,7 @@ export default function ProjectDetail() {
       switch (tab) {
         case 'sources': res = await projects.images(name); break;
         case 'sessions': res = await jobs.list(); break;
+        case 'watch': res = await watchApi.list(name); break;
         case 'logs': res = await debugApi.logs(name, logOptions.tail, logOptions.container || undefined); break;
         case 'stats': res = await debugApi.stats(name); break;
         case 'shell': res = { data: shellResult }; break;
@@ -212,6 +213,25 @@ export default function ProjectDetail() {
           </select>
           <button title="Create a tar.gz backup of the project directory. Choose a destination to also copy it to configured storage." onClick={createBackup} className="btn-secondary">Backup</button>
           <button title="Dump supported database containers in this project." onClick={dumpDatabases} className="btn-secondary">DB Dump</button>
+          {project.is_git && (
+            <button
+              title="Run git pull --ff-only in the project directory. Only applies for projects that are a git checkout."
+              onClick={async () => {
+                setActionResult({ status: 'running', label: 'git pull' });
+                try {
+                  const res = await debugApi.shell(name, { command: 'git-pull', tail: 200, timeout: 120 });
+                  const data = res.data || {};
+                  setActionResult({ status: data.success ? 'done' : 'error', label: 'git pull', output: data.output, error: data.success ? '' : `exit ${data.exit_code}` });
+                  fetchProject();
+                } catch (err) {
+                  setActionResult({ status: 'error', label: 'git pull', error: err.message });
+                }
+              }}
+              className="btn-secondary"
+            >
+              git pull
+            </button>
+          )}
         </div>
       </div>
 
@@ -256,6 +276,7 @@ export default function ProjectDetail() {
           {!tabLoading && tabData?.error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{tabData.error}</div>}
           {!tabLoading && !tabData?.error && activeTab === 'sources' && <Sources data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'sessions' && <Sessions data={tabData} projectName={name} />}
+          {!tabLoading && !tabData?.error && activeTab === 'watch' && <WatchTab data={tabData} projectName={name} reload={() => loadTab('watch')} />}
           {!tabLoading && !tabData?.error && activeTab === 'logs' && <Logs data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'stats' && <Stats data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'security' && <Security data={tabData} />}
@@ -623,6 +644,7 @@ function tabTitle(tab) {
   const titles = {
     overview: 'Project files and running containers.',
     sources: 'Classify custom builds, public registry images, and private images.',
+    watch: 'Up + Watch: run docker compose up -d then tail the live startup log. Refresh-safe.',
     logs: 'Read docker compose logs with optional container and tail filters.',
     stats: 'Show docker stats for running containers.',
     shell: 'Run scoped troubleshooting commands in this project directory.',
@@ -634,6 +656,140 @@ function tabTitle(tab) {
     sessions: 'Show live and completed action output sessions.',
   };
   return titles[tab] || tab;
+}
+
+const SERVICE_COLORS = ['text-emerald-400', 'text-sky-400', 'text-amber-400', 'text-fuchsia-400', 'text-orange-400', 'text-lime-400', 'text-rose-400', 'text-cyan-400', 'text-indigo-400', 'text-yellow-400'];
+
+function serviceColorFor(service) {
+  if (!service) return 'text-gray-300';
+  let hash = 0;
+  for (let i = 0; i < service.length; i++) hash = (hash * 31 + service.charCodeAt(i)) & 0xffffffff;
+  return SERVICE_COLORS[Math.abs(hash) % SERVICE_COLORS.length];
+}
+
+function parseWatchLine(line) {
+  const match = line.match(/^([a-zA-Z0-9._-]+-\d+)\s*\|\s*(.*)$/);
+  if (match) return { service: match[1], text: match[2] };
+  return { service: '', text: line };
+}
+
+function WatchTab({ data, projectName, reload }) {
+  const sessions = Array.isArray(data) ? data : [];
+  const [selectedId, setSelectedId] = useState(sessions[0]?.id || '');
+  const [lines, setLines] = useState([]);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState('');
+  const [starting, setStarting] = useState(false);
+  const preRef = useRef(null);
+  const esRef = useRef(null);
+
+  useEffect(() => {
+    if (sessions.length && !selectedId) setSelectedId(sessions[0].id);
+  }, [sessions, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return undefined;
+    setLines([]);
+    setError('');
+    setStreaming(true);
+    const url = watchApi.streamUrl(projectName, selectedId);
+    const es = new EventSource(url, { withCredentials: false });
+    esRef.current = es;
+    es.onmessage = ev => {
+      setLines(prev => [...prev, parseWatchLine(ev.data)]);
+    };
+    es.addEventListener('end', () => {
+      setStreaming(false);
+      es.close();
+    });
+    es.addEventListener('error', ev => {
+      setError('stream error');
+      setStreaming(false);
+      es.close();
+    });
+    es.onerror = () => {
+      setStreaming(false);
+      es.close();
+    };
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [selectedId, projectName]);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
+  }, [lines, autoScroll]);
+
+  const startNew = async () => {
+    setStarting(true);
+    setError('');
+    try {
+      const res = await watchApi.start(projectName);
+      const newId = res.data?.session?.id;
+      await reload();
+      if (newId) setSelectedId(newId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const stopSession = async () => {
+    if (!selectedId) return;
+    try { await watchApi.stop(projectName, selectedId); } catch (err) { setError(err.message); }
+    reload();
+  };
+
+  const selected = sessions.find(s => s.id === selectedId);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <button className="btn-primary" onClick={startNew} disabled={starting} title="Run docker compose up -d and start streaming the live startup log. Every service line is color-coded so multi-container startups are easy to read.">
+          {starting ? 'Starting…' : 'Up + Watch'}
+        </button>
+        <Field label="Past sessions" title="Every Up + Watch stores its log on disk. Reopen any past session to replay the exact output.">
+          <select className="input w-72" value={selectedId} onChange={e => setSelectedId(e.target.value)}>
+            {sessions.length === 0 && <option value="">No sessions yet</option>}
+            {sessions.map(s => (
+              <option key={s.id} value={s.id}>
+                {new Date(s.started_at).toLocaleString()} · {s.running ? 'live' : `exit ${s.exit_code}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {selected?.running && (
+          <button className="btn-secondary" onClick={stopSession} title="Kill the log follower for this session. The log file stays on disk.">Stop follower</button>
+        )}
+        <label className="ml-auto flex items-center gap-2 pb-2 text-sm text-gray-700" title="Uncheck to read history without the view jumping.">
+          <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} />
+          Auto-scroll
+        </label>
+      </div>
+      {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+      {selected && (
+        <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+          <span>Session <code className="rounded bg-gray-100 px-1 py-0.5">{selected.id}</code></span>
+          <span>{selected.running ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-800">streaming</span> : <span>ended · exit {selected.exit_code}</span>}</span>
+          {selected.size_bytes > 0 && <span>{selected.size_bytes.toLocaleString()} bytes</span>}
+        </div>
+      )}
+      <pre ref={preRef} className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs leading-relaxed">
+        {lines.length === 0 ? (
+          <span className="text-gray-500">{streaming ? 'Waiting for first log line…' : selectedId ? 'Empty log for this session.' : 'Click Up + Watch to start a new session.'}</span>
+        ) : lines.map((line, idx) => (
+          <div key={idx}>
+            {line.service && <span className={`${serviceColorFor(line.service)} font-semibold`}>{line.service.padEnd(28, ' ')}</span>}
+            <span className="text-gray-100">{line.service ? ' | ' : ''}{line.text}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
 }
 
 function accessTone(access) {

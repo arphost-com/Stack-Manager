@@ -323,8 +323,9 @@ func runGitCommand(project *core.Project, timeout time.Duration, args ...string)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	header := fmt.Sprintf("$ cd %s && git %s\n", project.Dir, strings.Join(args, " "))
 	err = cmd.Run()
-	output := stdout.String() + stderr.String()
+	output := header + stdout.String() + stderr.String()
 	if ctx.Err() == context.DeadlineExceeded {
 		return output + "\ngit command timed out\n", 124
 	}
@@ -346,8 +347,12 @@ func runComposeShellCommand(project *core.Project, timeout time.Duration, args .
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// Prepend the full command line so the operator can copy/paste and reproduce
+	// exactly what ran. Includes cwd because docker compose behaviour depends on
+	// it (relative paths, .env resolution).
+	header := fmt.Sprintf("$ cd %s && docker %s\n", project.Dir, strings.Join(composeArgs, " "))
 	err := cmd.Run()
-	output := stdout.String() + stderr.String()
+	output := header + stdout.String() + stderr.String()
 	if ctx.Err() == context.DeadlineExceeded {
 		return output + "\ncommand timed out\n", 124
 	}
