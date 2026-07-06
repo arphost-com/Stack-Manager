@@ -11,6 +11,7 @@ export default function Layout() {
           <Link to="/" className="brand-wordmark text-2xl text-blue-800" title="Open the Stack Manager dashboard.">ARPHost Stack Manager</Link>
           <Link to="/" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/')}`}>Dashboard</Link>
           <Link to="/catalog" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/catalog')}`}>Stack Catalog</Link>
+          <Link to="/audit" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/audit')}`}>Audit Log</Link>
           <Link to="/settings" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/settings')}`}>Settings</Link>
         </div>
       </nav>

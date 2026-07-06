@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { auth, users, backup, projects, agents, schedules, registries, dockerSettings } from '../api/client';
+import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 
 const ACTIONS = [
@@ -97,6 +97,10 @@ export default function Settings() {
   const [dockerForm, setDockerForm] = useState(emptyDockerForm);
   const [dockerRaw, setDockerRaw] = useState('{}\n');
   const [dockerStatus, setDockerStatus] = useState(null);
+  const [sslInfo, setSslInfo] = useState(null);
+  const [sslLoading, setSslLoading] = useState(false);
+  const [sslSelfSignedForm, setSslSelfSignedForm] = useState({ cn: '', extra_sans: '', days: 3650 });
+  const [sslLeForm, setSslLeForm] = useState({ domain: '', email: '', staging: false });
   const [theme, setTheme] = useState(getThemePreference());
 
   const admin = me?.role === 'admin';
@@ -110,6 +114,7 @@ export default function Settings() {
       { key: 'schedules', label: 'Scheduled Updates', title: 'Schedule local or agent project updates.' },
       { key: 'registries', label: 'Registry Logins', title: 'Docker Hub account and private registry logins.' },
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
+      { key: 'ssl', label: 'SSL / TLS', title: 'View, regenerate, or switch the TLS cert (self-signed or Let’s Encrypt).' },
       { key: 'backups', label: 'Backup Endpoints', title: 'Configure local and remote backup destinations.' },
     ];
   }, [admin]);
@@ -145,6 +150,10 @@ export default function Settings() {
 
   useEffect(() => {
     if (admin && activeTab === 'docker') loadDockerSettings();
+  }, [admin, activeTab]);
+
+  useEffect(() => {
+    if (admin && activeTab === 'ssl') loadSslInfo();
   }, [admin, activeTab]);
 
   useEffect(() => {
@@ -376,6 +385,73 @@ export default function Settings() {
       setDockerRaw(data.raw || JSON.stringify(config, null, 2) + '\n');
       setDockerForm(formFromDockerConfig(data.config || config));
       showMessage(`Saved Docker daemon settings${data.backup ? ` with backup ${data.backup}` : ''}. Restart Docker for changes to apply.`);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const loadSslInfo = async () => {
+    setSslLoading(true);
+    try {
+      const res = await sslApi.get();
+      setSslInfo(res.data || null);
+      if (res.data?.cn && !sslSelfSignedForm.cn) {
+        setSslSelfSignedForm(f => ({ ...f, cn: res.data.cn }));
+      }
+      if (res.data?.domain && !sslLeForm.domain) {
+        setSslLeForm(f => ({ ...f, domain: res.data.domain }));
+      }
+    } catch (err) {
+      showError(err);
+    } finally {
+      setSslLoading(false);
+    }
+  };
+
+  const regenerateSelfSigned = async (event) => {
+    event.preventDefault();
+    const cn = sslSelfSignedForm.cn.trim();
+    if (!cn) { showError(new Error('Common name is required')); return; }
+    if (!window.confirm(`Regenerate self-signed cert for ${cn}? nginx will reload in place.`)) return;
+    try {
+      const res = await sslApi.regenerateSelfSigned({
+        cn,
+        extra_sans: sslSelfSignedForm.extra_sans.split(',').map(s => s.trim()).filter(Boolean),
+        days: Number(sslSelfSignedForm.days) || 3650,
+      });
+      const data = res.data || {};
+      if (data.cert) setSslInfo(data.cert);
+      const warn = data.reload_warning ? ` (${data.reload_warning})` : '';
+      showMessage(`Regenerated self-signed cert${warn}.`);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const enableLetsEncrypt = async (event) => {
+    event.preventDefault();
+    const domain = sslLeForm.domain.trim();
+    const email = sslLeForm.email.trim();
+    if (!domain || !email) { showError(new Error('Domain and email are required')); return; }
+    if (!window.confirm(`Request a ${sslLeForm.staging ? 'staging' : 'production'} Let's Encrypt cert for ${domain}? This requires WEB_HTTP_PORT=80 and the box reachable on that port from the internet.`)) return;
+    try {
+      const res = await sslApi.enableLetsEncrypt({ domain, email, staging: sslLeForm.staging });
+      const data = res.data || {};
+      if (data.cert) setSslInfo(data.cert);
+      const warn = data.reload_warning ? ` (${data.reload_warning})` : '';
+      showMessage(`Let's Encrypt cert issued for ${domain}${warn}.`);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const renewLetsEncrypt = async () => {
+    if (!window.confirm('Attempt to renew the Let’s Encrypt cert now?')) return;
+    try {
+      const res = await sslApi.renewLetsEncrypt();
+      const data = res.data || {};
+      if (data.cert) setSslInfo(data.cert);
+      showMessage('Renewal request completed. Check cert expiry above.');
     } catch (err) {
       showError(err);
     }
@@ -852,6 +928,137 @@ export default function Settings() {
             </div>
           </div>
         </form>
+      )}
+
+      {admin && activeTab === 'ssl' && (
+        <div className="space-y-4">
+          <div className="section-panel">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950">Current Certificate</h2>
+                <p className="text-sm text-gray-600">nginx terminates TLS with the cert files under <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">STATE_DIR/ssl/</code>. Reads directly from the running container.</p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={loadSslInfo} disabled={sslLoading} title="Re-read the certificate from disk.">
+                {sslLoading ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+            {!sslInfo && <p className="text-sm text-gray-500">Loading cert info…</p>}
+            {sslInfo && (
+              <dl className="grid gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Mode</dt>
+                  <dd className="font-medium text-gray-950">
+                    {sslInfo.mode === 'letsencrypt' ? "Let's Encrypt" : sslInfo.mode === 'self-signed' ? 'Self-signed' : sslInfo.mode || 'unknown'}
+                    {sslInfo.self_signed && sslInfo.mode !== 'self-signed' && <span className="ml-2 text-xs text-gray-500">(cert is self-signed)</span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Common Name</dt>
+                  <dd className="font-medium text-gray-950">{sslInfo.cn || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Issuer</dt>
+                  <dd className="text-gray-800">{sslInfo.issuer || '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Expires</dt>
+                  <dd className={sslInfo.days_left < 15 ? 'text-red-700' : sslInfo.days_left < 45 ? 'text-yellow-700' : 'text-gray-800'}>
+                    {sslInfo.not_after ? new Date(sslInfo.not_after).toLocaleString() : '—'}
+                    {typeof sslInfo.days_left === 'number' && <span className="ml-2 text-xs text-gray-500">({sslInfo.days_left} days)</span>}
+                  </dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Subject Alternative Names</dt>
+                  <dd className="text-gray-800">
+                    {sslInfo.sans && sslInfo.sans.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {sslInfo.sans.map(san => (
+                          <span key={san} className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs">{san}</span>
+                        ))}
+                      </div>
+                    ) : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">HTTP port (redirect)</dt>
+                  <dd className="text-gray-800">{sslInfo.http_port}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">HTTPS port</dt>
+                  <dd className="text-gray-800">{sslInfo.ssl_port}</dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Let's Encrypt ready</dt>
+                  <dd className={sslInfo.letsencrypt_ready ? 'text-green-700' : 'text-yellow-700'}>
+                    {sslInfo.letsencrypt_ready ? 'Yes — ports match HTTP-01 requirements (80/443).' : (sslInfo.letsencrypt_reason || 'No.')}
+                  </dd>
+                </div>
+              </dl>
+            )}
+          </div>
+
+          <div className="section-panel">
+            <form onSubmit={regenerateSelfSigned} className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950">Regenerate self-signed</h2>
+                <p className="text-sm text-gray-600">Writes a fresh cert to <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">STATE_DIR/ssl/</code> and sends SIGHUP to nginx. Browsers will still show an untrusted-issuer warning until the CA is imported.</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="text-sm">
+                  <span className="text-gray-700">Common name</span>
+                  <input type="text" className="input mt-1 w-full" value={sslSelfSignedForm.cn} onChange={e => setSslSelfSignedForm({ ...sslSelfSignedForm, cn: e.target.value })} placeholder="stack.example.com" required />
+                </label>
+                <label className="text-sm">
+                  <span className="text-gray-700">Extra SANs (comma-separated)</span>
+                  <input type="text" className="input mt-1 w-full" value={sslSelfSignedForm.extra_sans} onChange={e => setSslSelfSignedForm({ ...sslSelfSignedForm, extra_sans: e.target.value })} placeholder="10.0.0.5, api.example.com" />
+                </label>
+                <label className="text-sm">
+                  <span className="text-gray-700">Days valid</span>
+                  <input type="number" min="1" max="3650" className="input mt-1 w-full" value={sslSelfSignedForm.days} onChange={e => setSslSelfSignedForm({ ...sslSelfSignedForm, days: e.target.value })} />
+                </label>
+              </div>
+              <div>
+                <button type="submit" className="btn-primary" title="Regenerate self-signed cert and reload nginx.">Regenerate</button>
+              </div>
+            </form>
+          </div>
+
+          <div className="section-panel">
+            <form onSubmit={enableLetsEncrypt} className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950">Switch to Let's Encrypt</h2>
+                <p className="text-sm text-gray-600">
+                  HTTP-01 challenge via certbot. Requires <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">WEB_HTTP_PORT=80</code>, <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">WEB_SSL_PORT=443</code>, and the domain’s DNS pointed at this host. Use <em>staging</em> first to avoid the production rate limit.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="text-sm">
+                  <span className="text-gray-700">Domain</span>
+                  <input type="text" className="input mt-1 w-full" value={sslLeForm.domain} onChange={e => setSslLeForm({ ...sslLeForm, domain: e.target.value })} placeholder="stack.example.com" required />
+                </label>
+                <label className="text-sm">
+                  <span className="text-gray-700">Contact email</span>
+                  <input type="email" className="input mt-1 w-full" value={sslLeForm.email} onChange={e => setSslLeForm({ ...sslLeForm, email: e.target.value })} placeholder="ops@example.com" required />
+                </label>
+                <label className="mt-6 flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={sslLeForm.staging} onChange={e => setSslLeForm({ ...sslLeForm, staging: e.target.checked })} />
+                  <span>Use Let's Encrypt staging</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" className="btn-primary" disabled={!sslInfo?.letsencrypt_ready} title={sslInfo?.letsencrypt_ready ? 'Request cert now' : 'Change WEB_HTTP_PORT=80 and WEB_SSL_PORT=443 in .env first, then redeploy.'}>
+                  Issue certificate
+                </button>
+                <button type="button" className="btn-secondary" onClick={renewLetsEncrypt} disabled={sslInfo?.mode !== 'letsencrypt'} title="Trigger certbot renew now.">
+                  Renew now
+                </button>
+                {!sslInfo?.letsencrypt_ready && (
+                  <span className="text-xs text-yellow-700">Ports are not set to 80/443 — update <code className="rounded bg-gray-100 px-1 py-0.5">.env</code> and redeploy before requesting.</span>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {admin && activeTab === 'backups' && (

@@ -84,6 +84,8 @@ func main() {
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
 	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
 	dockerSettingsHandler := handlers.NewDockerSettingsHandler(cfg.DockerDaemonDir, cfg.BaseImagePrefix)
+	sslHandler := handlers.NewSSLHandler(cfg.StateDir, cfg.BaseImagePrefix)
+	auditHandler := handlers.NewAuditHandler(appStore)
 	skillHandler := handlers.NewSkillHandler(registry)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 
@@ -114,6 +116,7 @@ func main() {
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireAuth(cfg.APIKey, sessionManager))
+			r.Use(middleware.AuditRecorder(appStore, os.Getenv("AUDIT_NODE_NAME")))
 
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/logout", authHandler.Logout)
@@ -165,6 +168,17 @@ func main() {
 			r.Post("/metrics/refresh", metricsHandler.Refresh)
 			r.Get("/docker/daemon", dockerSettingsHandler.GetDaemon)
 			r.Put("/docker/daemon", dockerSettingsHandler.SaveDaemon)
+
+			// SSL / TLS settings
+			r.Get("/settings/ssl", sslHandler.Get)
+			r.Post("/settings/ssl/self-signed", sslHandler.RegenerateSelfSigned)
+			r.Post("/settings/ssl/letsencrypt", sslHandler.EnableLetsEncrypt)
+			r.Post("/settings/ssl/letsencrypt/renew", sslHandler.RenewLetsEncrypt)
+
+			// Command audit log
+			r.Get("/audit", auditHandler.List)
+			r.Get("/audit/nodes", auditHandler.Nodes)
+			r.Get("/audit/actions", auditHandler.Actions)
 
 			// Skills
 			r.Route("/skills", func(sr chi.Router) {

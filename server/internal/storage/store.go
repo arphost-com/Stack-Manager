@@ -213,6 +213,23 @@ func (s *Store) Migrate(ctx context.Context) error {
 			updated_at DATETIME(6) NOT NULL,
 			INDEX idx_backup_schedules_due (enabled, next_run_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS audit_log (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			node VARCHAR(128) NOT NULL DEFAULT '',
+			actor VARCHAR(128) NOT NULL DEFAULT '',
+			action VARCHAR(64) NOT NULL,
+			project VARCHAR(255) NOT NULL DEFAULT '',
+			target VARCHAR(255) NOT NULL DEFAULT '',
+			success BOOLEAN NOT NULL DEFAULT TRUE,
+			duration_ms INT NOT NULL DEFAULT 0,
+			details TEXT NULL,
+			remote_ip VARCHAR(64) NOT NULL DEFAULT '',
+			created_at DATETIME(6) NOT NULL,
+			INDEX idx_audit_created_at (created_at),
+			INDEX idx_audit_node_created_at (node, created_at),
+			INDEX idx_audit_action_created_at (action, created_at),
+			INDEX idx_audit_project_created_at (project, created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {

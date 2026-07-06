@@ -214,3 +214,19 @@ export const dockerSettings = {
   daemon: () => request('/docker/daemon'),
   saveDaemon: (body) => request('/docker/daemon', { method: 'PUT', body: JSON.stringify(body) }),
 };
+
+export const ssl = {
+  get: () => request('/settings/ssl'),
+  regenerateSelfSigned: (body) => request('/settings/ssl/self-signed', { method: 'POST', body: JSON.stringify(body) }),
+  enableLetsEncrypt: (body) => request('/settings/ssl/letsencrypt', { method: 'POST', body: JSON.stringify(body) }),
+  renewLetsEncrypt: () => request('/settings/ssl/letsencrypt/renew', { method: 'POST' }),
+};
+
+export const audit = {
+  list: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null)).toString();
+    return request(`/audit${qs ? '?' + qs : ''}`);
+  },
+  nodes: () => request('/audit/nodes'),
+  actions: () => request('/audit/actions'),
+};
