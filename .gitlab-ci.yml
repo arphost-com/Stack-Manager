@@ -13,6 +13,8 @@ variables:
   DOCKER_ROOT: "/home/debian/docker"
   STATE_DIR: "/home/debian/docker/stack-manager/.stack-manager"
   WEB_PORT: "8193"
+  WEB_HTTP_PORT: "8193"
+  WEB_SSL_PORT: "8993"
   COMPOSE_PROJECT_NAME: "stack-manager"
   CI_COMPOSE_PROJECT_NAME: "stack-manager-ci-${CI_PIPELINE_ID}"
 
@@ -38,6 +40,8 @@ validate:compose:
     - export DOCKER_ROOT="${DOCKER_ROOT}"
     - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
+    - export WEB_HTTP_PORT="${WEB_HTTP_PORT}"
+    - export WEB_SSL_PORT="${WEB_SSL_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
     - docker compose -p "${CI_COMPOSE_PROJECT_NAME}" config -q
@@ -66,6 +70,8 @@ build:images:
     - export DOCKER_ROOT="${DOCKER_ROOT}"
     - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
+    - export WEB_HTTP_PORT="${WEB_HTTP_PORT}"
+    - export WEB_SSL_PORT="${WEB_SSL_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
     - docker compose -p "${CI_COMPOSE_PROJECT_NAME}" build
@@ -148,6 +154,8 @@ security:image_scan:
     - export DOCKER_ROOT="${DOCKER_ROOT}"
     - export STATE_DIR="${STATE_DIR}"
     - export WEB_PORT="${WEB_PORT}"
+    - export WEB_HTTP_PORT="${WEB_HTTP_PORT}"
+    - export WEB_SSL_PORT="${WEB_SSL_PORT}"
     - export DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
     - export SERVER_USER="$(id -u "${DEPLOY_USER}"):$(id -g "${DEPLOY_USER}")"
     - docker compose -p "${CI_COMPOSE_PROJECT_NAME}" build
@@ -202,13 +210,15 @@ deploy:docker02:
     - sudo -n chown "${DEPLOY_USER}:${DEPLOY_USER}" "${STATE_DIR}"
     - sudo -n find "${STATE_DIR}" "${STATE_DIR}/hooks" "${STATE_DIR}/backups" "${STATE_DIR}/docker-config" "${STATE_DIR}/jobs" -type d -exec chmod 2770 {} +
     - sudo -n find "${STATE_DIR}/hooks" "${STATE_DIR}/backups" "${STATE_DIR}/docker-config" "${STATE_DIR}/jobs" -type f -exec chmod 660 {} +
-    - sudo -n rsync -a --delete --chown="${DEPLOY_USER}:${DEPLOY_USER}" --exclude='.git/' --exclude='.claude/' --exclude='.env' --exclude='.stack-manager/' --exclude='bin/' --exclude='node_modules/' --exclude='web/dist/' --exclude='tmp/' ./ "${DEPLOY_PATH}/"
+    - sudo -n rsync -a --delete --chown="${DEPLOY_USER}:${DEPLOY_USER}" --exclude='.git/' --exclude='.claude/' --exclude='.env' --exclude='.stack-manager/' --exclude='.compose-manager/' --exclude='bin/' --exclude='node_modules/' --exclude='web/dist/' --exclude='tmp/' ./ "${DEPLOY_PATH}/"
     - |
       sudo -n -u "${DEPLOY_USER}" env \
         DEPLOY_PATH="${DEPLOY_PATH}" \
         DOCKER_ROOT="${DOCKER_ROOT}" \
         STATE_DIR="${STATE_DIR}" \
         WEB_PORT="${WEB_PORT}" \
+        WEB_HTTP_PORT="${WEB_HTTP_PORT}" \
+        WEB_SSL_PORT="${WEB_SSL_PORT}" \
         DOCKER_GID="${DOCKER_GID}" \
         SERVER_USER="${SERVER_USER}" \
         STACK_MANAGER_API_KEY="${STACK_MANAGER_API_KEY:-}" \
@@ -255,6 +265,8 @@ deploy:docker02:
         "DOCKER_ROOT=${DOCKER_ROOT}" \
         "STATE_DIR=${STATE_DIR}" \
         "WEB_PORT=${WEB_PORT}" \
+        "WEB_HTTP_PORT=${WEB_HTTP_PORT}" \
+        "WEB_SSL_PORT=${WEB_SSL_PORT}" \
         "DOCKER_GID=${DOCKER_GID}" \
         "SERVER_USER=${SERVER_USER}" \
         "HOST_URL=${host_url}" \
@@ -279,7 +291,7 @@ smoke:docker02:
     - sudo -n -u "${DEPLOY_USER}" sh -c 'cd "$1" && docker compose --env-file .env -f docker-compose.yml ps' sh "${DEPLOY_PATH}"
     - |
       for i in $(seq 1 60); do
-        if curl -fsS "http://127.0.0.1:${WEB_PORT}/health"; then
+        if curl -fsSk "https://127.0.0.1:${WEB_SSL_PORT}/health"; then
           break
         fi
         if [ "$i" -eq 60 ]; then
@@ -290,9 +302,9 @@ smoke:docker02:
       done
     - |
       for i in $(seq 1 30); do
-        if curl -fsS \
+        if curl -fsSk \
           -H "X-API-Key: ${SMOKE_API_KEY}" \
-          "http://127.0.0.1:${WEB_PORT}/api/v1/projects" \
+          "https://127.0.0.1:${WEB_SSL_PORT}/api/v1/projects" \
           >"${CI_PROJECT_DIR}/stack-manager-projects.json"; then
           break
         fi

@@ -155,7 +155,7 @@ Services:
 | Service | Port | Purpose |
 | --- | --- | --- |
 | `server` | 8192 internal | Go API server |
-| `web` | `${WEB_PORT:-8193}:8080` | React SPA via nginx |
+| `web` | `${WEB_HTTP_PORT:-8193}:8080` (redirect + ACME) and `${WEB_SSL_PORT:-8993}:8443` (TLS) | React SPA via nginx; TLS terminated with self-signed cert generated on first boot in `${STATE_DIR}/ssl/`. Set both ports to 80/443 to run Let's Encrypt end-to-end. |
 | `mariadb` | internal | Users, job history, project settings |
 | `redis` | internal | Sessions and cached projects/images/jobs/settings |
 
@@ -168,7 +168,8 @@ Required environment:
 - `DOCKER_ROOT`
 - `DOCKER_GID`
 - `SERVER_USER`
-- `WEB_PORT`
+- `WEB_HTTP_PORT`
+- `WEB_SSL_PORT`
 
 The server container runs as the numeric host UID:GID configured by `SERVER_USER` and is added to the host Docker socket group via `DOCKER_GID`. For hosts that intentionally require root compose management, set `SERVER_USER=0:0`.
 `SERVER_USER` is host-specific and may be `0:0`, `1000:1000`, `998:998`, or another numeric UID:GID depending on the box. Keep prepared `STATE_DIR` ownership aligned with this value.

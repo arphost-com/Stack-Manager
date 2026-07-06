@@ -101,6 +101,15 @@ detect_host_url() {
   printf 'http://%s:%s\n' "${host}" "${port}"
 }
 
+detect_host_url_https() {
+  port="$1"
+  host="$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf '%s' localhost)"
+  case "${host}" in
+    "") host="localhost" ;;
+  esac
+  printf 'https://%s:%s\n' "${host}" "${port}"
+}
+
 detect_agent_name() {
   hostname -s 2>/dev/null || hostname 2>/dev/null || printf '%s\n' compose-agent
 }
@@ -149,13 +158,14 @@ fi
 if [ "${agent_mode}" -eq 1 ]; then
   ensure_setting HOST_URL "$(detect_host_url "$(env_value AGENT_PORT)")"
 else
-  ensure_setting WEB_PORT 8193
+  ensure_setting WEB_HTTP_PORT 8193
+  ensure_setting WEB_SSL_PORT 8993
   ensure_secret API_KEY
   ensure_secret ADMIN_PASSWORD
   ensure_secret DB_PASSWORD
   ensure_secret DB_ROOT_PASSWORD
   ensure_secret REDIS_PASSWORD
-  ensure_setting HOST_URL "$(detect_host_url "$(env_value WEB_PORT)")"
+  ensure_setting HOST_URL "$(detect_host_url_https "$(env_value WEB_SSL_PORT)")"
 fi
 chmod 600 "${env_file}"
 
@@ -213,6 +223,8 @@ mkdir -p \
   "${state_dir}/backups/db-dumps" \
   "${state_dir}/docker-config" \
   "${state_dir}/jobs" \
+  "${state_dir}/ssl" \
+  "${state_dir}/ssl/acme-webroot" \
   "${backup_target_root}"
 
 if [ "${agent_mode}" -eq 0 ]; then
@@ -221,7 +233,7 @@ fi
 
 if [ "$(id -u)" -eq 0 ]; then
   chown "${state_uid}:${state_gid}" "${state_dir}"
-  chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}"
+  chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${state_dir}/ssl" "${backup_target_root}"
 else
   current_owner="$(stat_owner "${state_dir}")"
   expected_owner="${state_uid}:${state_gid}"
@@ -234,6 +246,10 @@ fi
 
 find "${state_dir}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type d -exec chmod 2770 {} +
 find "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type f -exec chmod 660 {} +
+# SSL dir: needs to be readable by both the Go server (SERVER_USER) and the
+# web container (also SERVER_USER now), with the ACME webroot writable so
+# certbot helper containers can drop challenge files.
+chmod 2775 "${state_dir}/ssl" "${state_dir}/ssl/acme-webroot"
 
 printf '%s\n' "Prepared ${state_dir} for ${state_uid}:${state_gid}."
 printf '%s\n' "Prepared ${backup_target_root} for backup endpoint mounts."
@@ -277,7 +293,8 @@ else
     BACKUP_TARGET_ROOT \
     DOCKER_GID \
     SERVER_USER \
-    WEB_PORT
+    WEB_HTTP_PORT \
+    WEB_SSL_PORT
   do
     printf '%s=%s\n' "${key}" "$(env_value "${key}")"
   done

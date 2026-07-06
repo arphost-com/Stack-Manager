@@ -9,11 +9,14 @@ services:
       - -eu
       - -c
       - |
-        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /state/mariadb /state/redis /backup-targets
+        mkdir -p /state/hooks /state/backups/db-dumps /state/docker-config /state/jobs /state/mariadb /state/redis /state/ssl /state/ssl/acme-webroot /backup-targets
         chown "${SERVER_USER}" /state
-        chown -R "${SERVER_USER}" /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets
+        chown -R "${SERVER_USER}" /state/hooks /state/backups /state/docker-config /state/jobs /state/ssl /backup-targets
         find /state /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type d -exec chmod 2770 {} +
         find /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type f -exec chmod 660 {} +
+        # SSL dir is 2775 so both the web container (nginx entrypoint) and
+        # certbot helper containers can drop cert/webroot files.
+        chmod 2775 /state/ssl /state/ssl/acme-webroot
     volumes:
       - type: bind
         source: ${STATE_DIR:-.stack-manager}
@@ -86,10 +89,25 @@ services:
       context: ./web
       args:
         BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-}
+    environment:
+      SSL_CN: "${SSL_CN:-}"
+      SSL_EXTRA_SANS: "${SSL_EXTRA_SANS:-}"
+      SSL_SELF_SIGNED_DAYS: "${SSL_SELF_SIGNED_DAYS:-3650}"
+    user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     ports:
-      - "${WEB_PORT:-8193}:8080"
+      - "${WEB_HTTP_PORT:-${WEB_PORT:-8193}}:8080"
+      - "${WEB_SSL_PORT:-8993}:8443"
+    volumes:
+      - type: bind
+        source: ${STATE_DIR:-.stack-manager}/ssl
+        target: /etc/nginx/ssl
+        bind:
+          create_host_path: false
     depends_on:
-      - server
+      state-init:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
     restart: unless-stopped
 
   mariadb:
