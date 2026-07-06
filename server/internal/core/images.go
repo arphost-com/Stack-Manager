@@ -86,6 +86,17 @@ func (e *Engine) CheckImageSources(project *Project) []ImageSource {
 			continue
 		}
 
+		// Docker will not pull an image that already exists locally when
+		// compose up runs (default pull_policy is "missing"). If the image
+		// tag is present on the host we know the container can start
+		// without contacting the registry, so there is no point spending a
+		// Docker Hub pull just to label the row.
+		if imagePresentLocally(sources[i].Image) {
+			sources[i].Access = "local"
+			sources[i].Message = "image is already present on this host; no registry call needed"
+			continue
+		}
+
 		if HasStoredAuthForRegistry(sources[i].Registry) {
 			// Logged in for this registry: authenticated probe is enough,
 			// skip the anonymous call so we do not double-charge the pull
@@ -208,6 +219,54 @@ func parseImageReference(image string) (registry, repository, tag string) {
 
 func isRegistryHost(part string) bool {
 	return part == "localhost" || strings.Contains(part, ".") || strings.Contains(part, ":")
+}
+
+// imagePresentLocally returns true if `docker image inspect <image>` succeeds
+// - purely a local daemon call, no registry traffic. Cached for the process
+// lifetime with a short TTL so a burst of Project Detail loads doesn't
+// re-exec docker for every service.
+func imagePresentLocally(image string) bool {
+	if image == "" {
+		return false
+	}
+	if entry, ok := localImageCacheGet(image); ok {
+		return entry
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", "--format", "ok", image)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	present := cmd.Run() == nil
+	localImageCacheSet(image, present)
+	return present
+}
+
+var (
+	localImageCacheMu  sync.RWMutex
+	localImageCache    = map[string]localImageEntry{}
+	localImageCacheTTL = 5 * time.Minute
+)
+
+type localImageEntry struct {
+	present bool
+	expires time.Time
+}
+
+func localImageCacheGet(image string) (bool, bool) {
+	localImageCacheMu.RLock()
+	defer localImageCacheMu.RUnlock()
+	entry, ok := localImageCache[image]
+	if !ok || time.Now().After(entry.expires) {
+		return false, false
+	}
+	return entry.present, true
+}
+
+func localImageCacheSet(image string, present bool) {
+	localImageCacheMu.Lock()
+	defer localImageCacheMu.Unlock()
+	localImageCache[image] = localImageEntry{present: present, expires: time.Now().Add(localImageCacheTTL)}
 }
 
 func manifestInspect(image string, anonymous bool) (bool, string) {
