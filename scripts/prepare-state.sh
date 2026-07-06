@@ -299,3 +299,32 @@ else
     printf '%s=%s\n' "${key}" "$(env_value "${key}")"
   done
 fi
+
+# Friendly login summary. Prefer the HOST_URL the operator (or CI) already
+# picked; otherwise build one from the detected FQDN so it never falls back
+# to 127.0.0.1 or localhost when a real hostname exists.
+login_url="$(env_value HOST_URL)"
+if [ -z "${login_url}" ] || [ "${login_url}" = "http://change-me:8993" ] || [ "${login_url}" = "https://change-me:8993" ]; then
+  login_url="$(detect_host_url_https "$(env_value WEB_SSL_PORT)")"
+fi
+
+printf '\n'
+printf '============================================================\n'
+if [ "${agent_mode}" -eq 1 ]; then
+  printf 'Stack Manager AGENT is ready.\n'
+  printf '\n'
+  printf 'Agent URL:   %s\n' "${login_url}"
+  printf 'Agent name:  %s\n' "$(env_value AGENT_NAME)"
+  printf 'Agent token: %s\n' "$(env_value AGENT_TOKEN)"
+  printf '\n'
+  printf 'Register from the controller: Settings > Agents.\n'
+else
+  printf 'Stack Manager is ready.\n'
+  printf '\n'
+  printf 'Dashboard URL: %s\n' "${login_url}"
+  printf 'Login:         %s\n' "$(env_value ADMIN_USERNAME)"
+  printf 'Password:      %s\n' "$(env_value ADMIN_PASSWORD)"
+  printf '\n'
+  printf 'API key (for scripts): %s\n' "$(env_value API_KEY)"
+fi
+printf '============================================================\n'

@@ -242,6 +242,7 @@ deploy:docker02:
         fi
       }
       api_key="${STACK_MANAGER_API_KEY:-$(get_env API_KEY || true)}"
+      admin_password="${STACK_MANAGER_ADMIN_PASSWORD:-$(get_env ADMIN_PASSWORD || true)}"
       db_password="${STACK_MANAGER_DB_PASSWORD:-$(get_env DB_PASSWORD || true)}"
       db_root_password="${STACK_MANAGER_DB_ROOT_PASSWORD:-$(get_env DB_ROOT_PASSWORD || true)}"
       redis_password="${STACK_MANAGER_REDIS_PASSWORD:-$(get_env REDIS_PASSWORD || true)}"
@@ -255,10 +256,14 @@ deploy:docker02:
       ssl_cn="$(get_env SSL_CN || true)"
       ssl_extra_sans="$(get_env SSL_EXTRA_SANS || true)"
       [ -n "${api_key}" ] || api_key="$(gen_secret)"
+      [ -n "${admin_password}" ] || admin_password="$(gen_secret)"
       [ -n "${db_password}" ] || db_password="$(gen_secret)"
       [ -n "${db_root_password}" ] || db_root_password="$(gen_secret)"
       [ -n "${redis_password}" ] || redis_password="$(gen_secret)"
-      [ -n "${host_url}" ] || host_url="https://docker02:${WEB_SSL_PORT}"
+      # Prefer the box's own FQDN so the printed URL matches what operators
+      # type into their browser instead of a hardcoded runner name.
+      host_fqdn="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo docker02)"
+      [ -n "${host_url}" ] || host_url="https://${host_fqdn}:${WEB_SSL_PORT}"
       [ -n "${db_name}" ] || db_name="stack_manager"
       [ -n "${db_user}" ] || db_user="stack_manager"
       # BASE_IMAGE_PREFIX defaults to empty so images pull directly from Docker
@@ -269,6 +274,8 @@ deploy:docker02:
       tmp="$(mktemp)"
       printf '%s\n' \
         "API_KEY=${api_key}" \
+        "ADMIN_USERNAME=admin" \
+        "ADMIN_PASSWORD=${admin_password}" \
         "DB_NAME=${db_name}" \
         "DB_USER=${db_user}" \
         "DB_PASSWORD=${db_password}" \
