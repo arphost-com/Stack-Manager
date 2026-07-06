@@ -33,7 +33,10 @@ services:
     environment:
       APP_MODE: "agent"
       PORT: "${AGENT_PORT:-8192}"
-      ROOT: "/docker"
+      # ROOT and the DOCKER_ROOT mount below both use ${DOCKER_ROOT} so paths
+      # inside the agent container match host paths. Required for child
+      # compose files that use relative `./file.conf` bind mounts.
+      ROOT: "${DOCKER_ROOT}"
       STATE_DIR: "/state"
       HOOKS_DIR: "/state/hooks"
       BACKUP_DIR: "/state/backups"
@@ -48,9 +51,11 @@ services:
       - "${AGENT_PORT:-8192}:${AGENT_PORT:-8192}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Bind DOCKER_ROOT at the same host path so relative `./file.conf`
+      # bind mounts inside child compose files resolve to real host files.
       - type: bind
         source: ${DOCKER_ROOT:?DOCKER_ROOT required, set to the directory containing managed Compose projects}
-        target: /docker
+        target: ${DOCKER_ROOT:?DOCKER_ROOT required}
         bind:
           create_host_path: false
       - type: bind

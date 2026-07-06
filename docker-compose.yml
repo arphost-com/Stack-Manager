@@ -35,7 +35,12 @@ services:
         BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-}
     environment:
       PORT: "8192"
-      ROOT: "/docker"
+      # ROOT and the /docker mount below both use ${DOCKER_ROOT} so paths
+      # inside the server container are identical to paths on the host.
+      # This is what lets `./file.conf` bind mounts in child compose files
+      # resolve to real host files instead of the docker daemon
+      # auto-creating an empty directory at a container-only path.
+      ROOT: "${DOCKER_ROOT}"
       STATE_DIR: "/state"
       API_KEY: "${API_KEY:?API_KEY required}"
       ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
@@ -61,9 +66,13 @@ services:
       - "${DOCKER_GID:-0}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Bind DOCKER_ROOT at the same host path inside the container so
+      # `./file.conf` inside a child compose file resolves to a real host
+      # file. Any other target path would make the daemon (which reads
+      # host paths) unable to find the source of the bind mount.
       - type: bind
         source: ${DOCKER_ROOT:?DOCKER_ROOT required, set to the directory containing managed Compose projects}
-        target: /docker
+        target: ${DOCKER_ROOT:?DOCKER_ROOT required}
         bind:
           create_host_path: false
       - type: bind
