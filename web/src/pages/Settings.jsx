@@ -67,6 +67,7 @@ const emptyDockerForm = {
   registry_mirrors: '',
   insecure_registries: '',
   default_address_pools: '',
+  bip: '',
   ipv6: false,
   fixed_cidr_v6: '',
   expose_tcp: false,
@@ -703,7 +704,10 @@ export default function Settings() {
                 <Field label="Fixed CIDR v6" title="IPv6 subnet Docker carves container addresses from, e.g. fd00:dead:beef::/48. Leave blank unless your host has real IPv6 connectivity.">
                   <input className="input" value={dockerForm.fixed_cidr_v6} onChange={e => setDockerForm({ ...dockerForm, fixed_cidr_v6: e.target.value })} placeholder="fd00:dead:beef::/48" />
                 </Field>
-                <Field label="Default address pools" title="Which IPv4 ranges Docker uses when it auto-creates bridge networks (each compose stack usually gets one). Set this to steer Docker away from ranges your VPN or LAN already uses. Simple form: one CIDR per line = one network of that size. Advanced form: base,size = carve many subnets of /size out of the /base pool." hint="Simple: 172.31.0.0/24 = one /24 network. Advanced: 172.30.0.0/16,24 = up to 256 /24 subnets from within 172.30.x.x. Use whichever is easier.">
+                <Field label="Docker0 bridge IP (bip)" title="Explicitly assigns the default docker0 bridge an IP and subnet, taking docker0 out of default-address-pools reconciliation. Prevents 'all predefined address pools have been fully subnetted' when using tight pool slicing. Pick something outside the default-address-pools range below." hint="Example: 172.30.0.1/24 or 192.168.100.1/24. Leave blank to let Docker pick.">
+                  <input className="input" value={dockerForm.bip} onChange={e => setDockerForm({ ...dockerForm, bip: e.target.value })} placeholder="172.30.0.1/24" />
+                </Field>
+                <Field label="Default address pools" title="Which IPv4 ranges Docker uses when it auto-creates bridge networks (each compose stack usually gets one). Set this to steer Docker away from ranges your VPN or LAN already uses. Simple form: one CIDR per line = one network of that size. Advanced form: base,size = carve many subnets of /size out of the /base pool." hint="Simple: 172.31.0.0/24 = one /24 network. Advanced: 172.31.0.0/18,26 = up to 256 /26 subnets from within the /18. Use whichever is easier. Set the Docker0 bridge IP (bip) above to a different subnet or dockerd may refuse to start.">
                   <textarea className="textarea h-24 font-mono" value={dockerForm.default_address_pools} onChange={e => setDockerForm({ ...dockerForm, default_address_pools: e.target.value })} placeholder="172.31.0.0/24&#10;172.30.0.0/16,24" />
                 </Field>
               </div>
@@ -900,6 +904,7 @@ function formFromDockerConfig(config) {
     registry_mirrors: arrayToLines(config['registry-mirrors']),
     insecure_registries: arrayToLines(config['insecure-registries']),
     default_address_pools: poolsToLines(config['default-address-pools']),
+    bip: String(config.bip || ''),
     ipv6: Boolean(config.ipv6),
     fixed_cidr_v6: String(config['fixed-cidr-v6'] || ''),
     expose_tcp: Boolean(tcpHost),
@@ -923,6 +928,7 @@ function buildDockerConfig(raw, form) {
   setOrDelete(config, 'registry-mirrors', linesToArray(form.registry_mirrors));
   setOrDelete(config, 'insecure-registries', linesToArray(form.insecure_registries));
   setOrDelete(config, 'default-address-pools', linesToPools(form.default_address_pools));
+  setOrDelete(config, 'bip', String(form.bip || '').trim());
 
   if (form.log_driver) {
     config['log-driver'] = form.log_driver;
