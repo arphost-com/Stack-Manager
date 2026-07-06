@@ -8,6 +8,25 @@ function getToken() {
   return localStorage.getItem('cm_token') || '';
 }
 
+// Clears the local auth footprint (mirrors what Settings > Sign Out does) and
+// bounces to the root URL, which the top-level App component will render as
+// <Login /> because cm_token is gone. Guarded so it only fires once even if
+// several parallel requests all get 401 at the same time.
+let sessionExpiredHandled = false;
+function handleSessionExpired() {
+  if (sessionExpiredHandled) return;
+  sessionExpiredHandled = true;
+  try {
+    localStorage.removeItem('cm_token');
+    localStorage.removeItem('cm_user');
+    localStorage.removeItem('cm_api_key');
+    // Snapshot caches would show stale data next login as a different user.
+    Object.keys(localStorage).filter(k => k.startsWith('cm_dashboard_v')).forEach(k => localStorage.removeItem(k));
+  } catch {}
+  // Hard redirect so every in-flight React state gets torn down cleanly.
+  window.location.href = '/';
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const apiKey = getApiKey();
@@ -20,6 +39,14 @@ async function request(path, options = {}) {
       ...options.headers,
     },
   });
+
+  if (res.status === 401 && path !== '/auth/login') {
+    handleSessionExpired();
+    // Still throw so the calling code knows the request didn't succeed. The
+    // page will unmount as soon as location.href fires, so the error will
+    // usually never render.
+    throw new Error('Session expired. Please sign in again.');
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -34,6 +61,10 @@ async function download(path, filename) {
   const apiKey = getApiKey();
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : apiKey ? { 'X-API-Key': apiKey } : {};
   const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders });
+  if (res.status === 401) {
+    handleSessionExpired();
+    throw new Error('Session expired. Please sign in again.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
