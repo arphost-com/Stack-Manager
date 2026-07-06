@@ -103,6 +103,20 @@ export default function Dashboard() {
     interval_minutes: 1440,
   });
 
+  // Force the server to re-discover projects + refresh the Redis cache, then
+  // re-fetch the dashboard. Use when container state changed on the host
+  // (e.g. compose up/down/restart outside the UI) and the dashboard is
+  // still showing the stale cached snapshot.
+  const forceRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await metricsApi.refresh();
+    } catch (err) {
+      // metrics/refresh failure isn't fatal — still try to re-fetch below.
+    }
+    await fetchData({ background: true });
+  };
+
   const fetchData = async ({ background = false } = {}) => {
     try {
       if (background) setRefreshing(true); else setLoading(true);
@@ -527,7 +541,10 @@ export default function Dashboard() {
           <p className="text-sm text-gray-600">Manage compose projects from the configured Docker root.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button title="Refresh project discovery, status, containers, hooks, and image sources." onClick={fetchData} className="btn-secondary">Refresh</button>
+          <button disabled={refreshing} title="Force a live re-discovery of every project (compose ps, image sources, running state) and clear the server-side cache. Use when container state changed on the host outside the UI (e.g. compose up/down/restart from a shell)." onClick={forceRefresh} className="btn-secondary inline-flex items-center gap-2">
+            {refreshing && <span className="spinner" aria-hidden="true"></span>}
+            Refresh
+          </button>
           <button title="Create a new project directory with a compose.yml file." onClick={() => setShowCreate(!showCreate)} className="btn-primary">Create Project</button>
           <div className="relative inline-flex">
             <button title={`Run ${PRUNE_MODES.find(mode => mode.key === pruneMode)?.label || 'selected prune command'} on this host.`} onClick={runPrune} className="rounded-l-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-600">
