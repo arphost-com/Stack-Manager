@@ -50,20 +50,24 @@ func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.Engine.DeleteProject(name, req)
+	// Always invalidate the projects cache so a subsequent list sees whatever
+	// state the filesystem is actually in. This matters when compose down
+	// succeeded but RemoveAll partially removed files, or when the operator
+	// deleted the directory out-of-band - the stale cache would keep the
+	// entry visible and mask the actual state.
+	h.Store.DeleteCache(r.Context(), "projects:list")
 	if err != nil {
 		if _, ok := err.(*core.ErrNotFound); ok {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		status := http.StatusBadRequest
 		if result != nil && !result.Success {
-			writeJSON(w, status, result)
+			writeErrorWithData(w, http.StatusBadRequest, err.Error(), result)
 			return
 		}
-		writeError(w, status, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.Store.DeleteCache(r.Context(), "projects:list")
 	writeJSON(w, http.StatusOK, result)
 }
 
