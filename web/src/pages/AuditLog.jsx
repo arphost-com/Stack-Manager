@@ -145,7 +145,7 @@ export default function AuditLog() {
               <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">No entries match the current filters.</td></tr>
             )}
             {entries.map(entry => (
-              <tr key={entry.id} className="align-top hover:bg-gray-50">
+              <tr key={entry.id} className="align-top hover:bg-gray-100">
                 <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{new Date(entry.created_at).toLocaleString()}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{entry.node || '—'}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{entry.actor || '—'}</td>

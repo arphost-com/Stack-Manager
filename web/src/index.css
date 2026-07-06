@@ -108,7 +108,8 @@ html.dark .mini-button {
 
 html.dark .btn-secondary:hover,
 html.dark .mini-button:hover,
-html.dark .hover\:bg-gray-100:hover {
+html.dark .hover\:bg-gray-100:hover,
+html.dark .hover\:bg-gray-50:hover {
   background-color: #334155;
 }
 
