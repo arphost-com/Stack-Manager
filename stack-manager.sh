@@ -2,7 +2,7 @@
 set -u -o pipefail
 
 # -------------------------------------------------------------------
-# compose-manager.sh (robust + hooks)
+# stack-manager.sh (robust + hooks)
 #
 # Key behavior:
 # - start/stop/status are ALWAYS normal compose actions:
@@ -35,8 +35,8 @@ set -u -o pipefail
 #   post-update_<project>.sh overrides normal update flow.
 #
 # Configuration files (loaded in order, later values override):
-#   /etc/compose-manager.conf
-#   ~/.config/compose-manager.conf
+#   /etc/stack-manager.conf
+#   ~/.config/stack-manager.conf
 # -------------------------------------------------------------------
 
 # Default values (can be overridden by config files or CLI flags)
@@ -60,10 +60,10 @@ TIMEOUT_SECS=0
 
 # Hooks
 HOOKS_ENABLED=1
-HOOKS_DIR=""           # default: <ROOT>/.compose-manager/hooks
+HOOKS_DIR=""           # default: <ROOT>/.stack-manager/hooks
 
 # Load config files if they exist
-for _conf in /etc/compose-manager.conf ~/.config/compose-manager.conf; do
+for _conf in /etc/stack-manager.conf ~/.config/stack-manager.conf; do
   # shellcheck disable=SC1090
   [[ -f "$_conf" ]] && source "$_conf"
 done
@@ -100,7 +100,7 @@ contains() { local needle="$1"; shift; for x in "$@"; do [[ "$x" == "$needle" ]]
 usage() {
   cat <<'EOF'
 Usage:
-  compose-manager.sh [global options] <command> [project ...]
+  stack-manager.sh [global options] <command> [project ...]
 
 Commands:
   list            List discovered projects + running containers per project
@@ -137,7 +137,7 @@ Logging options:
       --log-on             Re-enable file logging (default)
 
 Hooks:
-      --hooks-dir <path>   Hooks directory (default: <ROOT>/.compose-manager/hooks)
+      --hooks-dir <path>   Hooks directory (default: <ROOT>/.stack-manager/hooks)
       --no-hooks           Disable hooks
 
 Other:
@@ -147,17 +147,17 @@ Other:
   -h, --help               Show help
 
 Config files (loaded in order, later values override earlier):
-  /etc/compose-manager.conf           System-wide config
-  ~/.config/compose-manager.conf      User config
+  /etc/stack-manager.conf           System-wide config
+  ~/.config/stack-manager.conf      User config
 
   Supported variables: ROOT, INACTIVE_MARKER, LOG_ENABLED, LOG_DIR,
   TIMEOUT_SECS, HOOKS_ENABLED, HOOKS_DIR
 
 Examples:
-  ./compose-manager.sh --root /docker list
-  ./compose-manager.sh --root /docker check --timeout 180
-  ./compose-manager.sh --root /docker up netbox-docker
-  ./compose-manager.sh --root /docker update netbox-docker   # uses hook if present
+  ./stack-manager.sh --root /docker list
+  ./stack-manager.sh --root /docker check --timeout 180
+  ./stack-manager.sh --root /docker up netbox-docker
+  ./stack-manager.sh --root /docker update netbox-docker   # uses hook if present
 EOF
 }
 
@@ -321,13 +321,13 @@ init_logging() {
 
   if [[ -z "$LOG_FILE" ]]; then
     mkdir -p "$LOG_DIR" 2>/dev/null || true
-    LOG_FILE="${LOG_DIR}/compose-manager_$(date +%Y%m%d_%H%M%S).log"
+    LOG_FILE="${LOG_DIR}/stack-manager_$(date +%Y%m%d_%H%M%S).log"
   else
     mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
   fi
 
   touch "$LOG_FILE" 2>/dev/null || {
-    local fallback="${HOME}/compose-manager_$(date +%Y%m%d_%H%M%S).log"
+    local fallback="${HOME}/stack-manager_$(date +%Y%m%d_%H%M%S).log"
     warn "Cannot write log file at '$LOG_FILE'. Falling back to '$fallback'."
     LOG_FILE="$fallback"
     touch "$LOG_FILE" || { err "Cannot write any log file."; exit 1; }
@@ -339,7 +339,7 @@ init_logging() {
 
 init_hooks() {
   if [[ -z "$HOOKS_DIR" ]]; then
-    HOOKS_DIR="${ROOT}/.compose-manager/hooks"
+    HOOKS_DIR="${ROOT}/.stack-manager/hooks"
   fi
   if (( HOOKS_ENABLED )); then
     mkdir -p "$HOOKS_DIR" 2>/dev/null || true

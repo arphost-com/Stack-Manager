@@ -1,5 +1,5 @@
-# compose-manager.conf.example
-# Copy to /etc/compose-manager.conf (system-wide) or ~/.config/compose-manager.conf (user)
+# stack-manager.conf.example
+# Copy to /etc/stack-manager.conf (system-wide) or ~/.config/stack-manager.conf (user)
 
 # Root directory containing Docker Compose projects
 ROOT="/docker"
@@ -11,7 +11,7 @@ ROOT="/docker"
 #LOG_ENABLED=1
 
 # Log directory (default: same as ROOT)
-#LOG_DIR="/var/log/compose-manager"
+#LOG_DIR="/var/log/stack-manager"
 
 # Default timeout in seconds for pull/check operations (0=disabled)
 #TIMEOUT_SECS=0
@@ -19,5 +19,5 @@ ROOT="/docker"
 # Enable/disable hooks (1=enabled, 0=disabled)
 #HOOKS_ENABLED=1
 
-# Hooks directory (default: <ROOT>/.compose-manager/hooks)
-#HOOKS_DIR="/docker/.compose-manager/hooks"
+# Hooks directory (default: <ROOT>/.stack-manager/hooks)
+#HOOKS_DIR="/docker/.stack-manager/hooks"

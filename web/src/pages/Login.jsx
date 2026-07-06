@@ -27,7 +27,7 @@ export default function Login() {
     <div className="min-h-screen bg-gray-50 px-6 py-12 text-gray-950">
       <form onSubmit={submit} className="mx-auto mt-12 max-w-md section-panel space-y-4">
         <div>
-          <h1 className="text-xl font-semibold">Compose Manager</h1>
+          <h1 className="text-xl font-semibold">Stack Manager</h1>
           <p className="mt-1 text-sm text-gray-600">Sign in with your username and password.</p>
         </div>
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 )

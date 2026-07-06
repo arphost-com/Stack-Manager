@@ -38,7 +38,7 @@ type ImageSource struct {
 	Message      string `json:"message,omitempty"`
 }
 
-// ProjectUpdatePolicy controls whether Compose Manager should attempt image updates.
+// ProjectUpdatePolicy controls whether Stack Manager should attempt image updates.
 type ProjectUpdatePolicy struct {
 	Mode               string `json:"mode"`
 	EffectivePolicy    string `json:"effective_policy"`

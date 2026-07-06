@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/go-chi/chi/v5"
 )
 

@@ -133,9 +133,9 @@ func getEnv(key, fallback string) string {
 
 func defaultStateDir() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".compose-manager")
+		return filepath.Join(home, ".stack-manager")
 	}
-	return "/var/lib/compose-manager"
+	return "/var/lib/stack-manager"
 }
 
 func hostnameFallback() string {

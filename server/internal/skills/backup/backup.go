@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
-	"github.com/arphost-com/Compose-Manager/server/internal/storage"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -56,7 +56,7 @@ func (s *Skill) Init(_ context.Context, engine *core.Engine, cfg map[string]inte
 	if dir, ok := cfg["backup_dir"].(string); ok && dir != "" {
 		s.backupDir = dir
 	} else {
-		s.backupDir = filepath.Join(engine.RootDir, ".compose-manager", "backups")
+		s.backupDir = filepath.Join(engine.RootDir, ".stack-manager", "backups")
 	}
 	if err := os.MkdirAll(s.backupDir, 0755); err != nil {
 		return err
@@ -762,12 +762,12 @@ func (s *Skill) testDestination(ctx context.Context, destinationID int64) (*core
 	if err != nil {
 		return nil, err
 	}
-	testName := ".compose-manager-test-" + time.Now().UTC().Format("20060102150405")
+	testName := ".stack-manager-test-" + time.Now().UTC().Format("20060102150405")
 	tempFile, err := os.CreateTemp("", testName)
 	if err != nil {
 		return nil, err
 	}
-	_, _ = tempFile.WriteString("compose-manager backup destination test\n")
+	_, _ = tempFile.WriteString("stack-manager backup destination test\n")
 	_ = tempFile.Close()
 	defer os.Remove(tempFile.Name())
 
@@ -941,7 +941,7 @@ func writeRcloneConfig(destination *core.BackupDestination, secrets map[string]s
 	default:
 		return "", fmt.Errorf("unsupported rclone destination type %q", destination.Type)
 	}
-	file, err := os.CreateTemp("", "compose-manager-rclone-*.conf")
+	file, err := os.CreateTemp("", "stack-manager-rclone-*.conf")
 	if err != nil {
 		return "", err
 	}

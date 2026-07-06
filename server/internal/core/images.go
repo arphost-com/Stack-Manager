@@ -160,7 +160,7 @@ func manifestInspect(image string, anonymous bool) (bool, string) {
 
 	cmd := exec.CommandContext(ctx, "docker", "manifest", "inspect", image)
 	if anonymous {
-		tmpDir, err := os.MkdirTemp("", "compose-manager-docker-config-*")
+		tmpDir, err := os.MkdirTemp("", "stack-manager-docker-config-*")
 		if err != nil {
 			return false, err.Error()
 		}

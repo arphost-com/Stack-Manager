@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	cmauth "github.com/arphost-com/Compose-Manager/server/internal/auth"
-	"github.com/arphost-com/Compose-Manager/server/internal/middleware"
+	cmauth "github.com/arphost-com/Stack-Manager/server/internal/auth"
+	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 	"github.com/go-chi/chi/v5"
 )
 

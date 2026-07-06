@@ -1,4 +1,4 @@
-# Compose Manager
+# Stack Manager
 
 A CLI and web dashboard for managing **multiple Docker Compose projects** stored under a single root directory.
 
@@ -114,8 +114,8 @@ docker compose version
 # Clone the dashboard/API project
 mkdir -p ~/docker
 cd ~/docker
-git clone https://github.com/arphost-com/Compose-Manager.git
-cd Compose-Manager
+git clone https://github.com/arphost-com/Stack-Manager.git
+cd Stack-Manager
 
 # Generate .env, passwords, state directories, and printed login settings
 ./scripts/prepare-state.sh .env
@@ -133,7 +133,7 @@ http://<server>:8193
 For an existing install:
 
 ```bash
-cd ~/docker/Compose-Manager
+cd ~/docker/Stack-Manager
 git pull
 ./scripts/prepare-state.sh .env
 docker compose --env-file .env up -d --build
@@ -144,9 +144,9 @@ docker compose --env-file .env up -d --build
 Use this only if you want the standalone Bash script without the web dashboard, MariaDB, Redis, agents, stack catalog, users, schedules, backups UI, or metrics history.
 
 ```bash
-chmod +x compose-manager.sh
-sudo install -m 0755 compose-manager.sh /usr/local/bin/compose-manager.sh
-compose-manager.sh --help
+chmod +x stack-manager.sh
+sudo install -m 0755 stack-manager.sh /usr/local/bin/stack-manager.sh
+stack-manager.sh --help
 ```
 
 ---
@@ -169,8 +169,8 @@ API_KEY=change-me-to-a-secure-key
 ADMIN_USERNAME=admin
 # ADMIN_PASSWORD=change-me-to-a-different-secure-password
 
-DB_NAME=compose_manager
-DB_USER=compose_manager
+DB_NAME=stack_manager
+DB_USER=stack_manager
 DB_PASSWORD=change-me-to-a-secure-database-password
 DB_ROOT_PASSWORD=change-me-to-a-secure-root-database-password
 REDIS_PASSWORD=change-me-to-a-secure-redis-password
@@ -180,8 +180,8 @@ METRICS_REFRESH_MINUTES=15
 WARM_CACHE_TTL_MINUTES=30
 
 DOCKER_ROOT=/home/debian/docker
-STATE_DIR=.compose-manager
-BACKUP_TARGET_ROOT=.compose-manager/backup-targets
+STATE_DIR=.stack-manager
+BACKUP_TARGET_ROOT=.stack-manager/backup-targets
 DOCKER_GID=998
 SERVER_USER=1000:1000
 WEB_PORT=8193
@@ -195,8 +195,8 @@ Environment reference:
 | `API_KEY` | none | Required legacy/API key used for API access and as the first-admin password fallback when `ADMIN_PASSWORD` is unset. Use a long random value. |
 | `ADMIN_USERNAME` | `admin` | Username created only when the MariaDB users table is empty. |
 | `ADMIN_PASSWORD` | empty | Optional first-admin password. If empty, the app uses `API_KEY` for initial bootstrap login. Rotate it after first login. |
-| `DB_NAME` | `compose_manager` | MariaDB database name for users, action history, project settings, update policies, agents, and schedules. |
-| `DB_USER` | `compose_manager` | MariaDB application user. |
+| `DB_NAME` | `stack_manager` | MariaDB database name for users, action history, project settings, update policies, agents, and schedules. |
+| `DB_USER` | `stack_manager` | MariaDB application user. |
 | `DB_PASSWORD` | none | Required password for the MariaDB application user. |
 | `DB_ROOT_PASSWORD` | none | Required MariaDB root password used by the MariaDB container during initialization. |
 | `REDIS_PASSWORD` | none | Required password for Redis sessions and cache. |
@@ -204,18 +204,18 @@ Environment reference:
 | `CACHE_TTL_SECONDS` | `15` | Time, in seconds, that project/image/job/settings reads may stay in Redis before refresh. Lower values show changes faster; higher values reduce Docker/API load. |
 | `METRICS_REFRESH_MINUTES` | `15` | Background interval for project cache warmup, Docker stats snapshots, and metrics history collection. Values below 15 are raised to 15. |
 | `WARM_CACHE_TTL_MINUTES` | `30` | Redis TTL for background-warmed project and image-source caches. Keep it at least twice the refresh interval for fastest dashboard loads. |
-| `DOCKER_ROOT` | none | Required host directory containing the Docker Compose projects that Compose Manager should discover and manage. This can be any path on the host and is mounted into the server container at `/docker`. |
+| `DOCKER_ROOT` | none | Required host directory containing the Docker Compose projects that Stack Manager should discover and manage. This can be any path on the host and is mounted into the server container at `/docker`. |
 | `DOCKER_DAEMON_DIR` | `/etc/docker` | Host Docker daemon configuration directory used by Settings > Docker Settings when reading or writing `daemon.json`. |
-| `STATE_DIR` | `.compose-manager` | Compose Manager persistent state directory. Relative paths are stored under the Compose Manager root beside `docker-compose.yml`. |
-| `BACKUP_TARGET_ROOT` | `.compose-manager/backup-targets` | Host directory mounted into the server container at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
+| `STATE_DIR` | `.stack-manager` | Stack Manager persistent state directory. Relative paths are stored under the Stack Manager root beside `docker-compose.yml`. |
+| `BACKUP_TARGET_ROOT` | `.stack-manager/backup-targets` | Host directory mounted into the server container at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
 | `DOCKER_GID` | host Docker socket group | Group ID for `/var/run/docker.sock`. The non-root server user is added to this group so it can run Docker commands. |
 | `SERVER_USER` | none | Required numeric UID:GID used to run the server container and own `STATE_DIR`, for example `1000:1000`. Use whichever host user/group should manage Docker. Set `0:0` only on hosts that intentionally require root compose management. |
 | `WEB_PORT` | `8193` | Host port for the web dashboard. The API server stays internal on port `8192`. |
 | `HOST_URL` | detected from hostname and `WEB_PORT` | Dashboard URL printed by setup for the operator. Edit it if users should open a different DNS name or reverse-proxy URL. |
 
-`REDIS_DB` is not a MariaDB setting and does not create another Redis container. Redis has numbered logical databases inside one Redis instance; `0` is the normal default. Compose Manager stores login sessions and short-lived cache keys there. With the included dedicated Redis service, leave it at `0`.
+`REDIS_DB` is not a MariaDB setting and does not create another Redis container. Redis has numbered logical databases inside one Redis instance; `0` is the normal default. Stack Manager stores login sessions and short-lived cache keys there. With the included dedicated Redis service, leave it at `0`.
 
-`SERVER_USER` is host-specific. Different Linux boxes may need different numeric IDs, such as `0:0`, `1000:1000`, or `998:998`. Compose Manager uses that same UID:GID for the server process and for prepared state directory ownership so behavior stays consistent across hosts.
+`SERVER_USER` is host-specific. Different Linux boxes may need different numeric IDs, such as `0:0`, `1000:1000`, or `998:998`. Stack Manager uses that same UID:GID for the server process and for prepared state directory ownership so behavior stays consistent across hosts.
 
 Start it:
 
@@ -253,7 +253,7 @@ Persistent state is stored under `STATE_DIR`:
 | `backup-targets/` | Default host-backed mount for UI-configured local/CIFS/NFS backup destinations |
 | `docker-config/` | Docker registry credentials from dashboard registry login |
 
-Persistent state stays under the Compose Manager root. Managed Compose projects stay under `DOCKER_ROOT`, which can be any host directory chosen for that machine.
+Persistent state stays under the Stack Manager root. Managed Compose projects stay under `DOCKER_ROOT`, which can be any host directory chosen for that machine.
 
 Legacy files from earlier versions are imported on startup if present:
 
@@ -264,7 +264,7 @@ The app no longer writes users, sessions, project settings, or action history as
 
 ### Background Cache And Metrics
 
-Compose Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background when the server starts and then every `METRICS_REFRESH_MINUTES`. Dashboard reads use Redis-cached summaries first, so normal page loads do not need to wait for every Docker inspection command.
+Stack Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background when the server starts and then every `METRICS_REFRESH_MINUTES`. Dashboard reads use Redis-cached summaries first, so normal page loads do not need to wait for every Docker inspection command.
 
 Metrics are stored in MariaDB for historical graphing:
 
@@ -280,14 +280,14 @@ The Project Detail Shell tab runs scoped Docker Compose troubleshooting commands
 
 ### Root-Sensitive Projects
 
-GitLab, PMM, and similar stacks may run containers as root internally or require root-owned data inside Docker volumes. Compose Manager does not need to run as host root for the containers themselves; Docker handles container users. Compose Manager does need filesystem access to the project directory and compose files under `DOCKER_ROOT`.
+GitLab, PMM, and similar stacks may run containers as root internally or require root-owned data inside Docker volumes. Stack Manager does not need to run as host root for the containers themselves; Docker handles container users. Stack Manager does need filesystem access to the project directory and compose files under `DOCKER_ROOT`.
 
 Recommended model for mixed hosts:
 
-1. Run Compose Manager as the host service user, such as `SERVER_USER=1000:1000`.
+1. Run Stack Manager as the host service user, such as `SERVER_USER=1000:1000`.
 2. Keep compose files and `.env` readable by that UID/GID, using group ownership or ACLs if needed.
 3. Store application data in Docker named volumes where possible, not root-only bind paths.
-4. For truly root-only project directories, run a separate root-capable Compose Manager agent with `SERVER_USER=0:0` and register it from the main server.
+4. For truly root-only project directories, run a separate root-capable Stack Manager agent with `SERVER_USER=0:0` and register it from the main server.
 
 ### Backup Endpoints
 
@@ -355,16 +355,16 @@ Saving creates a timestamped backup beside `daemon.json` when the file already e
 
 Schedules are stored in MariaDB and cached in Redis. A schedule can target:
 
-- `Local` - a project on the main Compose Manager host.
-- A registered agent - a remote Compose Manager agent running on another Docker host.
+- `Local` - a project on the main Stack Manager host.
+- A registered agent - a remote Stack Manager agent running on another Docker host.
 
 Schedules support `update`, `pull`, `up`, `restart`, `down`, and `status`. Scheduled `update` respects the project update policy; projects marked `no_updates` record a skipped session instead of pulling.
 
 Remote agents use the same server image in agent mode:
 
 ```bash
-git clone https://github.com/arphost-com/Compose-Manager.git
-cd Compose-Manager
+git clone https://github.com/arphost-com/Stack-Manager.git
+cd Stack-Manager
 ./scripts/prepare-state.sh --agent .env
 docker compose --env-file .env -f docker-compose.agent.yml up -d --build
 ```
@@ -388,7 +388,7 @@ The GitLab pipeline treats docker02 as the dev environment:
 - `deploy:docker02` runs automatically on the default branch after validation, tests, builds, and security scans pass.
 - The deploy job preserves existing docker02 `.env` secrets or generates secure first-run values when GitLab CI variables are not set.
 - `smoke:docker02` runs automatically after the dev deploy.
-- `push:github` is an optional manual production-style job that pushes the tested default branch to `arphost-com/Compose-Manager` with the masked `GITHUB_PAT` CI variable.
+- `push:github` is an optional manual production-style job that pushes the tested default branch to `arphost-com/Stack-Manager` with the masked `GITHUB_PAT` CI variable.
 - If `push:github` is clicked before `GITHUB_PAT` is configured, the job fails with a clear message and does not push.
 - After pushing, `push:github` verifies that GitHub `main` matches the GitLab commit SHA.
 
@@ -402,7 +402,7 @@ The CLI expects projects organized under a root directory:
 
 ```
 /docker/                          # Root directory (configurable with --root)
-├── .compose-manager/             # Configuration directory
+├── .stack-manager/             # Configuration directory
 │   └── hooks/                    # Custom update hooks
 │       └── post-update_netbox-docker.sh
 ├── project-a/
@@ -412,7 +412,7 @@ The CLI expects projects organized under a root directory:
 │   └── .inactive                 # Marker file - project is skipped
 ├── netbox-docker/
 │   └── docker-compose.yml
-└── compose-manager_20240115_143022.log  # Auto-generated log file
+└── stack-manager_20240115_143022.log  # Auto-generated log file
 ```
 
 ### Compose File Detection
@@ -433,41 +433,41 @@ The first match is used.
 
 ```bash
 # List all discovered projects and their status
-compose-manager.sh --root /docker list
+stack-manager.sh --root /docker list
 
 # Show detailed container status per project
-compose-manager.sh --root /docker status
+stack-manager.sh --root /docker status
 
 # Check for image updates (pulls but doesn't restart)
-compose-manager.sh --root /docker check
+stack-manager.sh --root /docker check
 
 # Pull latest images for all projects
-compose-manager.sh --root /docker pull
+stack-manager.sh --root /docker pull
 
 # Start all projects
-compose-manager.sh --root /docker up
+stack-manager.sh --root /docker up
 
 # Update all projects (uses hooks if present)
-compose-manager.sh --root /docker update
+stack-manager.sh --root /docker update
 
 # Restart all running projects
-compose-manager.sh --root /docker restart
+stack-manager.sh --root /docker restart
 
 # Stop all projects
-compose-manager.sh --root /docker down
+stack-manager.sh --root /docker down
 
 # Prune unused Docker resources
-compose-manager.sh --root /docker prune
+stack-manager.sh --root /docker prune
 ```
 
 ### Operating on Specific Projects
 
 ```bash
 # Update only specific projects
-compose-manager.sh --root /docker update project-a project-b
+stack-manager.sh --root /docker update project-a project-b
 
 # Restart a single project
-compose-manager.sh --root /docker restart netbox-docker
+stack-manager.sh --root /docker restart netbox-docker
 ```
 
 ### Global Options
@@ -500,20 +500,20 @@ compose-manager.sh --root /docker restart netbox-docker
 
 | Option | Description |
 |--------|-------------|
-| `--hooks-dir <path>` | Custom hooks directory (default: `<ROOT>/.compose-manager/hooks`) |
+| `--hooks-dir <path>` | Custom hooks directory (default: `<ROOT>/.stack-manager/hooks`) |
 | `--no-hooks` | Disable all hooks |
 
 ### Inactive Project Management
 
 ```bash
 # List all inactive projects
-compose-manager.sh --root /docker inactive list
+stack-manager.sh --root /docker inactive list
 
 # Mark a project as inactive
-compose-manager.sh --root /docker inactive on netbox-docker
+stack-manager.sh --root /docker inactive on netbox-docker
 
 # Mark a project as active again
-compose-manager.sh --root /docker inactive off netbox-docker
+stack-manager.sh --root /docker inactive off netbox-docker
 ```
 
 ---
@@ -524,7 +524,7 @@ Hooks allow you to define custom update logic for specific projects.
 
 ### Hook Location
 
-Default: `<ROOT>/.compose-manager/hooks/`
+Default: `<ROOT>/.stack-manager/hooks/`
 
 Override with: `--hooks-dir <path>`
 
@@ -572,7 +572,7 @@ echo "NetBox update complete"
 
 Make it executable:
 ```bash
-chmod +x /docker/.compose-manager/hooks/post-update_netbox-docker.sh
+chmod +x /docker/.stack-manager/hooks/post-update_netbox-docker.sh
 ```
 
 ### Important Hook Behavior
@@ -592,25 +592,25 @@ When a `post-update_<project>.sh` hook exists:
 Logs are written to both screen and file. Default log location:
 
 ```
-<ROOT>/compose-manager_YYYYmmdd_HHMMSS.log
+<ROOT>/stack-manager_YYYYmmdd_HHMMSS.log
 ```
 
 ### Examples
 
 ```bash
 # Use custom log directory
-compose-manager.sh --root /docker --log-dir /var/log update
+stack-manager.sh --root /docker --log-dir /var/log update
 
 # Use specific log file
-compose-manager.sh --root /docker --log-file /tmp/update.log update
+stack-manager.sh --root /docker --log-file /tmp/update.log update
 
 # Disable file logging (screen only)
-compose-manager.sh --root /docker --no-log update
+stack-manager.sh --root /docker --no-log update
 ```
 
 ### Log File Fallback
 
-If the specified log location is not writable, the script falls back to `$HOME/compose-manager_<timestamp>.log`.
+If the specified log location is not writable, the script falls back to `$HOME/stack-manager_<timestamp>.log`.
 
 ---
 
@@ -756,16 +756,16 @@ is_mutating_command() {
 
 ```bash
 # Always test with dry-run first
-./compose-manager.sh --root /docker --dry-run update
+./stack-manager.sh --root /docker --dry-run update
 
 # Use verbose mode to see filtering decisions
-./compose-manager.sh --root /docker --verbose --dry-run list
+./stack-manager.sh --root /docker --verbose --dry-run list
 
 # Test on a single project
-./compose-manager.sh --root /docker --dry-run update myproject
+./stack-manager.sh --root /docker --dry-run update myproject
 
 # Test with disabled hooks
-./compose-manager.sh --root /docker --no-hooks --dry-run update
+./stack-manager.sh --root /docker --no-hooks --dry-run update
 ```
 
 ---

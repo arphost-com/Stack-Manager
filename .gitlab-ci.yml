@@ -9,12 +9,12 @@ stages:
 
 variables:
   DEPLOY_USER: "debian"
-  DEPLOY_PATH: "/home/debian/docker/compose-manager"
+  DEPLOY_PATH: "/home/debian/docker/stack-manager"
   DOCKER_ROOT: "/home/debian/docker"
-  STATE_DIR: "/home/debian/docker/compose-manager/.compose-manager"
+  STATE_DIR: "/home/debian/docker/stack-manager/.stack-manager"
   WEB_PORT: "8193"
-  COMPOSE_PROJECT_NAME: "compose-manager"
-  CI_COMPOSE_PROJECT_NAME: "compose-manager-ci-${CI_PIPELINE_ID}"
+  COMPOSE_PROJECT_NAME: "stack-manager"
+  CI_COMPOSE_PROJECT_NAME: "stack-manager-ci-${CI_PIPELINE_ID}"
 
 workflow:
   rules:
@@ -30,7 +30,7 @@ default:
 validate:compose:
   stage: validate
   script:
-    - bash -n compose-manager.sh
+    - bash -n stack-manager.sh
     - export API_KEY="ci-placeholder"
     - export DB_PASSWORD="ci-db-password"
     - export DB_ROOT_PASSWORD="ci-db-root-password"
@@ -126,7 +126,7 @@ security:dependency_check:
   script:
     - command -v dependency-check
     - mkdir -p "${HOME}/.cache/dependency-check-data"
-    - dependency-check --data "${HOME}/.cache/dependency-check-data" --project "compose-manager" --scan . --format GITLAB --out gl-dependency-scanning-report.json --failOnCVSS 7
+    - dependency-check --data "${HOME}/.cache/dependency-check-data" --project "stack-manager" --scan . --format GITLAB --out gl-dependency-scanning-report.json --failOnCVSS 7
   artifacts:
     when: always
     expire_in: 1 week
@@ -188,7 +188,7 @@ deploy:docker02:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: on_success
     - when: never
-  resource_group: docker02-compose-manager
+  resource_group: docker02-stack-manager
   environment:
     name: docker02-dev
     url: "http://docker02:${WEB_PORT}"
@@ -202,7 +202,7 @@ deploy:docker02:
     - sudo -n chown "${DEPLOY_USER}:${DEPLOY_USER}" "${STATE_DIR}"
     - sudo -n find "${STATE_DIR}" "${STATE_DIR}/hooks" "${STATE_DIR}/backups" "${STATE_DIR}/docker-config" "${STATE_DIR}/jobs" -type d -exec chmod 2770 {} +
     - sudo -n find "${STATE_DIR}/hooks" "${STATE_DIR}/backups" "${STATE_DIR}/docker-config" "${STATE_DIR}/jobs" -type f -exec chmod 660 {} +
-    - sudo -n rsync -a --delete --chown="${DEPLOY_USER}:${DEPLOY_USER}" --exclude='.git/' --exclude='.claude/' --exclude='.env' --exclude='.compose-manager/' --exclude='bin/' --exclude='node_modules/' --exclude='web/dist/' --exclude='tmp/' ./ "${DEPLOY_PATH}/"
+    - sudo -n rsync -a --delete --chown="${DEPLOY_USER}:${DEPLOY_USER}" --exclude='.git/' --exclude='.claude/' --exclude='.env' --exclude='.stack-manager/' --exclude='bin/' --exclude='node_modules/' --exclude='web/dist/' --exclude='tmp/' ./ "${DEPLOY_PATH}/"
     - |
       sudo -n -u "${DEPLOY_USER}" env \
         DEPLOY_PATH="${DEPLOY_PATH}" \
@@ -211,10 +211,10 @@ deploy:docker02:
         WEB_PORT="${WEB_PORT}" \
         DOCKER_GID="${DOCKER_GID}" \
         SERVER_USER="${SERVER_USER}" \
-        COMPOSE_MANAGER_API_KEY="${COMPOSE_MANAGER_API_KEY:-}" \
-        COMPOSE_MANAGER_DB_PASSWORD="${COMPOSE_MANAGER_DB_PASSWORD:-}" \
-        COMPOSE_MANAGER_DB_ROOT_PASSWORD="${COMPOSE_MANAGER_DB_ROOT_PASSWORD:-}" \
-        COMPOSE_MANAGER_REDIS_PASSWORD="${COMPOSE_MANAGER_REDIS_PASSWORD:-}" \
+        STACK_MANAGER_API_KEY="${STACK_MANAGER_API_KEY:-}" \
+        STACK_MANAGER_DB_PASSWORD="${STACK_MANAGER_DB_PASSWORD:-}" \
+        STACK_MANAGER_DB_ROOT_PASSWORD="${STACK_MANAGER_DB_ROOT_PASSWORD:-}" \
+        STACK_MANAGER_REDIS_PASSWORD="${STACK_MANAGER_REDIS_PASSWORD:-}" \
         sh <<'SH'
       set -eu
       env_file="${DEPLOY_PATH}/.env"
@@ -230,10 +230,10 @@ deploy:docker02:
           head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48
         fi
       }
-      api_key="${COMPOSE_MANAGER_API_KEY:-$(get_env API_KEY || true)}"
-      db_password="${COMPOSE_MANAGER_DB_PASSWORD:-$(get_env DB_PASSWORD || true)}"
-      db_root_password="${COMPOSE_MANAGER_DB_ROOT_PASSWORD:-$(get_env DB_ROOT_PASSWORD || true)}"
-      redis_password="${COMPOSE_MANAGER_REDIS_PASSWORD:-$(get_env REDIS_PASSWORD || true)}"
+      api_key="${STACK_MANAGER_API_KEY:-$(get_env API_KEY || true)}"
+      db_password="${STACK_MANAGER_DB_PASSWORD:-$(get_env DB_PASSWORD || true)}"
+      db_root_password="${STACK_MANAGER_DB_ROOT_PASSWORD:-$(get_env DB_ROOT_PASSWORD || true)}"
+      redis_password="${STACK_MANAGER_REDIS_PASSWORD:-$(get_env REDIS_PASSWORD || true)}"
       host_url="$(get_env HOST_URL || true)"
       base_image_prefix="$(get_env BASE_IMAGE_PREFIX || true)"
       [ -n "${api_key}" ] || api_key="$(gen_secret)"
@@ -293,7 +293,7 @@ smoke:docker02:
         if curl -fsS \
           -H "X-API-Key: ${SMOKE_API_KEY}" \
           "http://127.0.0.1:${WEB_PORT}/api/v1/projects" \
-          >"${CI_PROJECT_DIR}/compose-manager-projects.json"; then
+          >"${CI_PROJECT_DIR}/stack-manager-projects.json"; then
           break
         fi
         if [ "$i" -eq 30 ]; then
@@ -320,9 +320,9 @@ push:github:
         echo "No GitHub push was performed."
         exit 1
       fi
-    - git push "https://x-access-token:${GITHUB_PAT}@github.com/arphost-com/Compose-Manager.git" "HEAD:main"
+    - git push "https://x-access-token:${GITHUB_PAT}@github.com/arphost-com/Stack-Manager.git" "HEAD:main"
     - |
-      github_sha="$(git ls-remote https://github.com/arphost-com/Compose-Manager.git refs/heads/main | awk '{print $1}')"
+      github_sha="$(git ls-remote https://github.com/arphost-com/Stack-Manager.git refs/heads/main | awk '{print $1}')"
       if [ "${github_sha}" != "${CI_COMMIT_SHA}" ]; then
         echo "GitHub main is ${github_sha}, expected ${CI_COMMIT_SHA}."
         exit 1

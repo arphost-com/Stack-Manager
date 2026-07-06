@@ -125,8 +125,8 @@ if [ "${agent_mode}" -eq 1 ]; then
 else
   set_env_value APP_MODE server
   ensure_setting ADMIN_USERNAME admin
-  ensure_setting DB_NAME compose_manager
-  ensure_setting DB_USER compose_manager
+  ensure_setting DB_NAME stack_manager
+  ensure_setting DB_USER stack_manager
   ensure_setting REDIS_DB 0
   ensure_setting CACHE_TTL_SECONDS 15
   ensure_setting METRICS_REFRESH_MINUTES 15
@@ -136,8 +136,8 @@ ensure_setting DOCKER_ROOT "${HOME}/docker"
 if [ "${agent_mode}" -eq 1 ]; then
   ensure_setting ROOT "$(env_value DOCKER_ROOT)"
 fi
-ensure_setting STATE_DIR .compose-manager
-ensure_setting BACKUP_TARGET_ROOT .compose-manager/backup-targets
+ensure_setting STATE_DIR .stack-manager
+ensure_setting BACKUP_TARGET_ROOT .stack-manager/backup-targets
 if [ "${created_env}" -eq 1 ]; then
   set_env_value DOCKER_GID "$(detect_docker_gid)"
   set_env_value SERVER_USER "$(id -u):$(id -g)"
@@ -185,12 +185,12 @@ case "${state_uid}:${state_gid}" in
     ;;
 esac
 
-state_dir="${STATE_DIR:-.compose-manager}"
+state_dir="${STATE_DIR:-.stack-manager}"
 case "${state_dir}" in
   /*) ;;
   *) state_dir="${project_root}/${state_dir}" ;;
 esac
-backup_target_root="${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}"
+backup_target_root="${BACKUP_TARGET_ROOT:-.stack-manager/backup-targets}"
 case "${backup_target_root}" in
   /*) ;;
   *) backup_target_root="${project_root}/${backup_target_root}" ;;
@@ -239,7 +239,7 @@ printf '%s\n' "Prepared ${state_dir} for ${state_uid}:${state_gid}."
 printf '%s\n' "Prepared ${backup_target_root} for backup endpoint mounts."
 
 printf '%s\n' ""
-printf '%s\n' "Compose Manager settings written to ${env_file}:"
+printf '%s\n' "Stack Manager settings written to ${env_file}:"
 if [ "${agent_mode}" -eq 1 ]; then
   for key in \
     APP_MODE \

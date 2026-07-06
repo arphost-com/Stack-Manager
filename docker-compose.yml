@@ -16,10 +16,10 @@ services:
         find /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type f -exec chmod 660 {} +
     volumes:
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}
+        source: ${STATE_DIR:-.stack-manager}
         target: /state
       - type: bind
-        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        source: ${BACKUP_TARGET_ROOT:-.stack-manager/backup-targets}
         target: /backup-targets
         bind:
           create_host_path: true
@@ -39,8 +39,8 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       DB_HOST: "mariadb"
       DB_PORT: "3306"
-      DB_NAME: "${DB_NAME:-compose_manager}"
-      DB_USER: "${DB_USER:-compose_manager}"
+      DB_NAME: "${DB_NAME:-stack_manager}"
+      DB_USER: "${DB_USER:-stack_manager}"
       DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD required}"
       REDIS_ADDR: "redis:6379"
       REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD required}"
@@ -63,12 +63,12 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}
+        source: ${STATE_DIR:-.stack-manager}
         target: /state
         bind:
           create_host_path: false
       - type: bind
-        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        source: ${BACKUP_TARGET_ROOT:-.stack-manager/backup-targets}
         target: /backup-targets
         bind:
           create_host_path: true
@@ -95,13 +95,13 @@ services:
   mariadb:
     image: ${BASE_IMAGE_PREFIX:-}mariadb:11.4
     environment:
-      MARIADB_DATABASE: "${DB_NAME:-compose_manager}"
-      MARIADB_USER: "${DB_USER:-compose_manager}"
+      MARIADB_DATABASE: "${DB_NAME:-stack_manager}"
+      MARIADB_USER: "${DB_USER:-stack_manager}"
       MARIADB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD required}"
       MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD required}"
     volumes:
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}/mariadb
+        source: ${STATE_DIR:-.stack-manager}/mariadb
         target: /var/lib/mysql
         bind:
           create_host_path: false
@@ -120,7 +120,7 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD required}"]
     volumes:
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}/redis
+        source: ${STATE_DIR:-.stack-manager}/redis
         target: /data
         bind:
           create_host_path: false

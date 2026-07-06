@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -41,7 +41,7 @@ func (s *Skill) Init(_ context.Context, engine *core.Engine, cfg map[string]inte
 	if dir, ok := cfg["backup_dir"].(string); ok && dir != "" {
 		s.dumpDir = filepath.Join(dir, "db-dumps")
 	} else {
-		s.dumpDir = filepath.Join(engine.RootDir, ".compose-manager", "backups", "db-dumps")
+		s.dumpDir = filepath.Join(engine.RootDir, ".stack-manager", "backups", "db-dumps")
 	}
 	return os.MkdirAll(s.dumpDir, 0755)
 }

@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/skills"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills"
 	"github.com/go-chi/chi/v5"
 )
 

@@ -26,7 +26,7 @@ const ACTIONS = [
 ];
 
 const PRUNE_MODES = [
-  { key: 'safe', label: 'Safe: images, networks, volumes', title: 'Prune unused images, networks, and volumes using the safest Compose Manager prune mode.' },
+  { key: 'safe', label: 'Safe: images, networks, volumes', title: 'Prune unused images, networks, and volumes using the safest Stack Manager prune mode.' },
   { key: 'system', label: 'System prune', title: 'Run docker system prune for unused containers, networks, images, and build cache.' },
   { key: 'system-all', label: 'System prune --all --volumes', title: 'Run docker system prune --all --volumes. This is the broadest cleanup option.' },
   { key: 'images', label: 'Images --all', title: 'Remove unused Docker images, including unreferenced tagged images.' },
@@ -537,7 +537,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-950">Compose Manager</h1>
+          <h1 className="text-2xl font-semibold text-gray-950">Stack Manager</h1>
           <p className="text-sm text-gray-600">Manage compose projects from the configured Docker root.</p>
         </div>
         <div className="flex flex-wrap gap-2">

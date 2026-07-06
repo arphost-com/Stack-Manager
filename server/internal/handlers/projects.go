@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
-	"github.com/arphost-com/Compose-Manager/server/internal/storage"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 

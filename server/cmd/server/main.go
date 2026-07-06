@@ -10,18 +10,18 @@ import (
 	"syscall"
 	"time"
 
-	cmauth "github.com/arphost-com/Compose-Manager/server/internal/auth"
-	"github.com/arphost-com/Compose-Manager/server/internal/config"
-	"github.com/arphost-com/Compose-Manager/server/internal/core"
-	"github.com/arphost-com/Compose-Manager/server/internal/handlers"
-	"github.com/arphost-com/Compose-Manager/server/internal/middleware"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills/backup"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills/dbadmin"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills/debug"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills/frontend"
-	"github.com/arphost-com/Compose-Manager/server/internal/skills/security"
-	"github.com/arphost-com/Compose-Manager/server/internal/storage"
+	cmauth "github.com/arphost-com/Stack-Manager/server/internal/auth"
+	"github.com/arphost-com/Stack-Manager/server/internal/config"
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
+	"github.com/arphost-com/Stack-Manager/server/internal/handlers"
+	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills/backup"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills/dbadmin"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills/debug"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills/frontend"
+	"github.com/arphost-com/Stack-Manager/server/internal/skills/security"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -190,7 +190,7 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("Compose Manager API starting on %s (root: %s)", addr, cfg.Root)
+		log.Printf("Stack Manager API starting on %s (root: %s)", addr, cfg.Root)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server: %v", err)
 		}
@@ -255,7 +255,7 @@ func runAgent(cfg *config.Config, engine *core.Engine) {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("Compose Manager agent %q starting on %s (root: %s)", cfg.AgentName, addr, cfg.Root)
+		log.Printf("Stack Manager agent %q starting on %s (root: %s)", cfg.AgentName, addr, cfg.Root)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("agent server: %v", err)
 		}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arphost-com/Compose-Manager/server/internal/storage"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 	"golang.org/x/crypto/bcrypt"
 )
 

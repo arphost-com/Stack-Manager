@@ -1,4 +1,4 @@
-module github.com/arphost-com/Compose-Manager/server
+module github.com/arphost-com/Stack-Manager/server
 
 go 1.25.0
 

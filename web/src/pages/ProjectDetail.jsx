@@ -440,7 +440,7 @@ function ShellPanel({ form, setForm, result, runShell }) {
         <button className="btn-secondary" title={commands.find(c => c.value === form.command)?.title || 'Run command'}>Run</button>
       </form>
       <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-        Commands run from this project directory using Docker Compose. For root-owned projects, make the compose files readable by the Compose Manager service UID or manage them from a root-capable agent.
+        Commands run from this project directory using Docker Compose. For root-owned projects, make the compose files readable by the Stack Manager service UID or manage them from a root-capable agent.
       </div>
       {result && (
         <div>
@@ -514,7 +514,7 @@ function Backups({ data, projectName, reload, setActionResult }) {
             <div className="text-xs text-gray-500">{(b.size_bytes / 1024 / 1024).toFixed(1)} MB · {new Date(b.created_at).toLocaleString()}</div>
           </div>
           <div className="flex gap-2">
-            <button title="Download this local backup archive from the Compose Manager server." onClick={() => downloadBackup(b.id)} className="mini-button">Download</button>
+            <button title="Download this local backup archive from the Stack Manager server." onClick={() => downloadBackup(b.id)} className="mini-button">Download</button>
             <button title="Restore this backup, stop running containers first, then start the project." onClick={() => restoreBackup(b.id)} className="mini-button">Restore</button>
             <button title="Delete this backup archive." onClick={() => deleteBackup(b.id)} className="mini-danger">Delete</button>
           </div>

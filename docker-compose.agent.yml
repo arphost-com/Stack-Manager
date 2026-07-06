@@ -16,10 +16,10 @@ services:
         find /state/hooks /state/backups /state/docker-config /state/jobs /backup-targets -type f -exec chmod 660 {} +
     volumes:
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}
+        source: ${STATE_DIR:-.stack-manager}
         target: /state
       - type: bind
-        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        source: ${BACKUP_TARGET_ROOT:-.stack-manager/backup-targets}
         target: /backup-targets
         bind:
           create_host_path: true
@@ -54,12 +54,12 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ${STATE_DIR:-.compose-manager}
+        source: ${STATE_DIR:-.stack-manager}
         target: /state
         bind:
           create_host_path: false
       - type: bind
-        source: ${BACKUP_TARGET_ROOT:-.compose-manager/backup-targets}
+        source: ${BACKUP_TARGET_ROOT:-.stack-manager/backup-targets}
         target: /backup-targets
         bind:
           create_host_path: true

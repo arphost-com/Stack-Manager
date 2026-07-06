@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Repository guidance for coding agents working on Compose Manager.
+Repository guidance for coding agents working on Stack Manager.
 
 ## Project Overview
 
-Compose Manager has two supported surfaces:
+Stack Manager has two supported surfaces:
 
-1. `compose-manager.sh` - Bash CLI for discovering and managing Docker Compose projects under a root directory.
+1. `stack-manager.sh` - Bash CLI for discovering and managing Docker Compose projects under a root directory.
 2. `server/` + `web/` - Go REST API with a React dashboard for compose operations, logs, stats, backups, database checks, security scans, registry login, stack templates, schedules, agents, background metrics, scoped project shell, and project creation/deletion.
 
 Use the existing patterns. Keep CLI and API behavior aligned when both surfaces implement the same operation.
@@ -15,8 +15,8 @@ Use the existing patterns. Keep CLI and API behavior aligned when both surfaces 
 
 ```bash
 # CLI
-bash -n compose-manager.sh
-./compose-manager.sh --root /docker --dry-run update
+bash -n stack-manager.sh
+./stack-manager.sh --root /docker --dry-run update
 
 # Server
 cd server && go test ./...
@@ -40,7 +40,7 @@ make docker-build
 
 ### CLI
 
-`compose-manager.sh` is a single Bash tool. It discovers compose projects, applies filters, executes docker compose commands, runs hooks, and prints a summary.
+`stack-manager.sh` is a single Bash tool. It discovers compose projects, applies filters, executes docker compose commands, runs hooks, and prints a summary.
 
 Important CLI behavior:
 
@@ -172,26 +172,26 @@ Required environment:
 
 The server container runs as the numeric host UID:GID configured by `SERVER_USER` and is added to the host Docker socket group via `DOCKER_GID`. For hosts that intentionally require root compose management, set `SERVER_USER=0:0`.
 `SERVER_USER` is host-specific and may be `0:0`, `1000:1000`, `998:998`, or another numeric UID:GID depending on the box. Keep prepared `STATE_DIR` ownership aligned with this value.
-For mixed-permission stacks such as GitLab or PMM, prefer keeping Compose Manager as the host service UID and making the compose project files readable by that UID/GID. Docker can still run the target containers as root. If a project directory must stay root-only, use a separate root-capable agent with `SERVER_USER=0:0`.
+For mixed-permission stacks such as GitLab or PMM, prefer keeping Stack Manager as the host service UID and making the compose project files readable by that UID/GID. Docker can still run the target containers as root. If a project directory must stay root-only, use a separate root-capable agent with `SERVER_USER=0:0`.
 
 Docker credentials from registry login are stored under:
 
 ```text
-/home/debian/docker/compose-manager/.compose-manager/docker-config
+/home/debian/docker/stack-manager/.stack-manager/docker-config
 ```
 
-Store Compose Manager's own persistent state under the Compose Manager root. Managed projects live under the host-specific `DOCKER_ROOT`, which can be any directory selected for that machine. docker02 uses `/home/debian/docker` as its GitLab deploy target, but that is not a global default.
+Store Stack Manager's own persistent state under the Stack Manager root. Managed projects live under the host-specific `DOCKER_ROOT`, which can be any directory selected for that machine. docker02 uses `/home/debian/docker` as its GitLab deploy target, but that is not a global default.
 
-Manual installs should run `./scripts/prepare-state.sh .env` before `docker compose up`. The Compose stack also includes a `state-init` service that repairs `STATE_DIR` ownership before app services start. If state paths already exist with wrong ownership, stop the stack and repair only Compose Manager state with `sudo chown -R <uid>:<gid> "$STATE_DIR"` before restarting. Do not recursively chown `DOCKER_ROOT`; it contains managed projects that may have their own owners.
+Manual installs should run `./scripts/prepare-state.sh .env` before `docker compose up`. The Compose stack also includes a `state-init` service that repairs `STATE_DIR` ownership before app services start. If state paths already exist with wrong ownership, stop the stack and repair only Stack Manager state with `sudo chown -R <uid>:<gid> "$STATE_DIR"` before restarting. Do not recursively chown `DOCKER_ROOT`; it contains managed projects that may have their own owners.
 `prepare-state.sh` creates `.env` from `.env.example` if needed, generates random values for missing or `change-me...` secrets, writes all setup values back to `.env`, and prints the resulting settings including `HOST_URL`.
 
 Runtime state:
 
-- MariaDB data: `<compose-manager-root>/.compose-manager/mariadb`
-- Redis append-only data: `<compose-manager-root>/.compose-manager/redis`
-- Hooks: `<compose-manager-root>/.compose-manager/hooks`
-- Backups and database dumps: `<compose-manager-root>/.compose-manager/backups`
-- Docker registry credentials: `<compose-manager-root>/.compose-manager/docker-config`
+- MariaDB data: `<stack-manager-root>/.stack-manager/mariadb`
+- Redis append-only data: `<stack-manager-root>/.stack-manager/redis`
+- Hooks: `<stack-manager-root>/.stack-manager/hooks`
+- Backups and database dumps: `<stack-manager-root>/.stack-manager/backups`
+- Docker registry credentials: `<stack-manager-root>/.stack-manager/docker-config`
 - Legacy `/state/users.json` and `/state/jobs/*.json` are imported into MariaDB on startup if present; the app no longer writes users or action history as flat files.
 
 ## GitLab Pipeline
@@ -201,10 +201,10 @@ Runtime state:
 - Validation runs `bash -n` and `docker compose config` with CI placeholder values.
 - Tests run Go and web builds inside Docker containers so the shell runner does not need local Go or Node.
 - Security jobs expect ARPHost runner tools on `PATH`: `semgrep`, `trivy`, `gitleaks`, `trufflehog`, and `dependency-check`.
-- `deploy:docker02` is the automatic dev deployment for the default branch. It syncs the repo to `/home/debian/docker/compose-manager`, writes `.env`, and runs Compose as the `debian` user.
-- `COMPOSE_MANAGER_API_KEY`, `COMPOSE_MANAGER_DB_PASSWORD`, `COMPOSE_MANAGER_DB_ROOT_PASSWORD`, and `COMPOSE_MANAGER_REDIS_PASSWORD` are optional for docker02 dev. If unset, the deploy job preserves existing `.env` values or generates secure first-run values.
-- `smoke:docker02` runs automatically after dev deploy and reads the deployed API key from `/home/debian/docker/compose-manager/.env`.
-- `push:github` is the optional manual production-style job. It pushes the tested default branch to `arphost-com/Compose-Manager` using masked `GITHUB_PAT` without blocking the green docker02 dev pipeline.
+- `deploy:docker02` is the automatic dev deployment for the default branch. It syncs the repo to `/home/debian/docker/stack-manager`, writes `.env`, and runs Compose as the `debian` user.
+- `STACK_MANAGER_API_KEY`, `STACK_MANAGER_DB_PASSWORD`, `STACK_MANAGER_DB_ROOT_PASSWORD`, and `STACK_MANAGER_REDIS_PASSWORD` are optional for docker02 dev. If unset, the deploy job preserves existing `.env` values or generates secure first-run values.
+- `smoke:docker02` runs automatically after dev deploy and reads the deployed API key from `/home/debian/docker/stack-manager/.env`.
+- `push:github` is the optional manual production-style job. It pushes the tested default branch to `arphost-com/Stack-Manager` using masked `GITHUB_PAT` without blocking the green docker02 dev pipeline.
 - If `push:github` is run without `GITHUB_PAT`, it fails with a clear message and does not push.
 - After pushing, `push:github` verifies that GitHub `main` matches the GitLab commit SHA.
 
@@ -242,15 +242,15 @@ Server env vars:
 | `METRICS_REFRESH_MINUTES` | `15` | no | Background interval for project cache warmup and Docker stats snapshots. Minimum 15. |
 | `WARM_CACHE_TTL_MINUTES` | `30` | no | Redis TTL for background-warmed project/image metadata. |
 | `ROOT` | `/docker` | no | In-container path where managed Compose projects are mounted. |
-| `STATE_DIR` | `.compose-manager` | no | Host state directory before container mount. Relative paths resolve under the Compose Manager root; in Compose the server uses `/state` inside the container. |
+| `STATE_DIR` | `.stack-manager` | no | Host state directory before container mount. Relative paths resolve under the Stack Manager root; in Compose the server uses `/state` inside the container. |
 | `PORT` | `8192` | no | API server listen port. |
 | `HOOKS_DIR` | `<STATE_DIR>/hooks` | no | Directory for API update hooks. |
 | `BACKUP_DIR` | `<STATE_DIR>/backups` | no | Directory for backups and database dumps. |
-| `BACKUP_TARGET_ROOT` | `.compose-manager/backup-targets` | no | Host path mounted at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
+| `BACKUP_TARGET_ROOT` | `.stack-manager/backup-targets` | no | Host path mounted at `/backup-targets` for UI-configured local, CIFS, NFS, and Linux mount backup endpoints. |
 | `DOCKER_CONFIG` | Docker default | no | Docker CLI config path for registry logins. |
 | `HOST_URL` | detected by setup | no | Operator-facing dashboard URL printed by setup; not required by the server runtime. |
 
-`REDIS_DB=0` is not related to MariaDB. It selects Redis logical database 0 inside one Redis instance. Use another number only if intentionally sharing a Redis server and you need Compose Manager keys isolated from other apps.
+`REDIS_DB=0` is not related to MariaDB. It selects Redis logical database 0 inside one Redis instance. Use another number only if intentionally sharing a Redis server and you need Stack Manager keys isolated from other apps.
 
 If the MariaDB `users` table is empty, the server creates the first admin from `ADMIN_USERNAME` and `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is empty, it uses `API_KEY` as the bootstrap password. Rotate or add users from the Settings page after first login.
 
@@ -262,8 +262,8 @@ Update policies:
 
 CLI config files load in this order:
 
-1. `/etc/compose-manager.conf`
-2. `~/.config/compose-manager.conf`
+1. `/etc/stack-manager.conf`
+2. `~/.config/stack-manager.conf`
 
 CLI variables include `ROOT`, `INACTIVE_MARKER`, `LOG_ENABLED`, `LOG_DIR`, `TIMEOUT_SECS`, `HOOKS_ENABLED`, and `HOOKS_DIR`.
 

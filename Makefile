@@ -2,7 +2,7 @@
 
 # Build everything
 build:
-	cd server && go build -o ../bin/compose-manager-server ./cmd/server
+	cd server && go build -o ../bin/stack-manager-server ./cmd/server
 	cd web && npm ci && npm run build
 
 # Run server locally
@@ -16,11 +16,11 @@ dev-web:
 # Run tests
 test:
 	cd server && go test ./...
-	bash -n compose-manager.sh
+	bash -n stack-manager.sh
 
 # Cross-compile server for Linux
 build-linux:
-	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/compose-manager-server-linux-amd64 ./cmd/server
+	cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/stack-manager-server-linux-amd64 ./cmd/server
 
 # Docker
 prepare-state:

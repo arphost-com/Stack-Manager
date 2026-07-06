@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	cmauth "github.com/arphost-com/Compose-Manager/server/internal/auth"
+	cmauth "github.com/arphost-com/Stack-Manager/server/internal/auth"
 )
 
 type contextKey string
 
-const UserContextKey contextKey = "compose-manager-user"
+const UserContextKey contextKey = "stack-manager-user"
 
 // RequireAPIKey validates the X-API-Key header against the configured key.
 func RequireAPIKey(apiKey string) func(http.Handler) http.Handler {

@@ -122,7 +122,7 @@ func (h *DockerSettingsHandler) writeDaemonJSON(raw string) error {
 }
 
 func (h *DockerSettingsHandler) backupDaemonJSON() (string, error) {
-	backupName := "daemon.json.compose-manager-" + time.Now().UTC().Format("20060102_150405") + ".bak"
+	backupName := "daemon.json.stack-manager-" + time.Now().UTC().Format("20060102_150405") + ".bak"
 	output, err := h.runDocker("run", "--rm", "-v", h.hostDaemonDir()+":/host/etc/docker", h.helperImage(), "cp", "/host/etc/docker/daemon.json", "/host/etc/docker/"+backupName)
 	if err != nil {
 		return "", fmt.Errorf("backup daemon.json failed: %v - %s", err, strings.TrimSpace(string(output)))

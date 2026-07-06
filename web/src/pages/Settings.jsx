@@ -106,7 +106,7 @@ export default function Settings() {
     return [
       ...base,
       { key: 'users', label: 'Users', title: 'Manage dashboard users and passwords.' },
-      { key: 'agents', label: 'Agents', title: 'Register and edit remote Compose Manager agents.' },
+      { key: 'agents', label: 'Agents', title: 'Register and edit remote Stack Manager agents.' },
       { key: 'schedules', label: 'Scheduled Updates', title: 'Schedule local or agent project updates.' },
       { key: 'registries', label: 'Registry Logins', title: 'Docker Hub account and private registry logins.' },
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
@@ -540,7 +540,7 @@ export default function Settings() {
               <div className="mt-3 grid gap-3 text-sm text-gray-700 xl:grid-cols-3">
                 <div className="rounded-md border border-gray-200 p-3">
                   <div className="font-medium text-gray-950">1. Prepare agent state</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Compose-Manager.git{"\n"}cd Compose-Manager{"\n"}./scripts/prepare-state.sh --agent .env</pre>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Stack-Manager.git{"\n"}cd Stack-Manager{"\n"}./scripts/prepare-state.sh --agent .env</pre>
                 </div>
                 <div className="rounded-md border border-gray-200 p-3">
                   <div className="font-medium text-gray-950">2. Start the agent only</div>
@@ -582,7 +582,7 @@ export default function Settings() {
             <Field label="Name" title="Friendly unique name for the remote compose host. Saving an existing name updates it.">
               <input value={agentForm.name} onChange={e => setAgentForm({ ...agentForm, name: e.target.value })} className="input" placeholder="docker03" required />
             </Field>
-            <Field label="Agent URL" title="Base URL for the remote Compose Manager agent, for example https://docker03.example.com:8192.">
+            <Field label="Agent URL" title="Base URL for the remote Stack Manager agent, for example https://docker03.example.com:8192.">
               <input value={agentForm.base_url} onChange={e => setAgentForm({ ...agentForm, base_url: e.target.value })} className="input" placeholder="https://host:8192" required />
             </Field>
             <Field label="Token" title="Bearer token used by the controller to call this agent. Leave blank when editing to keep the saved token.">
@@ -895,7 +895,7 @@ export default function Settings() {
               </label>
 
               {['local', 'mount', 'cifs', 'nfs'].includes(destinationForm.type) && (
-                <input className="input" placeholder="/mnt/backups/compose-manager" value={destinationForm.config.path} onChange={e => setDestinationConfig('path', e.target.value)} required title="Absolute path inside the server container. Bind mount host CIFS/NFS paths into the server container before using them here." />
+                <input className="input" placeholder="/mnt/backups/stack-manager" value={destinationForm.config.path} onChange={e => setDestinationConfig('path', e.target.value)} required title="Absolute path inside the server container. Bind mount host CIFS/NFS paths into the server container before using them here." />
               )}
 
               {['ftp', 'sftp'].includes(destinationForm.type) && (
@@ -914,7 +914,7 @@ export default function Settings() {
               {destinationForm.type === 's3' && (
                 <div className="grid gap-2">
                   <input className="input" placeholder="bucket" value={destinationForm.config.bucket} onChange={e => setDestinationConfig('bucket', e.target.value)} required title="S3 bucket name." />
-                  <input className="input" placeholder="prefix, e.g. compose-manager/docker01" value={destinationForm.config.prefix} onChange={e => setDestinationConfig('prefix', e.target.value)} title="Optional object prefix inside the bucket." />
+                  <input className="input" placeholder="prefix, e.g. stack-manager/docker01" value={destinationForm.config.prefix} onChange={e => setDestinationConfig('prefix', e.target.value)} title="Optional object prefix inside the bucket." />
                   <input className="input" placeholder="endpoint, e.g. https://s3.amazonaws.com" value={destinationForm.config.endpoint} onChange={e => setDestinationConfig('endpoint', e.target.value)} title="Optional endpoint for S3-compatible storage." />
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input className="input" placeholder="region" value={destinationForm.config.region} onChange={e => setDestinationConfig('region', e.target.value)} title="Optional region." />
