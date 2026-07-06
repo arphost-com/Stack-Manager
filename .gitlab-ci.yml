@@ -260,10 +260,11 @@ deploy:docker02:
       [ -n "${db_password}" ] || db_password="$(gen_secret)"
       [ -n "${db_root_password}" ] || db_root_password="$(gen_secret)"
       [ -n "${redis_password}" ] || redis_password="$(gen_secret)"
-      # Prefer the box's own FQDN so the printed URL matches what operators
-      # type into their browser instead of a hardcoded runner name.
-      host_fqdn="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo docker02)"
-      [ -n "${host_url}" ] || host_url="https://${host_fqdn}:${WEB_SSL_PORT}"
+      # Use the box's primary IP so the printed URL never depends on DNS.
+      host_addr="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+      [ -n "${host_addr}" ] || host_addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      [ -n "${host_addr}" ] || host_addr="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo docker02)"
+      [ -n "${host_url}" ] || host_url="https://${host_addr}:${WEB_SSL_PORT}"
       [ -n "${db_name}" ] || db_name="stack_manager"
       [ -n "${db_user}" ] || db_user="stack_manager"
       # BASE_IMAGE_PREFIX defaults to empty so images pull directly from Docker

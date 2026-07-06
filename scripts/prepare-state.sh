@@ -92,9 +92,23 @@ detect_docker_gid() {
   fi
 }
 
+detect_primary_ip() {
+  # Prefer the source IP of the default route - that is the address a
+  # browser on the same network would use to reach this box, and it
+  # avoids DNS surprises with the hostname.
+  ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+  if [ -z "${ip}" ]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  if [ -z "${ip}" ]; then
+    ip="$(hostname 2>/dev/null || printf '%s' localhost)"
+  fi
+  printf '%s' "${ip}"
+}
+
 detect_host_url() {
   port="$1"
-  host="$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf '%s' localhost)"
+  host="$(detect_primary_ip)"
   case "${host}" in
     "") host="localhost" ;;
   esac
@@ -103,7 +117,7 @@ detect_host_url() {
 
 detect_host_url_https() {
   port="$1"
-  host="$(hostname -f 2>/dev/null || hostname 2>/dev/null || printf '%s' localhost)"
+  host="$(detect_primary_ip)"
   case "${host}" in
     "") host="localhost" ;;
   esac
