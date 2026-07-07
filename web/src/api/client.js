@@ -50,7 +50,15 @@ async function request(path, options = {}) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    // Attach the full response envelope to the thrown Error so callers can
+    // display richer detail (compose output, exit code, etc.) instead of
+    // just the top-level message. Handlers that only touch err.message keep
+    // working; ones that render an output pane can read err.data.
+    const err = new Error(body.error || `HTTP ${res.status}`);
+    err.data = body?.data;
+    err.status = res.status;
+    err.envelope = body;
+    throw err;
   }
 
   return res.json();

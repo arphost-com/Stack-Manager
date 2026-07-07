@@ -275,7 +275,12 @@ export default function Dashboard() {
       setSelected(selected.filter(name => name !== project.name));
       fetchData();
     } catch (err) {
-      setActionResult({ label: `delete ${project.name}`, status: 'error', error: err.message });
+      setActionResult({ label: `delete ${project.name}`, status: 'error', error: err.message, result: err.data });
+      // Refresh the list too - if the delete partially succeeded (compose down
+      // fine but RemoveAll failed halfway, or the underlying directory is
+      // already gone as when compose-manager was cleaned up out-of-band) the
+      // cached list would still show the stale row.
+      fetchData();
     }
   };
 
