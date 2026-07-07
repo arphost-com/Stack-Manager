@@ -1,8 +1,17 @@
 # Stack Manager
 
-A CLI and web dashboard for managing **multiple Docker Compose projects** stored under a single root directory.
+A **controller + agent** for running many Docker Compose stacks across a fleet of hosts. Ships as a single Go binary paired with a React web dashboard and a Bash CLI (`stack-manager.sh`), all in one repo.
 
-Designed for environments with **many stacks**, mixed lifecycle states, and special projects that require **custom update logic** (such as NetBox).
+Built for environments with **many stacks**, mixed lifecycle states, and special projects that need **custom update logic** (such as NetBox). Includes bulk actions, scheduled updates, backups to local paths / CIFS / NFS / FTP / SFTP / S3, per-project update policies, registry logins, DB checks, security scans, scoped per-project shell, and TLS out of the box.
+
+Ships with a one-click **stack template catalog** spanning:
+
+- **AI** — LLM runtimes, RAG pipelines, vector databases, code assistants, image generation, voice / speech
+- **Web & CMS** — WordPress, static hosting, reverse proxies
+- **Databases & queues** — Postgres, MariaDB, Redis, message brokers
+- **DevOps** — monitoring, security, docs, automation, file sharing, media
+
+Load a template, edit the `compose.yml` / `.env`, and deploy — or point the dashboard at a fleet of hosts through the built-in agent mode.
 
 ---
 

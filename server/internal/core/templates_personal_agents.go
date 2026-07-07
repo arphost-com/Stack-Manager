@@ -1,31 +1,26 @@
 package core
 
-// personalAgentStackTemplates: AI personal agents — self-hosted gateways that
-// bridge chat apps (Discord, Slack, WhatsApp, Signal, Telegram, iMessage, etc.)
-// to LLM-backed autonomous agents. OpenClaw and its "clones."
-//
-// Most of these ship as npm packages rather than pre-built Docker images, so
-// each template uses node:22-slim as the runtime and installs the package on
-// first boot. Rebuild as a proper image after you have picked a version to pin.
+// personalAgentStackTemplates: AI personal agents - self-hosted gateways that
+// bridge chat apps, tools, memory, and LLM-backed autonomous agents. The list is
+// intentionally capped to the best nine deployable options for Stack Manager.
 func personalAgentStackTemplates() []StackTemplate {
 	return []StackTemplate{
 		{
 			ID: "openclaw", Name: "OpenClaw",
-			Description: "Personal AI assistant that connects Discord, Slack, WhatsApp, Signal, Telegram, iMessage and 20+ other chat apps to an LLM.",
+			Description: "Popular local-first personal AI assistant with a gateway for WhatsApp, Telegram, Slack, Discord, Signal, iMessage and many other channels.",
 			Category:    "ai", Subcategory: "personal-agents",
-			Source: "npm", Image: "node:22-slim",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
+			Source: "npm", Image: "node:24-bookworm-slim",
+			Tags: []string{"ai", "personal-agent", "chat-gateway", "openclaw"},
 			ComposeContent: `services:
   openclaw:
-    image: node:22-slim
+    image: node:24-bookworm-slim
     working_dir: /root
     command: >-
       sh -c "npm install -g openclaw@${OPENCLAW_VERSION:-latest} &&
-             openclaw config set gateway.controlUi.dangerouslyDisableDeviceAuth true &&
-             openclaw config set gateway.auth.token \"$OPENCLAW_TOKEN\" &&
-             openclaw gateway --allow-unconfigured"
+             openclaw gateway --host 0.0.0.0 --port 18789 --verbose"
     environment:
-      OPENCLAW_TOKEN: ${OPENCLAW_TOKEN:?set OPENCLAW_TOKEN in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "${OPENCLAW_PORT:-18789}:18789"
     volumes:
@@ -34,24 +29,52 @@ func personalAgentStackTemplates() []StackTemplate {
 volumes:
   openclaw-home:
 `,
-			EnvContent: "OPENCLAW_PORT=18789\nOPENCLAW_VERSION=latest\nOPENCLAW_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "First-run installs openclaw over npm. Point https://<host>:${OPENCLAW_PORT} at the Control UI. Front with nginx/Caddy for TLS.",
+			EnvContent: "OPENCLAW_PORT=18789\nOPENCLAW_VERSION=latest\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\n",
+			Notes:      "Use OpenClaw onboarding and pairing before exposing the gateway. Put it behind HTTPS and keep default pairing/allowlist protections enabled.",
+		},
+		{
+			ID: "zeroclaw", Name: "ZeroClaw",
+			Description: "Small, security-first personal agent runtime with supervised autonomy, workspace boundaries, command policy, and OS/container sandbox options.",
+			Category:    "ai", Subcategory: "personal-agents",
+			Source: "github", Image: "ghcr.io/zeroclaw-labs/zeroclaw:latest",
+			Tags: []string{"ai", "personal-agent", "security", "rust"},
+			ComposeContent: `services:
+  zeroclaw:
+    image: ghcr.io/zeroclaw-labs/zeroclaw:latest
+    command: ["zeroclaw", "gateway", "--host", "0.0.0.0", "--port", "18791"]
+    environment:
+      ZEROCLAW_TOKEN: ${ZEROCLAW_TOKEN:?set ZEROCLAW_TOKEN in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+    ports:
+      - "${ZEROCLAW_PORT:-18791}:18791"
+    volumes:
+      - zeroclaw-data:/data
+    restart: unless-stopped
+volumes:
+  zeroclaw-data:
+`,
+			EnvContent: "ZEROCLAW_PORT=18791\nZEROCLAW_TOKEN=\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\nOLLAMA_BASE_URL=\n",
+			Notes:      "Best fit when the customer needs a safer default posture. Keep supervised mode on until site-specific policies are reviewed.",
 		},
 		{
 			ID: "nanoclaw", Name: "NanoClaw",
-			Description: "Security-first fork of OpenClaw that isolates each agent in its own Docker container.",
+			Description: "Lightweight secure OpenClaw-style agent aimed at simple personal and team deployments with isolated execution.",
 			Category:    "ai", Subcategory: "personal-agents",
-			Source: "npm", Image: "node:22-slim",
+			Source: "npm", Image: "node:24-bookworm-slim",
 			Tags: []string{"ai", "personal-agent", "chat-gateway", "sandboxed"},
 			ComposeContent: `services:
   nanoclaw:
-    image: node:22-slim
+    image: node:24-bookworm-slim
     working_dir: /root
     command: >-
       sh -c "npm install -g nanoclaw@${NANOCLAW_VERSION:-latest} &&
-             nanoclaw gateway"
+             nanoclaw gateway --host 0.0.0.0 --port 18790"
     environment:
       NANOCLAW_AUTH_TOKEN: ${NANOCLAW_TOKEN:?set NANOCLAW_TOKEN in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "${NANOCLAW_PORT:-18790}:18790"
     volumes:
@@ -61,76 +84,23 @@ volumes:
 volumes:
   nanoclaw-home:
 `,
-			EnvContent: "NANOCLAW_PORT=18790\nNANOCLAW_VERSION=latest\nNANOCLAW_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "NanoClaw spawns per-agent sandbox containers through the mounted Docker socket. Requires Node 20+, pnpm 10+, Docker on the host.",
-		},
-		{
-			ID: "zeroclaw", Name: "ZeroClaw",
-			Description: "Minimal Rust-based AI agent framework for self-hosted systems (Landlock/Bubblewrap sandboxing).",
-			Category:    "ai", Subcategory: "personal-agents",
-			Source: "github", Image: "ghcr.io/zeroclaw-labs/zeroclaw:latest",
-			Tags: []string{"ai", "personal-agent", "chat-gateway", "rust"},
-			ComposeContent: `services:
-  zeroclaw:
-    image: ghcr.io/zeroclaw-labs/zeroclaw:latest
-    environment:
-      ZEROCLAW_TOKEN: ${ZEROCLAW_TOKEN:?set ZEROCLAW_TOKEN in .env}
-    ports:
-      - "${ZEROCLAW_PORT:-18791}:18791"
-    volumes:
-      - zeroclaw-data:/data
-    restart: unless-stopped
-volumes:
-  zeroclaw-data:
-`,
-			EnvContent: "ZEROCLAW_PORT=18791\nZEROCLAW_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "Confirm the exact image tag with the ZeroClaw docs before deploying. Uses OS-level sandboxes for command execution.",
-		},
-		{
-			ID: "forgeai", Name: "ForgeAI",
-			Description: "Self-hosted AI gateway that connects any LLM to WhatsApp, Telegram, Discord, Slack, Teams and WebChat via 17 security modules.",
-			Category:    "ai", Subcategory: "personal-agents",
-			Source: "github", Image: "ghcr.io/forgeai-dev/forgeai:latest",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
-			ComposeContent: `services:
-  forgeai:
-    image: ghcr.io/forgeai-dev/forgeai:latest
-    environment:
-      FORGEAI_MASTER_KEY: ${FORGEAI_KEY:?set FORGEAI_KEY in .env}
-      DATABASE_URL: postgres://forgeai:${FORGEAI_DB_PASSWORD:?set FORGEAI_DB_PASSWORD in .env}@db:5432/forgeai
-    ports:
-      - "${FORGEAI_PORT:-3050}:3000"
-    depends_on:
-      - db
-    volumes:
-      - forgeai-data:/app/data
-    restart: unless-stopped
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: forgeai
-      POSTGRES_PASSWORD: ${FORGEAI_DB_PASSWORD:?set FORGEAI_DB_PASSWORD in .env}
-      POSTGRES_DB: forgeai
-    volumes:
-      - forgeai-db:/var/lib/postgresql/data
-volumes:
-  forgeai-data:
-  forgeai-db:
-`,
-			EnvContent: "FORGEAI_PORT=3050\nFORGEAI_KEY=change-me-32-chars-minimum\nFORGEAI_DB_PASSWORD=change-me\n",
-			Notes:      "Every secret is encrypted with AES-256-GCM; every request goes through the security modules. First-run creates the admin account through the dashboard.",
+			EnvContent: "NANOCLAW_PORT=18790\nNANOCLAW_VERSION=latest\nNANOCLAW_TOKEN=\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\n",
+			Notes:      "This stack mounts the Docker socket so NanoClaw can launch isolated workers. Use only on hosts where that trust boundary is acceptable.",
 		},
 		{
 			ID: "nanobot", Name: "Nanobot",
-			Description: "Lightweight open-source AI agent for tools, chats and workflows. Supports Feishu, Discord, Slack, Teams.",
+			Description: "Lightweight open-source AI agent for tools, chats and workflows, with OpenRouter-style provider configuration.",
 			Category:    "ai", Subcategory: "personal-agents",
 			Source: "github", Image: "ghcr.io/hkuds/nanobot:latest",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
+			Tags: []string{"ai", "personal-agent", "workflow", "chat"},
 			ComposeContent: `services:
   nanobot:
     image: ghcr.io/hkuds/nanobot:latest
+    command: ["nanobot", "serve", "--host", "0.0.0.0", "--port", "8080"]
     environment:
       NANOBOT_TOKEN: ${NANOBOT_TOKEN:?set NANOBOT_TOKEN in .env}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      NANOBOT_MODEL: ${NANOBOT_MODEL:-anthropic/claude-opus-4-6}
     ports:
       - "${NANOBOT_PORT:-18792}:8080"
     volumes:
@@ -139,21 +109,22 @@ volumes:
 volumes:
   nanobot-data:
 `,
-			EnvContent: "NANOBOT_PORT=18792\nNANOBOT_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "Configure LLM provider keys in nanobot's config file after first run.",
+			EnvContent: "NANOBOT_PORT=18792\nNANOBOT_TOKEN=\nOPENROUTER_API_KEY=\nNANOBOT_MODEL=anthropic/claude-opus-4-6\n",
+			Notes:      "Run the upstream onboarding flow after first start if the image expects local config files instead of environment-only setup.",
 		},
 		{
 			ID: "hermes-agent", Name: "Hermes Agent",
-			Description: "Nous Research's self-hosted AI agent framework (persistent autonomous agent across 16+ messaging platforms).",
+			Description: "Nous Research personal agent focused on learning from completed tasks and turning successful patterns into reusable skills.",
 			Category:    "ai", Subcategory: "personal-agents",
 			Source: "github", Image: "ghcr.io/nousresearch/hermes-agent:latest",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
+			Tags: []string{"ai", "personal-agent", "memory", "nous"},
 			ComposeContent: `services:
   hermes:
     image: ghcr.io/nousresearch/hermes-agent:latest
+    command: ["hermes", "gateway", "--host", "0.0.0.0", "--port", "8080"]
     environment:
       HERMES_LLM_PROVIDER: ${HERMES_PROVIDER:-openai}
-      HERMES_LLM_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_LLM_API_KEY: ${HERMES_API_KEY:?set HERMES_API_KEY in .env}
     ports:
       - "${HERMES_PORT:-18793}:8080"
     volumes:
@@ -163,19 +134,21 @@ volumes:
   hermes-data:
 `,
 			EnvContent: "HERMES_PORT=18793\nHERMES_PROVIDER=openai\nHERMES_API_KEY=\n",
-			Notes:      "Runs persistently on your infrastructure; connects to your chosen LLM. Verify the image tag on the Hermes repo before deploying.",
+			Notes:      "Good second choice next to OpenClaw for solo-founder workflows where persistent improvement and reusable skills matter.",
 		},
 		{
 			ID: "qwenpaw", Name: "QwenPaw",
-			Description: "Alibaba/Qwen ecosystem personal AI assistant with multi-agent collaboration across DingTalk, Feishu, WeChat, QQ, Discord, iMessage, Telegram.",
+			Description: "Qwen and AgentScope personal assistant with local/cloud deployment, built-in memory, sandbox controls, and multi-channel support.",
 			Category:    "ai", Subcategory: "personal-agents",
 			Source: "github", Image: "ghcr.io/agentscope-ai/qwenpaw:latest",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
+			Tags: []string{"ai", "personal-agent", "qwen", "multi-channel"},
 			ComposeContent: `services:
   qwenpaw:
     image: ghcr.io/agentscope-ai/qwenpaw:latest
     environment:
       QWEN_API_KEY: ${QWEN_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
     ports:
       - "${QWENPAW_PORT:-18794}:8080"
     volumes:
@@ -184,12 +157,12 @@ volumes:
 volumes:
   qwenpaw-data:
 `,
-			EnvContent: "QWENPAW_PORT=18794\nQWEN_API_KEY=\n",
-			Notes:      "Works with the built-in Qwen runtime or with Ollama / LM Studio / any OpenAI-compatible provider.",
+			EnvContent: "QWENPAW_PORT=18794\nQWEN_API_KEY=\nOPENAI_API_KEY=\nOLLAMA_BASE_URL=\n",
+			Notes:      "Strong option for Qwen-first customers or customers who need DingTalk, Lark, WeChat, QQ, Discord, Telegram, and iMessage coverage.",
 		},
 		{
 			ID: "openjarvis", Name: "OpenJarvis",
-			Description: "Local-first personal AI framework; on-device agent that only reaches the cloud when necessary.",
+			Description: "Personal AI for personal devices with persistent autonomous mode and code/task execution options.",
 			Category:    "ai", Subcategory: "personal-agents",
 			Source: "github", Image: "ghcr.io/open-jarvis/openjarvis:latest",
 			Tags: []string{"ai", "personal-agent", "local-first"},
@@ -198,6 +171,8 @@ volumes:
     image: ghcr.io/open-jarvis/openjarvis:latest
     environment:
       OPENJARVIS_TOKEN: ${OPENJARVIS_TOKEN:?set OPENJARVIS_TOKEN in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "${OPENJARVIS_PORT:-18795}:8080"
     volumes:
@@ -206,34 +181,79 @@ volumes:
 volumes:
   openjarvis-data:
 `,
-			EnvContent: "OPENJARVIS_PORT=18795\nOPENJARVIS_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "Pair with Ollama or a local llama.cpp instance for a fully offline agent.",
+			EnvContent: "OPENJARVIS_PORT=18795\nOPENJARVIS_TOKEN=\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\n",
+			Notes:      "Pair with Ollama or a local inference stack for customer-owned data flows.",
 		},
 		{
 			ID: "moltworker", Name: "Moltworker",
-			Description: "Cloudflare's minimal self-hosted personal AI agent reference implementation.",
+			Description: "Cloudflare-maintained OpenClaw worker/sandbox gateway for customers who want a Cloudflare-edge deployment path.",
 			Category:    "ai", Subcategory: "personal-agents",
-			Source: "npm", Image: "node:22-slim",
-			Tags: []string{"ai", "personal-agent", "chat-gateway"},
+			Source: "github", Image: "node:24-bookworm-slim",
+			Tags: []string{"ai", "personal-agent", "openclaw", "cloudflare"},
 			ComposeContent: `services:
   moltworker:
-    image: node:22-slim
-    working_dir: /root
+    image: node:24-bookworm-slim
+    working_dir: /workspace
     command: >-
-      sh -c "npm install -g moltworker@${MOLTWORKER_VERSION:-latest} &&
-             moltworker start"
+      sh -c "npm install -g wrangler &&
+             npm create cloudflare@latest moltworker -- --template cloudflare/moltworker --deploy=false &&
+             cd moltworker && npm install && npm run dev -- --ip 0.0.0.0 --port 18796"
     environment:
-      MOLTWORKER_TOKEN: ${MOLTWORKER_TOKEN:?set MOLTWORKER_TOKEN in .env}
+      MOLTBOT_GATEWAY_TOKEN: ${MOLTBOT_GATEWAY_TOKEN:?set MOLTBOT_GATEWAY_TOKEN in .env}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     ports:
       - "${MOLTWORKER_PORT:-18796}:18796"
     volumes:
-      - moltworker-home:/root
+      - moltworker-workspace:/workspace
     restart: unless-stopped
 volumes:
-  moltworker-home:
+  moltworker-workspace:
 `,
-			EnvContent: "MOLTWORKER_PORT=18796\nMOLTWORKER_VERSION=latest\nMOLTWORKER_TOKEN=change-me-32-chars-minimum\n",
-			Notes:      "Confirm the exact npm package name from Cloudflare's Moltworker docs before deploying.",
+			EnvContent: "MOLTWORKER_PORT=18796\nMOLTBOT_GATEWAY_TOKEN=\nCLOUDFLARE_ACCOUNT_ID=\nCLOUDFLARE_API_TOKEN=\n",
+			Notes:      "Local dev mode is provided for Stack Manager. For production, deploy to Cloudflare Workers and protect admin/API paths with Cloudflare Access.",
+		},
+		{
+			ID: "letta-agent", Name: "Letta Agent",
+			Description: "Stateful agent platform with advanced memory, self-improvement, tools, subagents, and local or self-hosted server options.",
+			Category:    "ai", Subcategory: "personal-agents",
+			Source: "docker-hub", Image: "letta/letta:latest",
+			Tags: []string{"ai", "personal-agent", "memory", "stateful-agent"},
+			ComposeContent: `services:
+  letta:
+    image: letta/letta:latest
+    environment:
+      LETTA_SERVER_PASSWORD: ${LETTA_SERVER_PASSWORD:?set LETTA_SERVER_PASSWORD in .env}
+      LETTA_PG_HOST: postgres
+      LETTA_PG_PORT: 5432
+      LETTA_PG_DB: letta
+      LETTA_PG_USER: letta
+      LETTA_PG_PASSWORD: ${LETTA_POSTGRES_PASSWORD:?set LETTA_POSTGRES_PASSWORD in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+    ports:
+      - "${LETTA_PORT:-8283}:8283"
+    volumes:
+      - letta-data:/root/.letta
+    depends_on:
+      - postgres
+    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: letta
+      POSTGRES_USER: letta
+      POSTGRES_PASSWORD: ${LETTA_POSTGRES_PASSWORD:?set LETTA_POSTGRES_PASSWORD in .env}
+    volumes:
+      - letta-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  letta-data:
+  letta-postgres:
+`,
+			EnvContent: "LETTA_PORT=8283\nLETTA_SERVER_PASSWORD=\nLETTA_POSTGRES_PASSWORD=\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\nOLLAMA_BASE_URL=\n",
+			Notes:      "Use Letta when durable memory and self-improving agents matter more than chat-channel breadth. Set one provider key or an Ollama URL before creating agents.",
 		},
 	}
 }
