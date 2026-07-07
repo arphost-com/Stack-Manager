@@ -1,7 +1,47 @@
-const projectGuides = [
-  {
-    id: 'librechat',
-    name: 'LibreChat',
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { projects, stackTemplates } from '../api/client';
+
+const CATEGORY_LABELS = {
+  ai: 'AI',
+  automation: 'Automation',
+  cms: 'CMS',
+  database: 'Database',
+  devtools: 'Dev Tools',
+  docs: 'Docs',
+  files: 'Files',
+  management: 'Management',
+  media: 'Media',
+  monitoring: 'Monitoring',
+  proxy: 'Proxy',
+  queue: 'Queue',
+  security: 'Security',
+  web: 'Web',
+};
+
+const CATEGORY_DESCRIPTIONS = {
+  all: 'Every built-in stack. Search by app, image, category, tag, environment key, or setup note.',
+  ai: 'AI/ML stacks: LLM inference, image and voice generation, vector databases, RAG workflows, search, code assistants, and personal agent gateways.',
+  automation: 'Task automation, workflow engines, cron schedulers, and notification systems.',
+  cms: 'Content management systems, blog platforms, and e-commerce storefronts.',
+  database: 'SQL, NoSQL, and graph databases with persistent volumes ready to be shared with other stacks.',
+  devtools: 'Developer tools: CI/CD servers, Git forges, in-browser IDEs, code intelligence, and diagram editors.',
+  docs: 'Wikis, technical documentation, and knowledge bases.',
+  files: 'File sync, share, and object storage servers.',
+  management: 'Docker and infrastructure management dashboards.',
+  media: 'Media servers, libraries, and download automation.',
+  monitoring: 'Metrics, uptime, logging, and observability.',
+  proxy: 'Reverse proxies, load balancers, and forward proxies.',
+  queue: 'Message queues, brokers, and workflow orchestrators.',
+  security: 'Authentication, SSO, VPNs, and security scanners.',
+  web: 'Web servers and static hosting.',
+};
+
+const CATEGORY_ORDER = ['ai', 'web', 'proxy', 'cms', 'database', 'devtools', 'docs', 'files', 'management', 'media', 'monitoring', 'queue', 'security', 'automation'];
+const PAGE_SIZES = [20, 40, 80, 199];
+
+const enhancedGuides = {
+  librechat: {
     fit: 'Multi-user AI chat, agents, MCP, files, and multi-provider routing.',
     setup: [
       'Set MEILI_MASTER_KEY, JWT secrets, credential encryption values, admin panel secret, and vector DB password.',
@@ -14,9 +54,7 @@ const projectGuides = [
       ['Docs', 'https://docs.librechat.ai/'],
     ],
   },
-  {
-    id: 'onyx',
-    name: 'Onyx',
+  onyx: {
     fit: 'Enterprise knowledge search and RAG with connectors.',
     setup: [
       'Set Postgres, OpenSearch, and S3/MinIO secrets before launch.',
@@ -29,9 +67,7 @@ const projectGuides = [
       ['Docs', 'https://docs.onyx.app/'],
     ],
   },
-  {
-    id: 'khoj',
-    name: 'Khoj',
+  khoj: {
     fit: 'Personal or small-team second brain with docs, web answers, agents, and automations.',
     setup: [
       'Set Postgres password, Django secret, admin email, and admin password.',
@@ -44,9 +80,7 @@ const projectGuides = [
       ['Docs', 'https://docs.khoj.dev/'],
     ],
   },
-  {
-    id: 'docsgpt',
-    name: 'DocsGPT',
+  docsgpt: {
     fit: 'Private document Q&A, support assistants, and enterprise search.',
     setup: [
       'Set DOCSGPT_POSTGRES_PASSWORD.',
@@ -54,13 +88,9 @@ const projectGuides = [
       'Keep DOCSGPT_API_PUBLIC_URL reachable from user browsers.',
     ],
     caution: 'Pin a tested image tag before production because upstream compose examples commonly use develop images.',
-    links: [
-      ['GitHub', 'https://github.com/arc53/DocsGPT'],
-    ],
+    links: [['GitHub', 'https://github.com/arc53/DocsGPT']],
   },
-  {
-    id: 'openmemory-mem0',
-    name: 'OpenMemory + Mem0',
+  'openmemory-mem0': {
     fit: 'Durable memory API for agents and MCP clients.',
     setup: [
       'Set OPENMEMORY_USER and OPENMEMORY_API_KEY.',
@@ -73,9 +103,7 @@ const projectGuides = [
       ['Docs', 'https://docs.mem0.ai/'],
     ],
   },
-  {
-    id: 'langfuse',
-    name: 'Langfuse',
+  langfuse: {
     fit: 'LLM traces, prompt management, datasets, metrics, playgrounds, and eval workflows.',
     setup: [
       'Generate NEXTAUTH_SECRET, SALT, ENCRYPTION_KEY, and service passwords.',
@@ -88,9 +116,7 @@ const projectGuides = [
       ['Docs', 'https://langfuse.com/docs'],
     ],
   },
-  {
-    id: 'phoenix',
-    name: 'Arize Phoenix',
+  phoenix: {
     fit: 'Lightweight AI tracing, experiments, datasets, prompt work, and evaluations.',
     setup: [
       'Set PHOENIX_POSTGRES_PASSWORD.',
@@ -103,9 +129,7 @@ const projectGuides = [
       ['Docs', 'https://phoenix.arize.com/'],
     ],
   },
-  {
-    id: 'promptfoo',
-    name: 'promptfoo',
+  promptfoo: {
     fit: 'Prompt, RAG, model, and agent evals, including red-team regression checks.',
     setup: [
       'Set provider keys used by evals.',
@@ -118,9 +142,7 @@ const projectGuides = [
       ['Self-hosting', 'https://www.promptfoo.dev/docs/usage/self-hosting/'],
     ],
   },
-  {
-    id: 'firecrawl',
-    name: 'Firecrawl',
+  firecrawl: {
     fit: 'Search, scrape, crawl, extract, screenshots, and agent web context API.',
     setup: [
       'Set FIRECRAWL_POSTGRES_PASSWORD and BULL_AUTH_KEY.',
@@ -133,9 +155,7 @@ const projectGuides = [
       ['Self-hosting', 'https://github.com/firecrawl/firecrawl/blob/main/SELF_HOST.md'],
     ],
   },
-  {
-    id: 'crawl4ai',
-    name: 'Crawl4AI',
+  crawl4ai: {
     fit: 'Local crawler/scraper API that emits LLM-ready Markdown for RAG workflows.',
     setup: [
       'Set CRAWL4AI_API_TOKEN.',
@@ -148,15 +168,83 @@ const projectGuides = [
       ['Docs', 'https://docs.crawl4ai.com/'],
     ],
   },
-];
+};
 
 export default function Documentation() {
+  const [templates, setTemplates] = useState([]);
+  const [projectList, setProjectList] = useState([]);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    try {
+      const [templateRes, projectRes] = await Promise.all([
+        stackTemplates.list(),
+        projects.list({ include_inactive: true }),
+      ]);
+      setTemplates(templateRes.data || []);
+      setProjectList(projectRes.data || []);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(1); }, [query, category, pageSize]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = {};
+    templates.forEach(template => { counts[template.category] = (counts[template.category] || 0) + 1; });
+    return counts;
+  }, [templates]);
+
+  const categories = useMemo(() => {
+    const set = new Set(templates.map(template => template.category));
+    const known = CATEGORY_ORDER.filter(cat => set.has(cat));
+    const extra = Array.from(set).filter(cat => !CATEGORY_ORDER.includes(cat)).sort();
+    return ['all', ...known, ...extra];
+  }, [templates]);
+
+  const filtered = templates.filter(template => {
+    const guide = buildGuide(template);
+    const q = query.trim().toLowerCase();
+    if (category !== 'all' && template.category !== category) return false;
+    if (!q) return true;
+    return [
+      template.name,
+      template.id,
+      template.description,
+      template.category,
+      template.subcategory,
+      template.image,
+      template.source,
+      ...(template.tags || []),
+      ...guide.setup,
+      guide.caution,
+    ].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const start = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const end = Math.min(filtered.length, safePage * pageSize);
+  const pagedTemplates = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-950">Documentation</h1>
-        <p className="text-sm text-gray-600">Operational notes for Docker Compose stacks and the vetted AI catalog.</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-950">Documentation</h1>
+          <p className="text-sm text-gray-600">{projectList.length} current stack docs and {templates.length} catalog docs across {Math.max(0, categories.length - 1)} categories.</p>
+        </div>
+        <button onClick={load} className="btn-secondary" title="Reload stack documentation from the built-in catalog.">Refresh</button>
       </div>
+
+      {error && <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{error}</div>}
 
       <section className="section-panel space-y-4">
         <div>
@@ -180,32 +268,235 @@ export default function Documentation() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-950">Vetted AI Projects</h2>
-          <p className="text-sm text-gray-600">These are the non-filler AI additions with credible upstreams and self-hosting paths.</p>
+          <h2 className="text-lg font-semibold text-gray-950">Current Stacks</h2>
+          <p className="text-sm text-gray-600">Every discovered project has a generated project guide, plus any README or docs files found in the stack directory.</p>
         </div>
         <div className="grid gap-3 lg:grid-cols-2">
-          {projectGuides.map(project => (
-            <article key={project.id} className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-semibold text-gray-950">{project.name}</h3>
-                  <div className="mt-1 font-mono text-xs text-gray-500">{project.id}</div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {project.links.map(([label, href]) => <DocLink key={href} href={href} compact>{label}</DocLink>)}
-                </div>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-gray-600">{project.fit}</p>
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-700">
-                {project.setup.map(item => <li key={item}>{item}</li>)}
-              </ul>
-              <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-900">{project.caution}</p>
-            </article>
-          ))}
+          {projectList.map(project => <CurrentStackDoc key={project.name} project={project} />)}
+          {projectList.length === 0 && <div className="py-8 text-center text-sm text-gray-500 lg:col-span-2">No current stacks were discovered.</div>}
         </div>
       </section>
+
+      <section className="section-panel space-y-3">
+        <input className="input w-full" value={query} onChange={e => setQuery(e.target.value)} placeholder="search docs, images, env keys, tags" title="Filter documentation by app name, image, env key, category, tag, or setup note." />
+        <div className="flex flex-wrap gap-2" title="Choose a documentation category.">
+          {categories.map(cat => {
+            const total = cat === 'all' ? templates.length : (categoryCounts[cat] || 0);
+            const active = category === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                title={cat === 'all' ? 'Show every stack doc.' : `Show only ${labelForCategory(cat)} docs.`}
+                className={`rounded-full border px-3 py-1 text-xs font-medium ${active ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'}`}
+              >
+                {cat === 'all' ? 'All' : labelForCategory(cat)} <span className={`ml-1 ${active ? 'text-blue-100' : 'text-gray-400'}`}>{total}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          {CATEGORY_DESCRIPTIONS[category] || CATEGORY_DESCRIPTIONS.all}
+        </div>
+      </section>
+
+      <DocPager
+        total={templates.length}
+        filtered={filtered.length}
+        start={start}
+        end={end}
+        page={safePage}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        setPage={setPage}
+        setPageSize={setPageSize}
+      />
+
+      <section className="grid gap-3 lg:grid-cols-2">
+        {pagedTemplates.map(template => (
+          <ProjectDoc key={template.id} template={template} />
+        ))}
+        {filtered.length === 0 && <div className="py-12 text-center text-sm text-gray-500 lg:col-span-2">No documentation entries match the current filters.</div>}
+      </section>
+
+      {filtered.length > pageSize && (
+        <DocPager
+          total={templates.length}
+          filtered={filtered.length}
+          start={start}
+          end={end}
+          page={safePage}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          setPage={setPage}
+          setPageSize={setPageSize}
+        />
+      )}
     </div>
   );
+}
+
+function CurrentStackDoc({ project }) {
+  const docs = project.documentation || [];
+  const guide = docs.find(doc => doc.path === '_stack-manager/project-guide.md') || docs[0];
+  const projectHref = `/projects/${encodeURIComponent(project.name)}?tab=docs`;
+  return (
+    <article className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-gray-950">{project.name}</h3>
+          <div className="mt-1 truncate font-mono text-xs text-gray-500" title={project.dir}>{project.dir}</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge>{project.running ? 'running' : 'stopped'}</Badge>
+          {project.inactive && <Badge tone="amber">inactive</Badge>}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-600">
+        <span className="rounded bg-gray-100 px-2 py-1">{docs.length || 1} docs</span>
+        {project.containers?.length > 0 && <span className="rounded bg-gray-100 px-2 py-1">{project.containers.length} containers</span>}
+        {project.image_sources?.length > 0 && <span className="rounded bg-gray-100 px-2 py-1">{project.image_sources.length} image sources</span>}
+      </div>
+      <p className="mt-3 text-sm leading-6 text-gray-600">
+        {guide ? `${guide.title} is available for this stack.` : 'A generated project guide is available for this stack.'}
+      </p>
+      {docs.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {docs.slice(0, 4).map(doc => (
+            <span key={doc.path} className="rounded border border-gray-200 bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600" title={doc.path}>
+              {doc.title}
+            </span>
+          ))}
+          {docs.length > 4 && <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-500">+{docs.length - 4} more</span>}
+        </div>
+      )}
+      <div className="mt-4">
+        <Link to={projectHref} className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100" title={`Open documentation for ${project.name}.`}>
+          Open docs
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+function ProjectDoc({ template }) {
+  const guide = buildGuide(template);
+  return (
+    <article className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-gray-950">{template.name}</h3>
+          <div className="mt-1 font-mono text-xs text-gray-500">{template.id}</div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge>{labelForCategory(template.category)}</Badge>
+          {template.subcategory && <Badge tone="purple">{template.subcategory}</Badge>}
+        </div>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-gray-600">{guide.fit}</p>
+      {template.image && <div className="mt-3 break-all rounded bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">{template.image}</div>}
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-gray-700">
+        {guide.setup.map(item => <li key={item}>{item}</li>)}
+      </ul>
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-900">{guide.caution}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {guide.links.map(([label, href]) => <DocLink key={href} href={href} compact>{label}</DocLink>)}
+      </div>
+    </article>
+  );
+}
+
+function buildGuide(template) {
+  const enhanced = enhancedGuides[template.id] || {};
+  const envKeys = parseEnvKeys(template.env_content || '');
+  return {
+    fit: enhanced.fit || template.description || `${template.name} stack template.`,
+    setup: enhanced.setup || defaultSetup(template, envKeys),
+    caution: enhanced.caution || template.notes || defaultCaution(template),
+    links: enhanced.links || defaultLinks(template),
+  };
+}
+
+function defaultSetup(template, envKeys) {
+  const setup = [];
+  if (envKeys.length > 0) {
+    const preview = envKeys.slice(0, 8).join(', ');
+    const suffix = envKeys.length > 8 ? `, and ${envKeys.length - 8} more` : '';
+    setup.push(`Review .env values before launch: ${preview}${suffix}.`);
+  } else {
+    setup.push('Review the compose.yml before launch; this template has no default .env values.');
+  }
+  if (template.image) {
+    setup.push(`Confirm the image/tag is appropriate for your host: ${template.image}.`);
+  }
+  setup.push('Use Spin it Up from the Stack Catalog, then check logs and container health from the project page.');
+  return setup;
+}
+
+function defaultCaution(template) {
+  if (template.category === 'database') return 'Back up the data volume before upgrades or destructive maintenance.';
+  if (template.category === 'proxy' || template.category === 'security') return 'Review ports, trusted networks, and HTTPS/auth settings before exposing it outside a private network.';
+  if (template.category === 'ai') return 'AI workloads can be CPU, RAM, disk, or GPU intensive; start one heavy stack at a time on small hosts.';
+  return 'Review exposed ports, bind mounts, credentials, and persistent volumes before production use.';
+}
+
+function defaultLinks(template) {
+  const links = [];
+  const imageLink = imageDocsLink(template.image);
+  if (imageLink) links.push(['Image', imageLink]);
+  return links.length > 0 ? links : [['Docker Compose', 'https://docs.docker.com/compose/']];
+}
+
+function parseEnvKeys(content) {
+  return content.split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('#') && line.includes('='))
+    .map(line => line.replace(/^export\s+/, '').split('=')[0].trim())
+    .filter(Boolean);
+}
+
+function imageDocsLink(image = '') {
+  const clean = image.split('@')[0].split(':')[0];
+  if (!clean) return '';
+  if (clean.startsWith('ghcr.io/')) return `https://${clean.replace(/^ghcr\.io\//, 'github.com/')}`;
+  if (clean.startsWith('lscr.io/linuxserver/')) return `https://docs.linuxserver.io/images/docker-${clean.split('/').pop()}/`;
+  if (clean.includes('/')) return `https://hub.docker.com/r/${clean}`;
+  return `https://hub.docker.com/_/${clean}`;
+}
+
+function labelForCategory(cat) {
+  return CATEGORY_LABELS[cat] || (cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : cat);
+}
+
+function DocPager({ total, filtered, start, end, page, pageCount, pageSize, setPage, setPageSize }) {
+  return (
+    <div className="section-panel flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-gray-600">
+        Showing <span className="font-medium text-gray-950">{start}-{end}</span> of <span className="font-medium text-gray-950">{filtered}</span> docs
+        {filtered !== total && <span> from {total} total</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select className="input max-w-[130px]" value={pageSize} onChange={e => setPageSize(Number(e.target.value))} title="Docs per page.">
+          {PAGE_SIZES.map(size => <option key={size} value={size}>{size} docs</option>)}
+        </select>
+        <button type="button" className="mini-button" disabled={page <= 1} onClick={() => setPage(1)} title="First page.">First</button>
+        <button type="button" className="mini-button" disabled={page <= 1} onClick={() => setPage(page - 1)} title="Previous page.">Prev</button>
+        <span className="text-xs text-gray-500">Page {page} of {pageCount}</span>
+        <button type="button" className="mini-button" disabled={page >= pageCount} onClick={() => setPage(page + 1)} title="Next page.">Next</button>
+        <button type="button" className="mini-button" disabled={page >= pageCount} onClick={() => setPage(pageCount)} title="Last page.">Last</button>
+      </div>
+    </div>
+  );
+}
+
+function Badge({ tone = 'gray', children }) {
+  const tones = {
+    gray: 'bg-gray-100 text-gray-700',
+    amber: 'bg-amber-100 text-amber-800',
+    purple: 'bg-purple-100 text-purple-800',
+  };
+  return <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${tones[tone] || tones.gray}`}>{children}</span>;
 }
 
 function DocLink({ href, children, compact = false }) {
