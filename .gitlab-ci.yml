@@ -338,6 +338,50 @@ smoke:docker02:
       done
     - sudo -n find "${DEPLOY_PATH}" "${STATE_DIR}" -maxdepth 2 -printf '%M %u:%g %p\n'
 
+.smoke_stack_template_base:
+  stage: smoke
+  needs:
+    - test:server
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+    - when: never
+  variables:
+    STACK_TEMPLATE_SMOKE_MODE: "startup"
+    STACK_TEMPLATE_WORK_DIR: "/home/debian/docker/.stack-template-smoke"
+    STACK_TEMPLATE_PROJECT_PREFIX: "stack-smoke-${CI_PIPELINE_ID}"
+    STACK_TEMPLATE_SETTLE: "45s"
+  script:
+    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOCACHE=/tmp/go-build -e GOMODCACHE=/tmp/go-mod -v "$PWD/server:/src" -w /src golang:1.25-alpine go build -o /src/template-smoke ./cmd/template-smoke
+    - sudo -n mkdir -p "${STACK_TEMPLATE_WORK_DIR}"
+    - sudo -n chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "${STACK_TEMPLATE_WORK_DIR}"
+    - |
+      sudo -n -u "${DEPLOY_USER}" env \
+        STACK_TEMPLATE_SMOKE_MODE="${STACK_TEMPLATE_SMOKE_MODE}" \
+        STACK_TEMPLATE_WORK_DIR="${STACK_TEMPLATE_WORK_DIR}" \
+        STACK_TEMPLATE_PROJECT_PREFIX="${STACK_TEMPLATE_PROJECT_PREFIX}" \
+        STACK_TEMPLATE_SETTLE="${STACK_TEMPLATE_SETTLE}" \
+        STACK_TEMPLATE_ID="${STACK_TEMPLATE_ID:-}" \
+        STACK_TEMPLATE_ALL="${STACK_TEMPLATE_ALL:-}" \
+        STACK_TEMPLATE_CATEGORY="${STACK_TEMPLATE_CATEGORY:-}" \
+        STACK_TEMPLATE_SUBCATEGORY="${STACK_TEMPLATE_SUBCATEGORY:-}" \
+        "${CI_PROJECT_DIR}/server/template-smoke"
+  after_script:
+    - sudo -n -u "${DEPLOY_USER}" env STACK_TEMPLATE_PROJECT_PREFIX="${STACK_TEMPLATE_PROJECT_PREFIX}" sh -c 'for project in $(docker compose ls --format json 2>/dev/null | sed -n "s/.*\"Name\":\"\([^\"]*\)\".*/\1/p" | grep "^${STACK_TEMPLATE_PROJECT_PREFIX}" || true); do docker compose -p "$project" down -v --remove-orphans || true; done'
+
+smoke:stack-template:
+  extends: .smoke_stack_template_base
+  variables:
+    STACK_TEMPLATE_ID: "openclaw"
+    STACK_TEMPLATE_SMOKE_MODE: "startup"
+
+smoke:stack-templates:all:
+  extends: .smoke_stack_template_base
+  variables:
+    STACK_TEMPLATE_ALL: "1"
+    STACK_TEMPLATE_SMOKE_MODE: "startup"
+
 push:github:
   stage: production
   needs:

@@ -397,6 +397,9 @@ The GitLab pipeline treats docker02 as the dev environment:
 - `deploy:docker02` runs automatically on the default branch after validation, tests, builds, and security scans pass.
 - The deploy job preserves existing docker02 `.env` secrets or generates secure first-run values when GitLab CI variables are not set.
 - `smoke:docker02` runs automatically after the dev deploy.
+- `smoke:stack-template` is a manual test-server job. Set `STACK_TEMPLATE_ID` to one template ID, such as `openclaw`, to render its base `.env`, fill temporary test secrets, run `docker compose config`, start it, verify containers are still running, then tear it down.
+- `smoke:stack-templates:all` is the manual sequential all-template version. It starts one rendered stack, verifies the containers, shuts it down with volumes removed, then moves to the next. Narrow it with `STACK_TEMPLATE_CATEGORY` or `STACK_TEMPLATE_SUBCATEGORY` when you want a smaller batch, such as `ai` / `personal-agents`.
+- Set `STACK_TEMPLATE_SMOKE_MODE=config` on either manual job to validate Compose rendering only without starting containers.
 - `push:github` is an optional manual production-style job that pushes the tested default branch to `arphost-com/Stack-Manager` with the masked `GITHUB_PAT` CI variable.
 - If `push:github` is clicked before `GITHUB_PAT` is configured, the job fails with a clear message and does not push.
 - After pushing, `push:github` verifies that GitHub `main` matches the GitLab commit SHA.

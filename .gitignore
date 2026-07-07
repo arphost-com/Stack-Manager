@@ -58,3 +58,4 @@ build/
 bin/
 coverage.out
 *.test
+server/template-smoke
