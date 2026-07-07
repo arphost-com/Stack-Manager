@@ -31,7 +31,7 @@ services:
       args:
         BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-}
     environment:
-      APP_MODE: "agent"
+      APP_MODE: "${APP_MODE:-agent-callback}"
       PORT: "${AGENT_PORT:-8192}"
       # ROOT and the DOCKER_ROOT mount below both use ${DOCKER_ROOT} so paths
       # inside the agent container match host paths. Required for child
@@ -43,6 +43,8 @@ services:
       DOCKER_CONFIG: "/state/docker-config"
       AGENT_NAME: "${AGENT_NAME:?AGENT_NAME required}"
       AGENT_TOKEN: "${AGENT_TOKEN:?AGENT_TOKEN required}"
+      AGENT_CONTROLLER_URL: "${AGENT_CONTROLLER_URL:-}"
+      AGENT_CHECKIN_SECONDS: "${AGENT_CHECKIN_SECONDS:-60}"
       BASE_IMAGE_PREFIX: "${BASE_IMAGE_PREFIX:-}"
     user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     group_add:

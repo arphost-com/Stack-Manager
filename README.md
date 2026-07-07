@@ -428,16 +428,19 @@ Schedules are stored in MariaDB and cached in Redis. A schedule can target:
 
 Schedules support `update`, `pull`, `up`, `restart`, `down`, and `status`. Scheduled `update` respects the project update policy; projects marked `no_updates` record a skipped session instead of pulling.
 
-Remote agents use the same server image in agent mode:
+Remote agents can run without opening any inbound port. Use callback mode when the remote Docker host can reach the controller over a VPN or outbound internet path, but the controller cannot call back into the remote host:
 
 ```bash
 git clone https://github.com/arphost-com/Stack-Manager.git
 cd Stack-Manager
 ./scripts/prepare-state.sh --agent .env
+sed -i 's#^AGENT_CONTROLLER_URL=.*#AGENT_CONTROLLER_URL=https://docker02:8993#' .env
 docker compose --env-file .env -f docker-compose.agent.yml up -d --build
 ```
 
-Agent mode does not require MariaDB, Redis, or the web UI on the remote host. The setup script writes `APP_MODE=agent`, `AGENT_NAME`, `AGENT_TOKEN`, `AGENT_PORT`, `DOCKER_ROOT`, and `HOST_URL` into `.env`; register `HOST_URL` and `AGENT_TOKEN` from Settings > Agents on the main server. The agent compose file mounts host `DOCKER_ROOT` into the container as `/docker`, then the main server calls `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
+Callback agent mode does not require MariaDB, Redis, the web UI, or a client-side HTTP listener on the remote host. The setup script writes `APP_MODE=agent-callback`, `AGENT_NAME`, `AGENT_TOKEN`, `AGENT_CONTROLLER_URL`, `AGENT_CHECKIN_SECONDS`, and `DOCKER_ROOT` into `.env`. Register the same `AGENT_NAME` and `AGENT_TOKEN` from Settings > Agents on the main server with mode `Outbound check-in`; leave Agent URL blank. The agent discovers local compose projects under `DOCKER_ROOT` and posts the inventory to `/api/v1/agent-checkin/projects` on the controller.
+
+The older inbound HTTP agent is still supported for directly reachable hosts. Set `APP_MODE=agent`, keep `HOST_URL`/`AGENT_PORT`, and register `HOST_URL` as an `Inbound URL` agent when the controller can call `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
 
 ### Project Deletion
 

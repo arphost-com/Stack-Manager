@@ -35,6 +35,10 @@ func main() {
 
 	// Core engine
 	engine := core.NewEngine(cfg.Root, cfg.HooksDir)
+	if cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" {
+		runAgentCallback(cfg, engine)
+		return
+	}
 	if cfg.Mode == "agent" {
 		runAgent(cfg, engine)
 		return
@@ -84,6 +88,7 @@ func main() {
 	projectHandler := handlers.NewProjectHandler(engine, jobs, appStore)
 	projectHandler.SetUpdateCheckManager(updateChecker)
 	agentHandler := handlers.NewAgentHandler(appStore)
+	agentCheckinHandler := handlers.NewAgentCheckinHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
 	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
 	dockerSettingsHandler := handlers.NewDockerSettingsHandler(cfg.DockerDaemonDir, cfg.BaseImagePrefix)
@@ -119,6 +124,7 @@ func main() {
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", authHandler.Login)
+		r.Post("/agent-checkin/projects", agentCheckinHandler.Projects)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireAuth(cfg.APIKey, sessionManager))

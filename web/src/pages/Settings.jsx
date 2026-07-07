@@ -57,7 +57,7 @@ const emptyScheduleForm = {
   timeout_seconds: 300,
 };
 
-const emptyAgentForm = { name: '', base_url: '', token: '', enabled: true };
+const emptyAgentForm = { id: 0, name: '', base_url: '', mode: 'callback', token: '', enabled: true };
 
 const emptyDockerForm = {
   live_restore: false,
@@ -243,7 +243,7 @@ export default function Settings() {
   };
 
   const editAgent = (agent) => {
-    setAgentForm({ name: agent.name, base_url: agent.base_url, token: '', enabled: Boolean(agent.enabled) });
+    setAgentForm({ id: agent.id, name: agent.name, base_url: agent.base_url || '', mode: agent.mode || (agent.base_url ? 'inbound' : 'callback'), token: '', enabled: Boolean(agent.enabled) });
   };
 
   const saveAgent = async (event) => {
@@ -695,25 +695,26 @@ export default function Settings() {
                   <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Stack-Manager.git{"\n"}cd Stack-Manager{"\n"}./scripts/prepare-state.sh --agent .env</pre>
                 </div>
                 <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">2. Start the agent only</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">docker compose --env-file .env \{"\n"}  -f docker-compose.agent.yml \{"\n"}  up -d --build</pre>
+                  <div className="font-medium text-gray-950">2. Start outbound mode</div>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">APP_MODE=agent-callback \{"\n"}AGENT_CONTROLLER_URL=https://docker02.example.com \{"\n"}./stack-manager-server</pre>
                 </div>
                 <div className="rounded-md border border-gray-200 p-3">
                   <div className="font-medium text-gray-950">3. Register below</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">grep -E '^(HOST_URL|AGENT_NAME|AGENT_TOKEN|DOCKER_ROOT)=' .env{"\n"}# Agent URL: HOST_URL{"\n"}# Token: AGENT_TOKEN</pre>
+                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">grep -E '^(AGENT_NAME|AGENT_TOKEN|DOCKER_ROOT)=' .env{"\n"}# Mode: Outbound check-in{"\n"}# Token: AGENT_TOKEN</pre>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-gray-600">Agent mode uses `DOCKER_ROOT` on the remote host and mounts it into the agent as `/docker`; the setup script writes `APP_MODE=agent`, `AGENT_NAME`, `AGENT_TOKEN`, and `HOST_URL` into `.env`. Register `HOST_URL` as the Agent URL and `AGENT_TOKEN` as the token.</p>
+              <p className="mt-3 text-sm text-gray-600">Outbound check-in mode does not open a listener on the remote host. The agent discovers local projects and posts them to this controller. Inbound URL mode remains available for hosts this controller can reach directly.</p>
             </div>
             <div className="section-panel">
               <h2 className="mb-3 text-lg font-semibold text-gray-950">Registered Agents</h2>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>URL</th><th>Status</th><th>Last Seen</th><th className="text-right">Actions</th></tr></thead>
+                  <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>Mode</th><th>URL</th><th>Status</th><th>Last Seen</th><th className="text-right">Actions</th></tr></thead>
                   <tbody>
                     {agentList.map(agent => (
                       <tr key={agent.id} className="border-b border-gray-100">
                         <td className="py-2 font-medium">{agent.name}</td>
+                        <td><Badge tone={(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'blue' : 'gray'}>{(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'check-in' : 'inbound'}</Badge></td>
                         <td className="max-w-[280px] truncate font-mono text-xs text-gray-600" title={agent.base_url}>{agent.base_url}</td>
                         <td><Badge tone={agent.enabled ? 'green' : 'gray'}>{agent.enabled ? 'enabled' : 'disabled'}</Badge></td>
                         <td className="text-xs text-gray-500">{formatDate(agent.last_seen)}</td>
@@ -730,15 +731,21 @@ export default function Settings() {
             </div>
           </div>
           <form onSubmit={saveAgent} className="section-panel space-y-3">
-            <h2 className="text-lg font-semibold text-gray-950">{agentForm.name ? 'Edit Agent' : 'Add Agent'}</h2>
+            <h2 className="text-lg font-semibold text-gray-950">{agentForm.id ? 'Edit Agent' : 'Add Agent'}</h2>
             <Field label="Name" title="Friendly unique name for the remote compose host. Saving an existing name updates it.">
               <input value={agentForm.name} onChange={e => setAgentForm({ ...agentForm, name: e.target.value })} className="input" placeholder="docker03" required />
             </Field>
-            <Field label="Agent URL" title="Base URL for the remote Stack Manager agent, for example https://docker03.example.com:8192.">
-              <input value={agentForm.base_url} onChange={e => setAgentForm({ ...agentForm, base_url: e.target.value })} className="input" placeholder="https://host:8192" required />
+            <Field label="Mode" title="Outbound check-in is for clients that cannot accept inbound connections. Inbound URL is for directly reachable agents.">
+              <select value={agentForm.mode} onChange={e => setAgentForm({ ...agentForm, mode: e.target.value })} className="input">
+                <option value="callback">Outbound check-in</option>
+                <option value="inbound">Inbound URL</option>
+              </select>
             </Field>
-            <Field label="Token" title="Bearer token used by the controller to call this agent. Leave blank when editing to keep the saved token.">
-              <input type="password" value={agentForm.token} onChange={e => setAgentForm({ ...agentForm, token: e.target.value })} className="input" placeholder={agentForm.name ? 'leave blank to keep saved token' : 'agent token'} />
+            <Field label="Agent URL" title="Base URL for inbound agents only, for example https://docker03.example.com:8192. Leave blank for outbound check-in agents.">
+              <input value={agentForm.base_url} onChange={e => setAgentForm({ ...agentForm, base_url: e.target.value })} className="input" placeholder="https://host:8192" required={agentForm.mode === 'inbound'} />
+            </Field>
+            <Field label="Token" title="Bearer token used by the agent and controller. Leave blank when editing to keep the saved token.">
+              <input type="password" value={agentForm.token} onChange={e => setAgentForm({ ...agentForm, token: e.target.value })} className="input" placeholder={agentForm.id ? 'leave blank to keep saved token' : 'agent token'} />
             </Field>
             <label className="flex items-center gap-2 text-sm text-gray-700" title="Disabled agents remain saved but scheduled actions will not run.">
               <input type="checkbox" checked={agentForm.enabled} onChange={e => setAgentForm({ ...agentForm, enabled: e.target.checked })} />
@@ -746,7 +753,7 @@ export default function Settings() {
             </label>
             <div className="flex gap-2">
               <button type="submit" className="btn-primary">Save Agent</button>
-              {agentForm.name && <button type="button" onClick={() => setAgentForm(emptyAgentForm)} className="btn-secondary">Clear</button>}
+              {agentForm.id ? <button type="button" onClick={() => setAgentForm(emptyAgentForm)} className="btn-secondary">Clear</button> : null}
             </div>
           </form>
         </div>

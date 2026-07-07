@@ -65,7 +65,7 @@ ensure_secret() {
 setting_needs_value() {
   value="$1"
   case "${value}" in
-    "" | change-me* | /path/to/* | "http://change-me"*)
+    "" | change-me* | /path/to/* | "http://change-me"* | "https://change-me"*)
       return 0
       ;;
     *)
@@ -141,10 +141,12 @@ if [ ! -f "${env_file}" ]; then
 fi
 
 if [ "${agent_mode}" -eq 1 ]; then
-  set_env_value APP_MODE agent
+  set_env_value APP_MODE agent-callback
   ensure_setting AGENT_NAME "$(detect_agent_name)"
   ensure_secret AGENT_TOKEN
   ensure_setting AGENT_PORT 8192
+  ensure_setting AGENT_CONTROLLER_URL https://docker02:8993
+  ensure_setting AGENT_CHECKIN_SECONDS 60
 else
   set_env_value APP_MODE server
   ensure_setting ADMIN_USERNAME admin

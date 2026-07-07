@@ -147,6 +147,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 			updated_at DATETIME(6) NOT NULL,
 			INDEX idx_compose_agents_enabled (enabled)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS compose_agent_project_snapshots (
+			agent_id BIGINT PRIMARY KEY,
+			projects_json JSON NOT NULL,
+			received_at DATETIME(6) NOT NULL,
+			CONSTRAINT fk_compose_agent_project_snapshots_agent FOREIGN KEY (agent_id) REFERENCES compose_agents(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS update_schedules (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			agent_id BIGINT NULL,
@@ -636,6 +642,17 @@ func (s *Store) GetAgent(ctx context.Context, id int64) (*core.ComposeAgent, err
 	return agent, nil
 }
 
+func (s *Store) GetAgentByName(ctx context.Context, name string) (*core.ComposeAgent, error) {
+	agent, err := scanAgent(s.DB.QueryRowContext(ctx, `SELECT id, name, base_url, token, enabled, last_seen, created_at, updated_at FROM compose_agents WHERE name=?`, name))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return agent, nil
+}
+
 func (s *Store) SaveAgent(ctx context.Context, req core.ComposeAgentRequest) (*core.ComposeAgent, error) {
 	now := time.Now().UTC()
 	enabled := true
@@ -664,6 +681,44 @@ func (s *Store) SaveAgent(ctx context.Context, req core.ComposeAgentRequest) (*c
 		return nil, err
 	}
 	return s.GetAgent(ctx, agentID)
+}
+
+func (s *Store) SaveAgentProjectSnapshot(ctx context.Context, agentID int64, projects []core.Project) error {
+	if projects == nil {
+		projects = []core.Project{}
+	}
+	raw, err := json.Marshal(projects)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO compose_agent_project_snapshots
+		(agent_id, projects_json, received_at)
+		VALUES (?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			projects_json=VALUES(projects_json),
+			received_at=VALUES(received_at)`,
+		agentID, string(raw), now)
+	if err == nil {
+		s.DeleteCache(ctx, "agents:list")
+	}
+	return err
+}
+
+func (s *Store) GetAgentProjectSnapshot(ctx context.Context, agentID int64) (*core.AgentProjectSnapshot, error) {
+	var raw []byte
+	var receivedAt time.Time
+	if err := s.DB.QueryRowContext(ctx, `SELECT projects_json, received_at FROM compose_agent_project_snapshots WHERE agent_id=?`, agentID).Scan(&raw, &receivedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var projects []core.Project
+	if err := json.Unmarshal(raw, &projects); err != nil {
+		return nil, err
+	}
+	return &core.AgentProjectSnapshot{AgentID: agentID, Projects: projects, ReceivedAt: receivedAt}, nil
 }
 
 func (s *Store) DeleteAgent(ctx context.Context, id int64) error {
@@ -951,6 +1006,11 @@ func scanAgent(scanner agentScanner) (*core.ComposeAgent, error) {
 	}
 	if lastSeen.Valid {
 		agent.LastSeen = &lastSeen.Time
+	}
+	if agent.BaseURL == "" {
+		agent.Mode = "callback"
+	} else {
+		agent.Mode = "inbound"
 	}
 	return &agent, nil
 }

@@ -340,6 +340,7 @@ type ComposeAgent struct {
 	ID        int64      `json:"id"`
 	Name      string     `json:"name"`
 	BaseURL   string     `json:"base_url"`
+	Mode      string     `json:"mode"`
 	Enabled   bool       `json:"enabled"`
 	LastSeen  *time.Time `json:"last_seen,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
@@ -351,8 +352,22 @@ type ComposeAgent struct {
 type ComposeAgentRequest struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
+	Mode    string `json:"mode,omitempty"`
 	Token   string `json:"token,omitempty"`
 	Enabled *bool  `json:"enabled,omitempty"`
+}
+
+// AgentProjectSnapshot stores the last outbound check-in inventory for an agent.
+type AgentProjectSnapshot struct {
+	AgentID    int64     `json:"agent_id"`
+	Projects   []Project `json:"projects"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
+// AgentProjectCheckin is sent by outbound agents that cannot accept inbound calls.
+type AgentProjectCheckin struct {
+	Name     string    `json:"name"`
+	Projects []Project `json:"projects"`
 }
 
 // UpdateSchedule runs compose actions automatically for a local project or agent project.

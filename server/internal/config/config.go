@@ -9,26 +9,29 @@ import (
 )
 
 type Config struct {
-	Mode            string
-	Port            int
-	Root            string
-	APIKey          string
-	AgentName       string
-	AgentToken      string
-	StateDir        string
-	HooksDir        string
-	LogDir          string
-	AdminUsername   string
-	AdminPassword   string
-	DatabaseDSN     string
-	RedisAddr       string
-	RedisPassword   string
-	RedisDB         int
-	DockerDaemonDir string
-	BaseImagePrefix string
-	CacheTTL        time.Duration
-	MetricsInterval time.Duration
-	WarmCacheTTL    time.Duration
+	Mode                 string
+	Port                 int
+	Root                 string
+	APIKey               string
+	AgentName            string
+	AgentToken           string
+	AgentControllerURL   string
+	AgentCheckinInterval time.Duration
+	AgentCheckinOnce     bool
+	StateDir             string
+	HooksDir             string
+	LogDir               string
+	AdminUsername        string
+	AdminPassword        string
+	DatabaseDSN          string
+	RedisAddr            string
+	RedisPassword        string
+	RedisDB              int
+	DockerDaemonDir      string
+	BaseImagePrefix      string
+	CacheTTL             time.Duration
+	MetricsInterval      time.Duration
+	WarmCacheTTL         time.Duration
 
 	// Backup skill
 	BackupDir string
@@ -38,23 +41,24 @@ func Load() (*Config, error) {
 	port, _ := strconv.Atoi(getEnv("PORT", "8192"))
 
 	cfg := &Config{
-		Mode:            getEnv("APP_MODE", "server"),
-		Port:            port,
-		Root:            getEnv("ROOT", "/docker"),
-		APIKey:          getEnv("API_KEY", ""),
-		AgentName:       getEnv("AGENT_NAME", ""),
-		AgentToken:      getEnv("AGENT_TOKEN", ""),
-		StateDir:        getEnv("STATE_DIR", ""),
-		HooksDir:        getEnv("HOOKS_DIR", ""),
-		LogDir:          getEnv("LOG_DIR", ""),
-		AdminUsername:   getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:   getEnv("ADMIN_PASSWORD", ""),
-		DatabaseDSN:     getEnv("DATABASE_DSN", ""),
-		RedisAddr:       getEnv("REDIS_ADDR", "redis:6379"),
-		RedisPassword:   getEnv("REDIS_PASSWORD", ""),
-		DockerDaemonDir: getEnv("DOCKER_DAEMON_DIR", "/etc/docker"),
-		BaseImagePrefix: getEnv("BASE_IMAGE_PREFIX", ""),
-		BackupDir:       getEnv("BACKUP_DIR", ""),
+		Mode:               getEnv("APP_MODE", "server"),
+		Port:               port,
+		Root:               getEnv("ROOT", "/docker"),
+		APIKey:             getEnv("API_KEY", ""),
+		AgentName:          getEnv("AGENT_NAME", ""),
+		AgentToken:         getEnv("AGENT_TOKEN", ""),
+		AgentControllerURL: firstEnv("AGENT_CONTROLLER_URL", "CONTROLLER_URL"),
+		StateDir:           getEnv("STATE_DIR", ""),
+		HooksDir:           getEnv("HOOKS_DIR", ""),
+		LogDir:             getEnv("LOG_DIR", ""),
+		AdminUsername:      getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:      getEnv("ADMIN_PASSWORD", ""),
+		DatabaseDSN:        getEnv("DATABASE_DSN", ""),
+		RedisAddr:          getEnv("REDIS_ADDR", "redis:6379"),
+		RedisPassword:      getEnv("REDIS_PASSWORD", ""),
+		DockerDaemonDir:    getEnv("DOCKER_DAEMON_DIR", "/etc/docker"),
+		BaseImagePrefix:    getEnv("BASE_IMAGE_PREFIX", ""),
+		BackupDir:          getEnv("BACKUP_DIR", ""),
 	}
 	cfg.RedisDB, _ = strconv.Atoi(getEnv("REDIS_DB", "0"))
 	cacheTTL, _ := strconv.Atoi(getEnv("CACHE_TTL_SECONDS", "15"))
@@ -72,17 +76,26 @@ func Load() (*Config, error) {
 		warmCacheMinutes = metricsMinutes * 2
 	}
 	cfg.WarmCacheTTL = time.Duration(warmCacheMinutes) * time.Minute
+	checkinSeconds, _ := strconv.Atoi(getEnv("AGENT_CHECKIN_SECONDS", "60"))
+	if checkinSeconds < 10 {
+		checkinSeconds = 10
+	}
+	cfg.AgentCheckinInterval = time.Duration(checkinSeconds) * time.Second
+	cfg.AgentCheckinOnce = getEnv("AGENT_CHECKIN_ONCE", "") == "true" || getEnv("AGENT_CHECKIN_ONCE", "") == "1"
 
 	if cfg.AgentToken == "" {
 		cfg.AgentToken = cfg.APIKey
 	}
 
-	if cfg.Mode == "agent" {
+	if cfg.Mode == "agent" || cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" {
 		if cfg.AgentToken == "" {
 			return nil, fmt.Errorf("AGENT_TOKEN or API_KEY environment variable is required in agent mode")
 		}
 		if cfg.AgentName == "" {
 			cfg.AgentName = hostnameFallback()
+		}
+		if (cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli") && cfg.AgentControllerURL == "" {
+			return nil, fmt.Errorf("AGENT_CONTROLLER_URL or CONTROLLER_URL environment variable is required in callback agent mode")
 		}
 		if cfg.StateDir == "" {
 			cfg.StateDir = defaultStateDir()
@@ -129,6 +142,15 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func firstEnv(keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func defaultStateDir() string {

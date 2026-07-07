@@ -20,5 +20,5 @@ COPY --from=builder /stack-manager-server .
 USER appuser
 EXPOSE 8192
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8192/health || exit 1
+    CMD if [ "$APP_MODE" = "agent-callback" ] || [ "$APP_MODE" = "agent-cli" ]; then exit 0; fi; wget --no-verbose --tries=1 --spider http://127.0.0.1:8192/health || exit 1
 ENTRYPOINT ["./stack-manager-server"]

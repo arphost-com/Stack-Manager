@@ -128,9 +128,38 @@ func (h *AgentHandler) Save(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.BaseURL = strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
-	if req.Name == "" || req.BaseURL == "" {
-		writeError(w, http.StatusBadRequest, "agent name and URL are required")
+	req.Mode = strings.ToLower(strings.TrimSpace(req.Mode))
+	if req.Mode == "" {
+		if req.BaseURL == "" {
+			req.Mode = "callback"
+		} else {
+			req.Mode = "inbound"
+		}
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "agent name is required")
 		return
+	}
+	if req.Mode != "inbound" && req.Mode != "callback" {
+		writeError(w, http.StatusBadRequest, "agent mode must be inbound or callback")
+		return
+	}
+	if req.Mode == "inbound" && req.BaseURL == "" {
+		writeError(w, http.StatusBadRequest, "agent URL is required for inbound mode")
+		return
+	}
+	if req.Mode == "callback" {
+		req.BaseURL = ""
+	}
+	if strings.TrimSpace(req.Token) == "" {
+		if _, err := h.Store.GetAgentByName(r.Context(), req.Name); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				writeError(w, http.StatusBadRequest, "agent token is required for new agents")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	agent, err := h.Store.SaveAgent(r.Context(), req)
 	if err != nil {
@@ -174,6 +203,19 @@ func (h *AgentHandler) Projects(w http.ResponseWriter, r *http.Request) {
 	}
 	if !agent.Enabled {
 		writeError(w, http.StatusBadRequest, "agent is disabled")
+		return
+	}
+	if agent.BaseURL == "" || agent.Mode == "callback" {
+		snapshot, err := h.Store.GetAgentProjectSnapshot(r.Context(), agent.ID)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				writeJSON(w, http.StatusOK, []core.Project{})
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, snapshot.Projects)
 		return
 	}
 	base, err := url.Parse(agent.BaseURL)

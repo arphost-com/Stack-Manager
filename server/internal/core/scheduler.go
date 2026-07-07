@@ -142,6 +142,9 @@ func (m *ScheduleManager) runAgentSchedule(ctx context.Context, schedule UpdateS
 	if !agent.Enabled {
 		return "", fmt.Errorf("agent %s is disabled", agent.Name)
 	}
+	if agent.BaseURL == "" {
+		return "", fmt.Errorf("agent %s uses outbound check-in mode; scheduled remote actions require a command queue", agent.Name)
+	}
 	base, err := url.Parse(agent.BaseURL)
 	if err != nil || base.Scheme == "" || base.Host == "" {
 		return "", fmt.Errorf("invalid agent URL")
