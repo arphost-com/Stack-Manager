@@ -104,6 +104,17 @@ export default function Settings() {
   const [sslSelfSignedForm, setSslSelfSignedForm] = useState({ cn: '', extra_sans: '', days: 3650 });
   const [sslLeForm, setSslLeForm] = useState({ domain: '', email: '', staging: false });
   const [theme, setTheme] = useState(getThemePreference());
+  const [controllerUrl, setControllerUrl] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cm_controller_url');
+      if (saved) return saved;
+    } catch {}
+    return typeof window !== 'undefined' ? window.location.origin : '';
+  });
+  const [copiedKey, setCopiedKey] = useState('');
+  const [setupMode, setSetupMode] = useState(() => {
+    try { return localStorage.getItem('cm_agent_setup_mode') || 'callback'; } catch { return 'callback'; }
+  });
 
   const admin = me?.role === 'admin';
   const tabs = useMemo(() => {
@@ -543,6 +554,41 @@ export default function Settings() {
     setThemePreference(value);
   };
 
+  const updateControllerUrl = (value) => {
+    setControllerUrl(value);
+    try { localStorage.setItem('cm_controller_url', value); } catch {}
+  };
+
+  const updateSetupMode = (value) => {
+    setSetupMode(value);
+    try { localStorage.setItem('cm_agent_setup_mode', value); } catch {}
+  };
+
+  const copyToClipboard = async (key, text) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for insecure contexts (http://) where clipboard API is blocked.
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(current => (current === key ? '' : current)), 1500);
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const agentControllerHost = (controllerUrl || '').trim() || (typeof window !== 'undefined' ? window.location.origin : 'https://your-controller:8993');
+
   const availableProjects = scheduleForm.agent_id ? (agentProjects[scheduleForm.agent_id] || []) : projectList;
 
   return (
@@ -689,36 +735,74 @@ export default function Settings() {
           <div className="space-y-4">
             <div className="section-panel">
               <h2 className="text-lg font-semibold text-gray-950">Agent Setup</h2>
-              <div className="mt-3 grid gap-3 text-sm text-gray-700 xl:grid-cols-3">
-                <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">1. Prepare agent state</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">git clone https://github.com/arphost-com/Stack-Manager.git{"\n"}cd Stack-Manager{"\n"}./scripts/prepare-state.sh --agent .env</pre>
-                </div>
-                <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">2. Start outbound mode</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">APP_MODE=agent-callback \{"\n"}AGENT_CONTROLLER_URL=https://docker02.example.com \{"\n"}./stack-manager-server</pre>
-                </div>
-                <div className="rounded-md border border-gray-200 p-3">
-                  <div className="font-medium text-gray-950">3. Register below</div>
-                  <pre className="mt-2 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">grep -E '^(AGENT_NAME|AGENT_TOKEN|DOCKER_ROOT)=' .env{"\n"}# Mode: Outbound check-in{"\n"}# Token: AGENT_TOKEN</pre>
-                </div>
+              <div className="mt-3 flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-700" htmlFor="controller-url">Controller URL <span className="font-normal text-gray-500">(IP or FQDN this controller is reachable at, used to fill the sample commands)</span></label>
+                <input id="controller-url" className="input" value={controllerUrl} onChange={e => updateControllerUrl(e.target.value)} placeholder="https://10.10.10.93:8993" title="Base URL agents will call back to. Defaults to this browser tab's origin and is saved per browser." />
               </div>
-              <p className="mt-3 text-sm text-gray-600">Outbound check-in mode does not open a listener on the remote host. The agent discovers local projects and posts them to this controller. Inbound URL mode remains available for hosts this controller can reach directly.</p>
+              {(() => {
+                const modes = [
+                  { value: 'callback', label: 'Outbound check-in', appMode: 'agent-callback', hint: 'Agent phones home to this controller. No inbound port required on the agent host. Best behind NAT.' },
+                  { value: 'inbound', label: 'Inbound listener', appMode: 'agent', hint: 'Agent opens a port and this controller calls it. Requires the agent to be reachable from this controller.' },
+                  { value: 'both', label: 'Both (combined)', appMode: 'agent-both', hint: 'Runs the inbound listener and the outbound check-in in the same container. Good for hosts that are sometimes reachable.' },
+                ];
+                const active = modes.find(m => m.value === setupMode) || modes[0];
+                const cmdPrepare = `git clone https://github.com/arphost-com/Stack-Manager.git\ncd Stack-Manager\n./scripts/prepare-state.sh --agent .env\n# Edit .env: set DOCKER_ROOT and AGENT_CONTROLLER_URL=${agentControllerHost}`;
+                const cmdStart = `APP_MODE=${active.appMode} \\\ndocker compose --env-file .env -f docker-compose.agent.yml up -d --build`;
+                const cmdRegister = `grep -E '^(AGENT_NAME|AGENT_TOKEN|AGENT_PORT|DOCKER_ROOT|AGENT_CONTROLLER_URL)=' .env\n# Then in Settings > Agents, click Add Agent:\n#   Name  : value of AGENT_NAME\n#   Mode  : ${active.value === 'inbound' ? 'Inbound URL' : active.value === 'both' ? 'Inbound URL (or Outbound check-in)' : 'Outbound check-in'}\n#   URL   : ${active.value === 'callback' ? '(leave blank)' : 'https://<agent-host>:${AGENT_PORT}'}\n#   Token : value of AGENT_TOKEN`;
+                const cards = [
+                  { key: 'cmd-prepare', title: '1. Prepare agent state', body: cmdPrepare },
+                  { key: 'cmd-start-' + active.value, title: `2. Start the agent container (${active.label})`, body: cmdStart },
+                  { key: 'cmd-register-' + active.value, title: '3. Register below', body: cmdRegister },
+                ];
+                return (
+                  <>
+                    <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <div className="text-sm font-medium text-gray-950">Agent mode</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {modes.map(m => (
+                          <button
+                            key={m.value}
+                            type="button"
+                            onClick={() => updateSetupMode(m.value)}
+                            className={setupMode === m.value ? 'btn-primary' : 'btn-secondary'}
+                            title={m.hint}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600">{active.hint}</p>
+                    </div>
+                    <div className="mt-3 grid gap-3 text-sm text-gray-700 xl:grid-cols-3">
+                      {cards.map(card => (
+                        <div key={card.key} className="rounded-md border border-gray-200 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium text-gray-950">{card.title}</div>
+                            <button type="button" onClick={() => copyToClipboard(card.key, card.body)} className="mini-button" title="Copy this snippet to the clipboard.">{copiedKey === card.key ? 'Copied' : 'Copy'}</button>
+                          </div>
+                          <pre className="mt-2 whitespace-pre-wrap break-all rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">{card.body}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
+              <p className="mt-3 text-sm text-gray-600">The agent runs as a container from <code className="rounded bg-gray-100 px-1">docker-compose.agent.yml</code>. Pick a mode above and the sample commands update to use the matching <code className="rounded bg-gray-100 px-1">APP_MODE</code>. The compose file mounts <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code> from the host so the agent sees the same paths projects use.</p>
             </div>
             <div className="section-panel">
               <h2 className="mb-3 text-lg font-semibold text-gray-950">Registered Agents</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>Mode</th><th>URL</th><th>Status</th><th>Last Seen</th><th className="text-right">Actions</th></tr></thead>
+              <div>
+                <table className="w-full table-fixed text-left text-sm">
+                  <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="w-[18%] py-2">Name</th><th className="w-[12%]">Mode</th><th className="w-[26%]">URL</th><th className="w-[12%]">Status</th><th className="w-[16%]">Last Seen</th><th className="w-[16%] text-right">Actions</th></tr></thead>
                   <tbody>
                     {agentList.map(agent => (
-                      <tr key={agent.id} className="border-b border-gray-100">
-                        <td className="py-2 font-medium">{agent.name}</td>
-                        <td><Badge tone={(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'blue' : 'gray'}>{(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'check-in' : 'inbound'}</Badge></td>
-                        <td className="max-w-[280px] truncate font-mono text-xs text-gray-600" title={agent.base_url}>{agent.base_url}</td>
-                        <td><Badge tone={agent.enabled ? 'green' : 'gray'}>{agent.enabled ? 'enabled' : 'disabled'}</Badge></td>
-                        <td className="text-xs text-gray-500">{formatDate(agent.last_seen)}</td>
-                        <td className="space-x-2 text-right">
+                      <tr key={agent.id} className="border-b border-gray-100 align-top">
+                        <td className="py-2 pr-2 font-medium break-all">{agent.name}</td>
+                        <td className="pr-2"><Badge tone={(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'blue' : 'gray'}>{(agent.mode || (agent.base_url ? 'inbound' : 'callback')) === 'callback' ? 'check-in' : 'inbound'}</Badge></td>
+                        <td className="pr-2 font-mono text-xs text-gray-600 break-all" title={agent.base_url}>{agent.base_url}</td>
+                        <td className="pr-2"><Badge tone={agent.enabled ? 'green' : 'gray'}>{agent.enabled ? 'enabled' : 'disabled'}</Badge></td>
+                        <td className="pr-2 text-xs text-gray-500 break-words">{formatDate(agent.last_seen)}</td>
+                        <td className="space-x-1 text-right whitespace-nowrap">
                           <button onClick={() => editAgent(agent)} className="mini-button" title="Load this agent into the edit form. Leave token blank to keep the saved token.">Edit</button>
                           <button onClick={() => deleteAgent(agent)} className="mini-danger" title="Delete this agent and its schedules.">Delete</button>
                         </td>
@@ -1179,17 +1263,17 @@ export default function Settings() {
             <p className="text-sm text-gray-600">Configure local, mounted, FTP, SFTP, and S3 destinations. CIFS and NFS should be mounted on the host and exposed to the server container as paths.</p>
           </div>
           <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>Type</th><th>Path / Target</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
+            <div>
+              <table className="w-full table-fixed text-left text-sm">
+                <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="w-[20%] py-2">Name</th><th className="w-[12%]">Type</th><th className="w-[36%]">Path / Target</th><th className="w-[14%]">Status</th><th className="w-[18%] text-right">Actions</th></tr></thead>
                 <tbody>
                   {destinationList.map(destination => (
                     <tr key={destination.id} className="border-b border-gray-100 align-top">
-                      <td className="py-2 font-medium">{destination.name}</td>
-                      <td>{destination.type}</td>
-                      <td className="font-mono text-xs text-gray-600">{destinationSummary(destination)}</td>
-                      <td>{destination.enabled ? 'enabled' : 'disabled'}{destination.has_secret ? ' - secret saved' : ''}</td>
-                      <td className="space-x-2 text-right">
+                      <td className="py-2 pr-2 font-medium break-all">{destination.name}</td>
+                      <td className="pr-2">{destination.type}</td>
+                      <td className="pr-2 font-mono text-xs text-gray-600 break-all">{destinationSummary(destination)}</td>
+                      <td className="pr-2 break-words">{destination.enabled ? 'enabled' : 'disabled'}{destination.has_secret ? ' - secret saved' : ''}</td>
+                      <td className="space-x-1 text-right whitespace-nowrap">
                         <button onClick={() => testDestination(destination)} className="mini-button" title="Create and remove a small test file or run a remote upload test with this endpoint.">Test</button>
                         <button onClick={() => editDestination(destination)} className="mini-button" title="Load this endpoint into the edit form. Saved secrets are kept unless replaced.">Edit</button>
                         <button onClick={() => deleteDestination(destination)} className="mini-danger" title="Delete this backup endpoint configuration. Existing backup files are not removed.">Delete</button>

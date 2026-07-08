@@ -428,34 +428,55 @@ Schedules are stored in MariaDB and cached in Redis. A schedule can target:
 
 Schedules support `update`, `pull`, `up`, `restart`, `down`, and `status`. Scheduled `update` respects the project update policy; projects marked `no_updates` record a skipped session instead of pulling.
 
-Remote agents can run without opening any inbound port. Use callback mode when the remote Docker host can reach the controller over a VPN or outbound internet path, but the controller cannot call back into the remote host:
+Remote agents run as a container from `docker-compose.agent.yml` — the same image the controller uses, just with `APP_MODE` set to one of three values. Pick the mode that fits the remote host's reachability:
+
+| Mode | `APP_MODE` | When to use | Inbound port on remote host? |
+|------|------------|-------------|------------------------------|
+| Outbound check-in | `agent-callback` | Remote host can reach the controller (VPN or outbound internet) but is behind NAT / firewalled from the controller. | No |
+| Inbound listener | `agent` | Controller can reach the remote host directly on `AGENT_PORT`. | Yes (`AGENT_PORT`, default 8192) |
+| Both (combined) | `agent-both` | Host is sometimes reachable and you want both paths available. | Yes |
+
+**Install steps (same for all three modes):**
 
 ```bash
+# 1. On the remote Docker host — clone the repo and prepare state.
 git clone https://github.com/arphost-com/Stack-Manager.git
 cd Stack-Manager
 ./scripts/prepare-state.sh --agent .env
-sed -i 's#^AGENT_CONTROLLER_URL=.*#AGENT_CONTROLLER_URL=https://docker02:8993#' .env
-docker compose --env-file .env -f docker-compose.agent.yml up -d --build
+
+# 2. Edit .env: set DOCKER_ROOT to the directory that holds your compose
+#    projects, and AGENT_CONTROLLER_URL to the controller URL shown at the
+#    top of Settings > Agents in the dashboard (used by callback + both).
+$EDITOR .env
+
+# 3. Start the agent container with the mode you want:
+APP_MODE=agent-callback docker compose --env-file .env -f docker-compose.agent.yml up -d --build   # outbound only
+APP_MODE=agent          docker compose --env-file .env -f docker-compose.agent.yml up -d --build   # inbound only
+APP_MODE=agent-both     docker compose --env-file .env -f docker-compose.agent.yml up -d --build   # both
+
+# 4. Print the values you need for registration:
+grep -E '^(AGENT_NAME|AGENT_TOKEN|AGENT_PORT|DOCKER_ROOT|AGENT_CONTROLLER_URL)=' .env
 ```
 
-Callback agent mode does not require MariaDB, Redis, the web UI, or a client-side HTTP listener on the remote host. The setup script writes `APP_MODE=agent-callback`, `AGENT_NAME`, `AGENT_TOKEN`, `AGENT_CONTROLLER_URL`, `AGENT_CHECKIN_SECONDS`, and `DOCKER_ROOT` into `.env`. Register the same `AGENT_NAME` and `AGENT_TOKEN` from Settings > Agents on the main server with mode `Outbound check-in`; leave Agent URL blank. The agent discovers local compose projects under `DOCKER_ROOT` and posts the inventory to `/api/v1/agent-checkin/projects` on the controller.
+`prepare-state.sh --agent` writes `APP_MODE=agent-callback` (the safe default), auto-generates `AGENT_TOKEN`, sets `AGENT_NAME` to the short hostname, and force-sets `AGENT_CONTROLLER_URL` to a `change-me` placeholder so an unedited install fails loudly instead of silently phoning home to the wrong host. It leaves `.env` re-editable — re-running it never overwrites secrets or a mode you've already chosen.
 
-The older inbound HTTP agent is still supported for directly reachable hosts. Set `APP_MODE=agent`, keep `HOST_URL`/`AGENT_PORT`, and register `HOST_URL` as an `Inbound URL` agent when the controller can call `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
+**Register the agent in the dashboard:**
 
-Agent command summary:
+1. In the controller's dashboard, go to **Settings → Agents**.
+2. At the top, confirm the **Controller URL** field matches the URL the remote agent will reach (this is what gets substituted into the sample commands in the setup cards). Change it if the browser tab is loaded on a different address than the agents will use.
+3. Pick a mode using the mode buttons — the three setup cards (Prepare / Start / Register) update to show the exact commands for that mode. Each card has a **Copy** button.
+4. Fill in **Add Agent**:
 
-```bash
-# Outbound only: no client-side listener.
-APP_MODE=agent-callback AGENT_CONTROLLER_URL=https://docker02:8993 ./stack-manager-server
+   | Field | Value |
+   |-------|-------|
+   | Name | value of `AGENT_NAME` from the agent's `.env` |
+   | Mode | `Outbound check-in` for `agent-callback`, `Inbound URL` for `agent` or `agent-both` |
+   | Agent URL | For inbound / both: `https://<agent-host>:<AGENT_PORT>`. For outbound: leave blank. |
+   | Token | value of `AGENT_TOKEN` from the agent's `.env` |
 
-# Inbound only: exposes /agent/v1 for the controller to call.
-APP_MODE=agent PORT=8192 ./stack-manager-server
+5. Click **Save Agent**. For inbound / both, use **Test** on the row to confirm the controller can reach the agent. For outbound, the row's **Last Seen** column updates the first time the agent checks in (default every 60 seconds).
 
-# Both: outbound check-ins plus the inbound /agent/v1 API.
-APP_MODE=agent-both AGENT_CONTROLLER_URL=https://docker02:8993 PORT=8192 ./stack-manager-server
-```
-
-See [Agent Modes](docs/AGENT_MODES.md) for full binary and Compose examples.
+The agent needs no MariaDB, Redis, or web UI. It mounts the host `DOCKER_ROOT` at the same path inside the container so relative `./file.conf` bind mounts in child compose files resolve to real host files. See [Agent Modes](docs/AGENT_MODES.md) for the full protocol reference.
 
 ### Project Deletion
 

@@ -328,11 +328,13 @@ func (s *Skill) TestDestination(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.testDestination(r.Context(), id)
-	status := http.StatusOK
-	if err != nil {
-		status = http.StatusBadRequest
+	if result == nil {
+		result = &core.BackupTransferResult{DestinationID: id, CompletedAt: time.Now().UTC()}
 	}
-	writeJSON(w, status, result)
+	if err != nil && result.Error == "" {
+		result.Error = err.Error()
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // List returns all backups.
@@ -967,12 +969,14 @@ func rcloneObscure(password string) (string, error) {
 }
 
 func rcloneTarget(destination *core.BackupDestination, fileName string) string {
-	remotePath := strings.Trim(destination.Config["remote_path"], "/")
+	remotePath := strings.TrimRight(destination.Config["remote_path"], "/")
 	switch strings.ToLower(destination.Type) {
 	case "ftp", "sftp":
 		if remotePath == "" {
 			return "cmbackup:" + fileName
 		}
+		// Preserve a leading "/" so rclone treats the path as absolute rather
+		// than relative to the SSH user's home directory.
 		return "cmbackup:" + remotePath + "/" + fileName
 	case "s3":
 		bucket := strings.Trim(destination.Config["bucket"], "/")
