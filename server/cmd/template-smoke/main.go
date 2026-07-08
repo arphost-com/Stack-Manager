@@ -73,10 +73,20 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var failures []string
 	for _, template := range templates {
 		if err := runTemplate(template, *mode, *workDir, *projectPrefix, *settle, *keep); err != nil {
-			log.Fatalf("%s failed: %v", template.ID, err)
+			msg := fmt.Sprintf("%s: %v", template.ID, err)
+			log.Printf("FAIL %s", msg)
+			failures = append(failures, msg)
 		}
+	}
+	fmt.Printf("\n=== SUMMARY: %d passed, %d failed out of %d ===\n", len(templates)-len(failures), len(failures), len(templates))
+	for _, f := range failures {
+		fmt.Printf("  FAIL %s\n", f)
+	}
+	if len(failures) > 0 {
+		os.Exit(1)
 	}
 }
 
