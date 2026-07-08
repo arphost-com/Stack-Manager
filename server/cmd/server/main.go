@@ -105,6 +105,7 @@ func main() {
 	defer watchManager.Shutdown()
 	watchHandler := handlers.NewWatchHandler(watchManager)
 	skillHandler := handlers.NewSkillHandler(registry)
+	shellHandler := handlers.NewShellHandler(engine)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 	authHandler.IPAllower = firewallSkill
 
@@ -170,6 +171,9 @@ func main() {
 			r.Get("/projects/{name}/watch/{sessionID}", watchHandler.Get)
 			r.Get("/projects/{name}/watch/{sessionID}/stream", watchHandler.Stream)
 			r.Delete("/projects/{name}/watch/{sessionID}", watchHandler.Stop)
+
+			r.Get("/projects/{name}/shell/containers", shellHandler.ListContainers)
+			r.Get("/projects/{name}/shell/exec", shellHandler.ExecWebSocket)
 
 			r.Post("/projects/{name}/update", projectHandler.Update)
 			r.Post("/projects/{name}/restart", projectHandler.Restart)

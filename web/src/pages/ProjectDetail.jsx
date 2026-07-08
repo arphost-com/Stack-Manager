@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { projects, jobs, debug as debugApi, security, backup, dbadmin, watch as watchApi } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 
 const TABS = ['overview', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
@@ -346,7 +349,10 @@ export default function ProjectDetail() {
           )}
 
           {activeTab === 'shell' && (
-            <ShellPanel form={shellForm} setForm={setShellForm} result={shellResult || tabData} runShell={runShell} />
+            <div className="space-y-4">
+              <ShellPanel form={shellForm} setForm={setShellForm} result={shellResult || tabData} runShell={runShell} />
+              <InteractiveShell projectName={name} />
+            </div>
           )}
 
           {tabLoading && <div className="py-8 text-center text-gray-500">Loading...</div>}
@@ -515,6 +521,124 @@ function ProjectDocs({ docs, projectName }) {
           <pre className="max-h-[640px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs leading-6 text-gray-100 whitespace-pre-wrap">{docContent?.content || 'No content.'}</pre>
         )}
       </div>
+    </div>
+  );
+}
+
+function InteractiveShell({ projectName }) {
+  const [containers, setContainers] = useState([]);
+  const [selectedContainer, setSelectedContainer] = useState('');
+  const [connected, setConnected] = useState(false);
+  const termRef = useRef(null);
+  const termElRef = useRef(null);
+  const wsRef = useRef(null);
+  const fitRef = useRef(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await projects.get(projectName);
+        const running = (res.data?.containers || []).filter(c => c.state === 'running');
+        setContainers(running);
+        if (running.length > 0 && !selectedContainer) setSelectedContainer(running[0].name);
+      } catch {}
+    };
+    load();
+  }, [projectName]);
+
+  const connect = useCallback(() => {
+    if (!selectedContainer || connected) return;
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      theme: { background: '#0a0a0f', foreground: '#e5e7eb' },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    if (termElRef.current) {
+      term.open(termElRef.current);
+      fit.fit();
+    }
+    termRef.current = term;
+    fitRef.current = fit;
+
+    const token = localStorage.getItem('cm_token') || '';
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${proto}://${window.location.host}/api/v1/projects/${encodeURIComponent(projectName)}/shell/exec?container=${encodeURIComponent(selectedContainer)}&token=${encodeURIComponent(token)}`;
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      term.focus();
+    };
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      } else {
+        term.write(ev.data);
+      }
+    };
+    ws.onclose = () => {
+      term.write('\r\n\x1b[33m[session ended]\x1b[0m\r\n');
+      setConnected(false);
+    };
+    ws.onerror = () => {
+      term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+      setConnected(false);
+    };
+
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    const onResize = () => {
+      if (fitRef.current) fitRef.current.fit();
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+    };
+  }, [selectedContainer, connected, projectName]);
+
+  const disconnect = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (termRef.current) {
+      termRef.current.dispose();
+      termRef.current = null;
+    }
+    setConnected(false);
+  };
+
+  useEffect(() => {
+    return () => { disconnect(); };
+  }, []);
+
+  return (
+    <div className="section-panel space-y-3">
+      <h3 className="text-base font-semibold text-gray-950">Interactive Shell</h3>
+      <p className="text-sm text-gray-600">Open a live shell inside a running container. Choose a container and click Connect.</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Container" title="Running container to exec into.">
+          <select className="input w-64" value={selectedContainer} onChange={e => setSelectedContainer(e.target.value)} disabled={connected}>
+            {containers.length === 0 && <option value="">No running containers</option>}
+            {containers.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+          </select>
+        </Field>
+        {!connected ? (
+          <button className="btn-primary" onClick={connect} disabled={!selectedContainer} title="Open a WebSocket to docker exec -i inside the selected container.">Connect</button>
+        ) : (
+          <button className="btn-danger" onClick={disconnect} title="Close the shell session.">Disconnect</button>
+        )}
+      </div>
+      <div ref={termElRef} className="rounded-md border border-gray-700" style={{ minHeight: 300 }} />
     </div>
   );
 }
