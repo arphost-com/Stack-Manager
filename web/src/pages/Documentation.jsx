@@ -292,7 +292,7 @@ export default function Documentation() {
           className={docsTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}
           title="Docs for the built-in stack catalog."
         >
-          All Other Stacks <span className="ml-1 text-xs opacity-80">({templates.length})</span>
+          Stack Catalog <span className="ml-1 text-xs opacity-80">({templates.length})</span>
         </button>
       </div>
 
