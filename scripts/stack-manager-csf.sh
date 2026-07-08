@@ -221,20 +221,24 @@ cmd_install() {
     printf 'already installed: %s\n' "$("$CSF_BIN" -v 2>&1 | head -1)"
     return 0
   fi
-  local workdir
+  local workdir=""
+  # ${workdir:-} guard keeps `set -u` happy if the trap fires before
+  # mktemp completes (mktemp itself fails on a full /tmp, etc.).
+  trap 'rm -rf "${workdir:-}"' EXIT
   workdir="$(mktemp -d /tmp/stack-manager-csf-install.XXXXXX)"
-  trap 'rm -rf "$workdir"' EXIT
   git clone --depth 1 "$UPSTREAM_URL" "$workdir/csf" >&2
-  (
-    cd "$workdir/csf"
-    if [[ -x install.sh ]]; then
-      sh install.sh
-    elif [[ -x install.generic.sh ]]; then
-      sh install.generic.sh
-    else
-      die "no installer found in upstream repo"
-    fi
-  )
+  # Look for the installer by file existence, not executable bit —
+  # `git clone` on some hosts strips +x from tracked files. csf is
+  # designed to be run via `sh install.sh` anyway.
+  local installer=""
+  if [[ -f "$workdir/csf/install.sh" ]]; then
+    installer="install.sh"
+  elif [[ -f "$workdir/csf/install.generic.sh" ]]; then
+    installer="install.generic.sh"
+  else
+    die "no installer found in upstream repo (tried install.sh and install.generic.sh under $workdir/csf)"
+  fi
+  ( cd "$workdir/csf" && sh "$installer" )
   [[ -x "$CSF_BIN" ]] || die "install did not produce $CSF_BIN"
   "$CSF_BIN" -v
 }

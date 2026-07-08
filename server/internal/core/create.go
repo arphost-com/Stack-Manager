@@ -79,8 +79,24 @@ func (e *Engine) CreateProject(req CreateProjectRequest) (*Project, error) {
 	return &project, nil
 }
 
+// shouldEnforceCreateUser returns true when the Create Project request
+// explicitly asks Stack Manager to inject a user: line into every
+// service via a generated compose.override.yml.
+//
+// Historically this defaulted to true. That silently broke templates
+// whose images have a required internal UID — MariaDB / MySQL run as
+// UID 999, Postgres runs as UID 999, and WordPress's first-boot tar
+// copy must be root. Forcing SERVER_USER (typically 1000) on those
+// services produced "Errcode: 13 Permission denied" and
+// "Operation not permitted" crashes at first up.
+//
+// New default: only enforce when the caller sets EnforceUser=true. Bind
+// mounts that need SERVER_USER ownership are the rare case and should
+// be opted into per project. This matches how docker compose itself
+// behaves out of the box: images run as whatever user they were built
+// for.
 func shouldEnforceCreateUser(req CreateProjectRequest) bool {
-	return req.EnforceUser == nil || *req.EnforceUser
+	return req.EnforceUser != nil && *req.EnforceUser
 }
 
 func resolveCreateRunUser(req CreateProjectRequest) (string, string, error) {

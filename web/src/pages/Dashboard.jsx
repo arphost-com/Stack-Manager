@@ -108,7 +108,7 @@ export default function Dashboard() {
     env_content: '',
     run_as_uid: '',
     run_as_gid: '',
-    enforce_user: true,
+    enforce_user: false,
     inactive: false,
     overwrite: false,
   });
@@ -676,9 +676,9 @@ export default function Dashboard() {
                   <input value={createForm.run_as_gid} onChange={e => setCreateForm({ ...createForm, run_as_gid: e.target.value })} className="input" placeholder="auto" inputMode="numeric" />
                 </Field>
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700" title="Generate compose.override.yml so every service runs as the UID/GID above. Edit that file or .env later for stack-specific users.">
+              <label className="flex items-center gap-2 text-sm text-gray-700" title="Generate compose.override.yml so every service runs as the UID/GID above. Leave off unless the stack uses bind mounts that need to match a specific host user — it breaks images that require their own internal UID (MariaDB, MySQL, Postgres, WordPress first-boot, most linuxserver.io images).">
                 <input type="checkbox" checked={createForm.enforce_user} onChange={e => setCreateForm({ ...createForm, enforce_user: e.target.checked })} />
-                Apply to services
+                Force run-as user on every service (advanced — breaks databases)
               </label>
               <label className="flex items-center gap-2 text-sm text-gray-700" title="Create the project but exclude it from normal operations until activated.">
                 <input type="checkbox" checked={createForm.inactive} onChange={e => setCreateForm({ ...createForm, inactive: e.target.checked })} />
