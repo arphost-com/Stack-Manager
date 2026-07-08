@@ -178,6 +178,13 @@ export default function Documentation() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [error, setError] = useState('');
+  const [docsTab, setDocsTab] = useState(() => {
+    try { return localStorage.getItem('cm_docs_tab') || 'current'; } catch { return 'current'; }
+  });
+  const changeDocsTab = (value) => {
+    setDocsTab(value);
+    try { localStorage.setItem('cm_docs_tab', value); } catch {}
+  };
 
   const load = async () => {
     try {
@@ -266,72 +273,101 @@ export default function Documentation() {
         </p>
       </section>
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-950">Current Stacks</h2>
-          <p className="text-sm text-gray-600">Every discovered project has a generated project guide, plus any README or docs files found in the stack directory.</p>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          {projectList.map(project => <CurrentStackDoc key={project.name} project={project} />)}
-          {projectList.length === 0 && <div className="py-8 text-center text-sm text-gray-500 lg:col-span-2">No current stacks were discovered.</div>}
-        </div>
-      </section>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Documentation sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={docsTab === 'current'}
+          onClick={() => changeDocsTab('current')}
+          className={docsTab === 'current' ? 'btn-primary' : 'btn-secondary'}
+          title="Docs for stacks that are currently discovered on this host."
+        >
+          Current Stacks <span className="ml-1 text-xs opacity-80">({projectList.length})</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={docsTab === 'catalog'}
+          onClick={() => changeDocsTab('catalog')}
+          className={docsTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}
+          title="Docs for the built-in stack catalog."
+        >
+          All Other Stacks <span className="ml-1 text-xs opacity-80">({templates.length})</span>
+        </button>
+      </div>
 
-      <section className="section-panel space-y-3">
-        <input className="input w-full" value={query} onChange={e => setQuery(e.target.value)} placeholder="search docs, images, env keys, tags" title="Filter documentation by app name, image, env key, category, tag, or setup note." />
-        <div className="flex flex-wrap gap-2" title="Choose a documentation category.">
-          {categories.map(cat => {
-            const total = cat === 'all' ? templates.length : (categoryCounts[cat] || 0);
-            const active = category === cat;
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setCategory(cat)}
-                title={cat === 'all' ? 'Show every stack doc.' : `Show only ${labelForCategory(cat)} docs.`}
-                className={`rounded-full border px-3 py-1 text-xs font-medium ${active ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'}`}
-              >
-                {cat === 'all' ? 'All' : labelForCategory(cat)} <span className={`ml-1 ${active ? 'text-blue-100' : 'text-gray-400'}`}>{total}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-          {CATEGORY_DESCRIPTIONS[category] || CATEGORY_DESCRIPTIONS.all}
-        </div>
-      </section>
+      {docsTab === 'current' && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-950">Current Stacks</h2>
+            <p className="text-sm text-gray-600">Every discovered project has a generated project guide, plus any README or docs files found in the stack directory.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {projectList.map(project => <CurrentStackDoc key={project.name} project={project} />)}
+            {projectList.length === 0 && <div className="py-8 text-center text-sm text-gray-500 lg:col-span-2">No current stacks were discovered.</div>}
+          </div>
+        </section>
+      )}
 
-      <DocPager
-        total={templates.length}
-        filtered={filtered.length}
-        start={start}
-        end={end}
-        page={safePage}
-        pageCount={pageCount}
-        pageSize={pageSize}
-        setPage={setPage}
-        setPageSize={setPageSize}
-      />
+      {docsTab === 'catalog' && (
+        <>
+          <section className="section-panel space-y-3">
+            <input className="input w-full" value={query} onChange={e => setQuery(e.target.value)} placeholder="search docs, images, env keys, tags" title="Filter documentation by app name, image, env key, category, tag, or setup note." />
+            <div className="flex flex-wrap gap-2" title="Choose a documentation category.">
+              {categories.map(cat => {
+                const total = cat === 'all' ? templates.length : (categoryCounts[cat] || 0);
+                const active = category === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategory(cat)}
+                    title={cat === 'all' ? 'Show every stack doc.' : `Show only ${labelForCategory(cat)} docs.`}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${active ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'}`}
+                  >
+                    {cat === 'all' ? 'All' : labelForCategory(cat)} <span className={`ml-1 ${active ? 'text-blue-100' : 'text-gray-400'}`}>{total}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              {CATEGORY_DESCRIPTIONS[category] || CATEGORY_DESCRIPTIONS.all}
+            </div>
+          </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
-        {pagedTemplates.map(template => (
-          <ProjectDoc key={template.id} template={template} />
-        ))}
-        {filtered.length === 0 && <div className="py-12 text-center text-sm text-gray-500 lg:col-span-2">No documentation entries match the current filters.</div>}
-      </section>
+          <DocPager
+            total={templates.length}
+            filtered={filtered.length}
+            start={start}
+            end={end}
+            page={safePage}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            setPage={setPage}
+            setPageSize={setPageSize}
+          />
 
-      {filtered.length > pageSize && (
-        <DocPager
-          total={templates.length}
-          filtered={filtered.length}
-          start={start}
-          end={end}
-          page={safePage}
-          pageCount={pageCount}
-          pageSize={pageSize}
-          setPage={setPage}
-          setPageSize={setPageSize}
-        />
+          <section className="grid gap-3 lg:grid-cols-2">
+            {pagedTemplates.map(template => (
+              <ProjectDoc key={template.id} template={template} />
+            ))}
+            {filtered.length === 0 && <div className="py-12 text-center text-sm text-gray-500 lg:col-span-2">No documentation entries match the current filters.</div>}
+          </section>
+
+          {filtered.length > pageSize && (
+            <DocPager
+              total={templates.length}
+              filtered={filtered.length}
+              start={start}
+              end={end}
+              page={safePage}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              setPage={setPage}
+              setPageSize={setPageSize}
+            />
+          )}
+        </>
       )}
     </div>
   );
