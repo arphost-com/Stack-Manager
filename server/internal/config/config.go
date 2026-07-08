@@ -87,14 +87,14 @@ func Load() (*Config, error) {
 		cfg.AgentToken = cfg.APIKey
 	}
 
-	if cfg.Mode == "agent" || cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" {
+	if cfg.Mode == "agent" || cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" || cfg.Mode == "agent-both" {
 		if cfg.AgentToken == "" {
 			return nil, fmt.Errorf("AGENT_TOKEN or API_KEY environment variable is required in agent mode")
 		}
 		if cfg.AgentName == "" {
 			cfg.AgentName = hostnameFallback()
 		}
-		if (cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli") && cfg.AgentControllerURL == "" {
+		if (cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" || cfg.Mode == "agent-both") && cfg.AgentControllerURL == "" {
 			return nil, fmt.Errorf("AGENT_CONTROLLER_URL or CONTROLLER_URL environment variable is required in callback agent mode")
 		}
 		if cfg.StateDir == "" {

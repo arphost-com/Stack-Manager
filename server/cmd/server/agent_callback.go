@@ -20,6 +20,17 @@ import (
 )
 
 func runAgentCallback(cfg *config.Config, engine *core.Engine) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	runAgentCallbackLoop(ctx, cfg, engine)
+}
+
+func runAgentBoth(cfg *config.Config, engine *core.Engine) {
+	go runAgentCallbackLoop(context.Background(), cfg, engine)
+	runAgent(cfg, engine)
+}
+
+func runAgentCallbackLoop(ctx context.Context, cfg *config.Config, engine *core.Engine) {
 	endpoint, err := agentCheckinEndpoint(cfg.AgentControllerURL)
 	if err != nil {
 		log.Fatalf("agent callback config: %v", err)
@@ -30,9 +41,6 @@ func runAgentCallback(cfg *config.Config, engine *core.Engine) {
 			return http.ErrUseLastResponse
 		},
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	log.Printf("Stack Manager callback agent %q starting (root: %s, controller: %s)", cfg.AgentName, cfg.Root, cfg.AgentControllerURL)
 	if err := sendAgentCheckin(ctx, client, endpoint, cfg.AgentName, cfg.AgentToken, engine); err != nil {

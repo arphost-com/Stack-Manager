@@ -442,6 +442,21 @@ Callback agent mode does not require MariaDB, Redis, the web UI, or a client-sid
 
 The older inbound HTTP agent is still supported for directly reachable hosts. Set `APP_MODE=agent`, keep `HOST_URL`/`AGENT_PORT`, and register `HOST_URL` as an `Inbound URL` agent when the controller can call `/agent/v1` on that host for project lists, jobs, logs, stats, registry login, and prune operations.
 
+Agent command summary:
+
+```bash
+# Outbound only: no client-side listener.
+APP_MODE=agent-callback AGENT_CONTROLLER_URL=https://docker02:8993 ./stack-manager-server
+
+# Inbound only: exposes /agent/v1 for the controller to call.
+APP_MODE=agent PORT=8192 ./stack-manager-server
+
+# Both: outbound check-ins plus the inbound /agent/v1 API.
+APP_MODE=agent-both AGENT_CONTROLLER_URL=https://docker02:8993 PORT=8192 ./stack-manager-server
+```
+
+See [Agent Modes](docs/AGENT_MODES.md) for full binary and Compose examples.
+
 ### Project Deletion
 
 Directory deletion is intentionally gated:

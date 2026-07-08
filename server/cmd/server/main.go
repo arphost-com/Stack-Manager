@@ -35,6 +35,10 @@ func main() {
 
 	// Core engine
 	engine := core.NewEngine(cfg.Root, cfg.HooksDir)
+	if cfg.Mode == "agent-both" {
+		runAgentBoth(cfg, engine)
+		return
+	}
 	if cfg.Mode == "agent-callback" || cfg.Mode == "agent-cli" {
 		runAgentCallback(cfg, engine)
 		return
