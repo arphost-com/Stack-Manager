@@ -378,6 +378,10 @@ type UpdateSchedule struct {
 	Project         string     `json:"project"`
 	Action          string     `json:"action"`
 	Enabled         bool       `json:"enabled"`
+	Cadence         string     `json:"cadence"`
+	TimeOfDay       string     `json:"time_of_day"`
+	DayOfWeek       int        `json:"day_of_week"`
+	DayOfMonth      int        `json:"day_of_month"`
 	IntervalMinutes int        `json:"interval_minutes"`
 	TimeoutSeconds  int        `json:"timeout_seconds"`
 	NextRunAt       time.Time  `json:"next_run_at"`
@@ -396,6 +400,10 @@ type UpdateScheduleRequest struct {
 	Project         string     `json:"project"`
 	Action          string     `json:"action,omitempty"`
 	Enabled         *bool      `json:"enabled,omitempty"`
+	Cadence         string     `json:"cadence,omitempty"`
+	TimeOfDay       string     `json:"time_of_day,omitempty"`
+	DayOfWeek       int        `json:"day_of_week,omitempty"`
+	DayOfMonth      int        `json:"day_of_month,omitempty"`
 	IntervalMinutes int        `json:"interval_minutes"`
 	TimeoutSeconds  int        `json:"timeout_seconds,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`

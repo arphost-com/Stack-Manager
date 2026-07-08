@@ -86,7 +86,7 @@ func (m *ScheduleManager) tick(ctx context.Context) {
 }
 
 func (m *ScheduleManager) runSchedule(ctx context.Context, schedule UpdateSchedule) error {
-	if schedule.IntervalMinutes < 1 {
+	if schedule.Cadence == "interval" && schedule.IntervalMinutes < 1 {
 		return fmt.Errorf("schedule %d has invalid interval", schedule.ID)
 	}
 	action := strings.ToLower(strings.TrimSpace(schedule.Action))
@@ -187,12 +187,31 @@ func (m *ScheduleManager) runAgentSchedule(ctx context.Context, schedule UpdateS
 	return envelope.Data.ID, nil
 }
 
+// NextScheduleRunExported is the exported version for use by the storage
+// layer when computing the initial next_run_at at save time.
+func NextScheduleRunExported(schedule UpdateSchedule, after time.Time) time.Time {
+	return nextScheduleRun(schedule, after)
+}
+
 func nextScheduleRun(schedule UpdateSchedule, after time.Time) time.Time {
-	next := schedule.NextRunAt
-	step := time.Duration(schedule.IntervalMinutes) * time.Minute
+	switch schedule.Cadence {
+	case "daily":
+		return nextDaily(schedule.TimeOfDay, after)
+	case "weekly":
+		return nextWeekly(schedule.DayOfWeek, schedule.TimeOfDay, after)
+	case "monthly":
+		return nextMonthly(schedule.DayOfMonth, schedule.TimeOfDay, after)
+	default:
+		return nextInterval(schedule.IntervalMinutes, schedule.NextRunAt, after)
+	}
+}
+
+func nextInterval(intervalMinutes int, nextRunAt, after time.Time) time.Time {
+	step := time.Duration(intervalMinutes) * time.Minute
 	if step <= 0 {
 		step = 24 * time.Hour
 	}
+	next := nextRunAt
 	if next.IsZero() || !next.After(after) {
 		next = after.Add(step)
 	}
@@ -200,4 +219,74 @@ func nextScheduleRun(schedule UpdateSchedule, after time.Time) time.Time {
 		next = next.Add(step)
 	}
 	return next.UTC()
+}
+
+func parseTimeOfDay(tod string) (int, int) {
+	parts := strings.SplitN(tod, ":", 2)
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	h, _ := strconv.Atoi(parts[0])
+	m, _ := strconv.Atoi(parts[1])
+	if h < 0 || h > 23 {
+		h = 0
+	}
+	if m < 0 || m > 59 {
+		m = 0
+	}
+	return h, m
+}
+
+func nextDaily(timeOfDay string, after time.Time) time.Time {
+	h, m := parseTimeOfDay(timeOfDay)
+	candidate := time.Date(after.Year(), after.Month(), after.Day(), h, m, 0, 0, time.UTC)
+	if !candidate.After(after) {
+		candidate = candidate.AddDate(0, 0, 1)
+	}
+	return candidate
+}
+
+func nextWeekly(dayOfWeek int, timeOfDay string, after time.Time) time.Time {
+	h, m := parseTimeOfDay(timeOfDay)
+	candidate := time.Date(after.Year(), after.Month(), after.Day(), h, m, 0, 0, time.UTC)
+	target := time.Weekday(dayOfWeek)
+	daysAhead := int(target - candidate.Weekday())
+	if daysAhead < 0 {
+		daysAhead += 7
+	}
+	candidate = candidate.AddDate(0, 0, daysAhead)
+	if !candidate.After(after) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
+}
+
+func nextMonthly(dayOfMonth int, timeOfDay string, after time.Time) time.Time {
+	h, m := parseTimeOfDay(timeOfDay)
+	if dayOfMonth < 1 {
+		dayOfMonth = 1
+	}
+	candidate := clampMonthDay(after.Year(), after.Month(), dayOfMonth, h, m)
+	if !candidate.After(after) {
+		nextMonth := after.Month() + 1
+		nextYear := after.Year()
+		if nextMonth > 12 {
+			nextMonth = 1
+			nextYear++
+		}
+		candidate = clampMonthDay(nextYear, nextMonth, dayOfMonth, h, m)
+	}
+	return candidate
+}
+
+func clampMonthDay(year int, month time.Month, day, hour, min int) time.Time {
+	last := daysInMonth(year, month)
+	if day > last {
+		day = last
+	}
+	return time.Date(year, month, day, hour, min, 0, 0, time.UTC)
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
@@ -256,7 +257,28 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	// Additive ALTER TABLE migrations. isDuplicateColumn silently
+	// ignores MySQL error 1060 so these are safe to re-run.
+	alterStmts := []string{
+		`ALTER TABLE update_schedules ADD COLUMN cadence VARCHAR(16) NOT NULL DEFAULT 'interval' AFTER enabled`,
+		`ALTER TABLE update_schedules ADD COLUMN time_of_day VARCHAR(5) NOT NULL DEFAULT '00:00' AFTER cadence`,
+		`ALTER TABLE update_schedules ADD COLUMN day_of_week TINYINT NOT NULL DEFAULT 0 AFTER time_of_day`,
+		`ALTER TABLE update_schedules ADD COLUMN day_of_month TINYINT NOT NULL DEFAULT 1 AFTER day_of_week`,
+	}
+	for _, stmt := range alterStmts {
+		_, err := s.DB.ExecContext(ctx, stmt)
+		if err != nil && !isDuplicateColumn(err) {
+			return err
+		}
+	}
 	return nil
+}
+
+func isDuplicateColumn(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "Duplicate column name")
 }
 
 func (s *Store) ListBackupDestinations(ctx context.Context) ([]core.BackupDestination, error) {
@@ -747,7 +769,7 @@ func (s *Store) ListSchedules(ctx context.Context) ([]core.UpdateSchedule, error
 	if s.GetJSON(ctx, "schedules:list", &cached) {
 		return cached, nil
 	}
-	schedules, err := s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
+	schedules, err := s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.cadence, s.time_of_day, s.day_of_week, s.day_of_month, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
 		FROM update_schedules s
 		LEFT JOIN compose_agents a ON a.id=s.agent_id
 		ORDER BY s.enabled DESC, s.next_run_at ASC`)
@@ -759,7 +781,7 @@ func (s *Store) ListSchedules(ctx context.Context) ([]core.UpdateSchedule, error
 }
 
 func (s *Store) ListDueSchedules(ctx context.Context, now time.Time) ([]core.UpdateSchedule, error) {
-	return s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
+	return s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.cadence, s.time_of_day, s.day_of_week, s.day_of_month, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
 		FROM update_schedules s
 		LEFT JOIN compose_agents a ON a.id=s.agent_id
 		WHERE s.enabled=TRUE AND s.next_run_at <= ?
@@ -767,7 +789,7 @@ func (s *Store) ListDueSchedules(ctx context.Context, now time.Time) ([]core.Upd
 }
 
 func (s *Store) GetSchedule(ctx context.Context, id int64) (*core.UpdateSchedule, error) {
-	schedules, err := s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
+	schedules, err := s.querySchedules(ctx, `SELECT s.id, s.agent_id, COALESCE(a.name, ''), s.project, s.action, s.enabled, s.cadence, s.time_of_day, s.day_of_week, s.day_of_month, s.interval_minutes, s.timeout_seconds, s.next_run_at, s.last_run_at, s.last_job_id, s.last_status, s.last_error, s.created_at, s.updated_at
 		FROM update_schedules s
 		LEFT JOIN compose_agents a ON a.id=s.agent_id
 		WHERE s.id=?`, id)
@@ -794,15 +816,35 @@ func (s *Store) SaveSchedule(ctx context.Context, req core.UpdateScheduleRequest
 	if timeout <= 0 {
 		timeout = 300
 	}
-	nextRun := now.Add(time.Duration(req.IntervalMinutes) * time.Minute)
+	cadence := req.Cadence
+	if cadence == "" {
+		cadence = "interval"
+	}
+	timeOfDay := req.TimeOfDay
+	if timeOfDay == "" {
+		timeOfDay = "00:00"
+	}
+
+	// Compute the initial next-run from the cadence so the scheduler
+	// fires at the chosen time rather than "now + interval".
+	stub := core.UpdateSchedule{
+		Cadence:         cadence,
+		TimeOfDay:       timeOfDay,
+		DayOfWeek:       req.DayOfWeek,
+		DayOfMonth:      req.DayOfMonth,
+		IntervalMinutes: req.IntervalMinutes,
+		NextRunAt:       now,
+	}
+	nextRun := core.NextScheduleRunExported(stub, now)
 	if req.NextRunAt != nil && !req.NextRunAt.IsZero() {
 		nextRun = req.NextRunAt.UTC()
 	}
+
 	if req.ID > 0 {
 		res, err := s.DB.ExecContext(ctx, `UPDATE update_schedules
-			SET agent_id=?, project=?, action=?, enabled=?, interval_minutes=?, timeout_seconds=?, next_run_at=?, updated_at=?
+			SET agent_id=?, project=?, action=?, enabled=?, cadence=?, time_of_day=?, day_of_week=?, day_of_month=?, interval_minutes=?, timeout_seconds=?, next_run_at=?, updated_at=?
 			WHERE id=?`,
-			nullableInt64(req.AgentID), req.Project, action, enabled, req.IntervalMinutes, timeout, nextRun, now, req.ID)
+			nullableInt64(req.AgentID), req.Project, action, enabled, cadence, timeOfDay, req.DayOfWeek, req.DayOfMonth, req.IntervalMinutes, timeout, nextRun, now, req.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -814,9 +856,9 @@ func (s *Store) SaveSchedule(ctx context.Context, req core.UpdateScheduleRequest
 		return s.GetSchedule(ctx, req.ID)
 	}
 	res, err := s.DB.ExecContext(ctx, `INSERT INTO update_schedules
-		(agent_id, project, action, enabled, interval_minutes, timeout_seconds, next_run_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		nullableInt64(req.AgentID), req.Project, action, enabled, req.IntervalMinutes, timeout, nextRun, now, now)
+		(agent_id, project, action, enabled, cadence, time_of_day, day_of_week, day_of_month, interval_minutes, timeout_seconds, next_run_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		nullableInt64(req.AgentID), req.Project, action, enabled, cadence, timeOfDay, req.DayOfWeek, req.DayOfMonth, req.IntervalMinutes, timeout, nextRun, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,7 +1062,7 @@ func scanSchedule(scanner jobScanner) (*core.UpdateSchedule, error) {
 	var agentID sql.NullInt64
 	var lastRun sql.NullTime
 	var lastError sql.NullString
-	if err := scanner.Scan(&schedule.ID, &agentID, &schedule.AgentName, &schedule.Project, &schedule.Action, &schedule.Enabled, &schedule.IntervalMinutes, &schedule.TimeoutSeconds, &schedule.NextRunAt, &lastRun, &schedule.LastJobID, &schedule.LastStatus, &lastError, &schedule.CreatedAt, &schedule.UpdatedAt); err != nil {
+	if err := scanner.Scan(&schedule.ID, &agentID, &schedule.AgentName, &schedule.Project, &schedule.Action, &schedule.Enabled, &schedule.Cadence, &schedule.TimeOfDay, &schedule.DayOfWeek, &schedule.DayOfMonth, &schedule.IntervalMinutes, &schedule.TimeoutSeconds, &schedule.NextRunAt, &lastRun, &schedule.LastJobID, &schedule.LastStatus, &lastError, &schedule.CreatedAt, &schedule.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if agentID.Valid {

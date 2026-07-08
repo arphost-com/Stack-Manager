@@ -284,6 +284,11 @@ func normalizeSchedule(req *core.UpdateScheduleRequest) {
 	if req.Action == "" {
 		req.Action = "update"
 	}
+	req.Cadence = strings.ToLower(strings.TrimSpace(req.Cadence))
+	if req.Cadence == "" {
+		req.Cadence = "interval"
+	}
+	req.TimeOfDay = strings.TrimSpace(req.TimeOfDay)
 	if req.TimeoutSeconds <= 0 {
 		req.TimeoutSeconds = 300
 	}
@@ -300,13 +305,52 @@ func validateSchedule(req core.UpdateScheduleRequest) error {
 	if !core.ValidJobAction(req.Action) {
 		return errors.New("invalid action")
 	}
-	if req.IntervalMinutes < 5 {
-		return errors.New("interval must be at least 5 minutes")
+	switch req.Cadence {
+	case "interval":
+		if req.IntervalMinutes < 5 {
+			return errors.New("interval must be at least 5 minutes")
+		}
+	case "daily":
+		if !validTimeOfDay(req.TimeOfDay) {
+			return errors.New("time_of_day is required for daily cadence (HH:MM)")
+		}
+	case "weekly":
+		if !validTimeOfDay(req.TimeOfDay) {
+			return errors.New("time_of_day is required for weekly cadence (HH:MM)")
+		}
+		if req.DayOfWeek < 0 || req.DayOfWeek > 6 {
+			return errors.New("day_of_week must be 0 (Sunday) through 6 (Saturday)")
+		}
+	case "monthly":
+		if !validTimeOfDay(req.TimeOfDay) {
+			return errors.New("time_of_day is required for monthly cadence (HH:MM)")
+		}
+		if req.DayOfMonth < 1 || req.DayOfMonth > 31 {
+			return errors.New("day_of_month must be 1 through 31")
+		}
+	default:
+		return errors.New("cadence must be interval, daily, weekly, or monthly")
 	}
 	if req.TimeoutSeconds < 0 {
 		return errors.New("timeout cannot be negative")
 	}
 	return nil
+}
+
+func validTimeOfDay(tod string) bool {
+	parts := strings.SplitN(tod, ":", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil || h < 0 || h > 23 {
+		return false
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil || m < 0 || m > 59 {
+		return false
+	}
+	return true
 }
 
 func parseInt64Param(r *http.Request, name string) (int64, error) {

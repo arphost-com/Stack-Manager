@@ -54,9 +54,15 @@ const emptyScheduleForm = {
   project: '',
   action: 'update',
   enabled: true,
+  cadence: 'daily',
+  time_of_day: '03:00',
+  day_of_week: 6,
+  day_of_month: 1,
   interval_minutes: 1440,
   timeout_seconds: 300,
 };
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const emptyAgentForm = { id: 0, name: '', base_url: '', mode: 'callback', token: '', enabled: true };
 
@@ -460,6 +466,10 @@ export default function Settings() {
       project: scheduleForm.project,
       action: scheduleForm.action,
       enabled: scheduleForm.enabled,
+      cadence: scheduleForm.cadence,
+      time_of_day: scheduleForm.time_of_day,
+      day_of_week: Number(scheduleForm.day_of_week),
+      day_of_month: Number(scheduleForm.day_of_month),
       interval_minutes: Number(scheduleForm.interval_minutes),
       timeout_seconds: Number(scheduleForm.timeout_seconds),
     };
@@ -481,6 +491,10 @@ export default function Settings() {
       project: schedule.project,
       action: schedule.action || 'update',
       enabled: Boolean(schedule.enabled),
+      cadence: schedule.cadence || 'interval',
+      time_of_day: schedule.time_of_day || '03:00',
+      day_of_week: schedule.day_of_week ?? 6,
+      day_of_month: schedule.day_of_month ?? 1,
       interval_minutes: schedule.interval_minutes || 1440,
       timeout_seconds: schedule.timeout_seconds || 300,
     });
@@ -1063,9 +1077,36 @@ export default function Settings() {
                 {ACTIONS.map(action => <option key={action.key} value={action.key}>{action.label}</option>)}
               </select>
             </Field>
-            <Field label="Every minutes" title="Minimum 5 minutes. Use 1440 for daily.">
-              <input type="number" min="5" value={scheduleForm.interval_minutes} onChange={e => setScheduleForm({ ...scheduleForm, interval_minutes: Number(e.target.value) })} className="input" />
+            <Field label="Cadence" title="How often the action runs. All times are UTC.">
+              <select value={scheduleForm.cadence} onChange={e => setScheduleForm({ ...scheduleForm, cadence: e.target.value })} className="input">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="interval">Every N minutes</option>
+              </select>
             </Field>
+            {scheduleForm.cadence !== 'interval' && (
+              <Field label="Time (UTC)" title="Hour and minute in UTC when the action fires.">
+                <input type="time" value={scheduleForm.time_of_day} onChange={e => setScheduleForm({ ...scheduleForm, time_of_day: e.target.value })} className="input" />
+              </Field>
+            )}
+            {scheduleForm.cadence === 'weekly' && (
+              <Field label="Day of week" title="Which weekday.">
+                <select value={scheduleForm.day_of_week} onChange={e => setScheduleForm({ ...scheduleForm, day_of_week: Number(e.target.value) })} className="input">
+                  {WEEKDAYS.map((day, idx) => <option key={idx} value={idx}>{day}</option>)}
+                </select>
+              </Field>
+            )}
+            {scheduleForm.cadence === 'monthly' && (
+              <Field label="Day of month" title="1–31. Months with fewer days run on the last day (e.g. Feb 28).">
+                <input type="number" min="1" max="31" value={scheduleForm.day_of_month} onChange={e => setScheduleForm({ ...scheduleForm, day_of_month: Number(e.target.value) })} className="input" />
+              </Field>
+            )}
+            {scheduleForm.cadence === 'interval' && (
+              <Field label="Every minutes" title="Minimum 5 minutes.">
+                <input type="number" min="5" value={scheduleForm.interval_minutes} onChange={e => setScheduleForm({ ...scheduleForm, interval_minutes: Number(e.target.value) })} className="input" />
+              </Field>
+            )}
             <Field label="Timeout" title="Seconds before pull/update commands time out.">
               <input type="number" min="0" value={scheduleForm.timeout_seconds} onChange={e => setScheduleForm({ ...scheduleForm, timeout_seconds: Number(e.target.value) })} className="input" />
             </Field>
@@ -1079,13 +1120,13 @@ export default function Settings() {
           </form>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[840px] text-left text-sm">
-              <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Target</th><th>Action</th><th>Interval</th><th>Next</th><th>Last</th><th className="text-right">Tools</th></tr></thead>
+              <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Target</th><th>Action</th><th>Cadence</th><th>Next</th><th>Last</th><th className="text-right">Tools</th></tr></thead>
               <tbody>
                 {scheduleList.map(schedule => (
                   <tr key={schedule.id} className="border-b border-gray-100">
                     <td className="py-2"><div className="font-medium">{schedule.project}</div><div className="text-xs text-gray-500">{schedule.agent_name || 'This server'}</div></td>
                     <td><Badge tone={schedule.enabled ? 'green' : 'gray'}>{schedule.action}</Badge></td>
-                    <td>{schedule.interval_minutes}m</td>
+                    <td>{formatCadence(schedule)}</td>
                     <td className="text-xs text-gray-500">{formatDate(schedule.next_run_at)}</td>
                     <td className="text-xs text-gray-500">{schedule.last_status || 'never'} {schedule.last_job_id ? `- ${schedule.last_job_id}` : ''}</td>
                     <td>
@@ -1755,6 +1796,24 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'none';
   return date.toLocaleString();
+}
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatCadence(schedule) {
+  const tod = schedule.time_of_day || '00:00';
+  switch (schedule.cadence) {
+    case 'daily': return `Daily ${tod} UTC`;
+    case 'weekly': return `${WEEKDAY_LABELS[schedule.day_of_week] || '?'} ${tod} UTC`;
+    case 'monthly': return `${ordinal(schedule.day_of_month)} ${tod} UTC`;
+    default: return `${schedule.interval_minutes}m`;
+  }
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 function destinationSummary(destination) {

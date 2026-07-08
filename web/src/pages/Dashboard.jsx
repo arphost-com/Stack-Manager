@@ -120,6 +120,10 @@ export default function Dashboard() {
     project: '',
     action: 'update',
     enabled: true,
+    cadence: 'daily',
+    time_of_day: '03:00',
+    day_of_week: 6,
+    day_of_month: 1,
     interval_minutes: 1440,
     timeout_seconds: 300,
   });
@@ -359,6 +363,10 @@ export default function Dashboard() {
       project: scheduleForm.project,
       action: scheduleForm.action,
       enabled: scheduleForm.enabled,
+      cadence: scheduleForm.cadence,
+      time_of_day: scheduleForm.time_of_day,
+      day_of_week: Number(scheduleForm.day_of_week),
+      day_of_month: Number(scheduleForm.day_of_month),
       interval_minutes: Number(scheduleForm.interval_minutes),
       timeout_seconds: Number(scheduleForm.timeout_seconds),
     };
@@ -380,6 +388,10 @@ export default function Dashboard() {
       project: schedule.project,
       action: schedule.action || 'update',
       enabled: Boolean(schedule.enabled),
+      cadence: schedule.cadence || 'interval',
+      time_of_day: schedule.time_of_day || '03:00',
+      day_of_week: schedule.day_of_week ?? 6,
+      day_of_month: schedule.day_of_month ?? 1,
       interval_minutes: schedule.interval_minutes || 1440,
       timeout_seconds: schedule.timeout_seconds || 300,
     });
