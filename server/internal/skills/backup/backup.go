@@ -2,7 +2,10 @@ package backup
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +21,7 @@ import (
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/ssh"
 )
 
 const maxDownloadBackupSize = 10 << 30
@@ -87,6 +91,8 @@ func (s *Skill) RegisterRoutes(r chi.Router) {
 	r.Post("/destinations", s.SaveDestination)
 	r.Delete("/destinations/{destinationId}", s.DeleteDestination)
 	r.Post("/destinations/{destinationId}/test", s.TestDestination)
+	r.Get("/destinations/{destinationId}/public-key", s.GetDestinationPublicKey)
+	r.Post("/keys/generate", s.GenerateKeyPair)
 	r.Post("/create/{name}", s.Create)
 	r.Get("/schedules", s.ListSchedules)
 	r.Post("/schedules", s.SaveSchedule)
@@ -335,6 +341,77 @@ func (s *Skill) TestDestination(w http.ResponseWriter, r *http.Request) {
 		result.Error = err.Error()
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// GenerateKeyPair produces a new Ed25519 SSH key pair on the server and
+// returns both halves. The caller (browser) is expected to POST the
+// private half back as `secrets.private_key` on the destination and then
+// paste the returned public half into the SFTP server's
+// authorized_keys. The server does NOT persist the private half here —
+// it only lands in storage when the destination itself is saved.
+func (s *Skill) GenerateKeyPair(w http.ResponseWriter, r *http.Request) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	privPEM, err := marshalEd25519PrivatePEM(priv)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	comment := "stack-manager-backup-" + time.Now().UTC().Format("20060102150405")
+	pubLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " " + comment
+	writeJSON(w, http.StatusOK, map[string]string{
+		"private_key": string(privPEM),
+		"public_key":  pubLine,
+	})
+}
+
+// GetDestinationPublicKey re-derives the SSH public key from a stored
+// private key so an admin who lost the original public half can still
+// copy it into the remote server's authorized_keys.
+func (s *Skill) GetDestinationPublicKey(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "backup destination storage is not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "destinationId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid destination ID")
+		return
+	}
+	_, secrets, err := s.store.GetBackupDestination(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	priv := strings.TrimSpace(secrets["private_key"])
+	if priv == "" {
+		writeError(w, http.StatusNotFound, "no private key saved on this destination")
+		return
+	}
+	signer, err := ssh.ParsePrivateKey([]byte(priv))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "stored private key is not parseable: "+err.Error())
+		return
+	}
+	pub := signer.PublicKey()
+	pubLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) + " stack-manager-backup-" + strconv.FormatInt(id, 10)
+	writeJSON(w, http.StatusOK, map[string]string{"public_key": pubLine})
+}
+
+func marshalEd25519PrivatePEM(priv ed25519.PrivateKey) ([]byte, error) {
+	block, err := ssh.MarshalPrivateKey(priv, "stack-manager backup")
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(block), nil
 }
 
 // List returns all backups.
@@ -874,6 +951,11 @@ func rcloneCopy(ctx context.Context, destination *core.BackupDestination, secret
 		return "", "", err
 	}
 	defer os.Remove(configPath)
+	// If we materialised an inline SSH key into a tmp file, clean it up
+	// after the rclone run. materializeSSHKey writes to /tmp with a
+	// known prefix and 0600 perms; parsing key_file back out of the
+	// config file we just wrote is the safest way to find it.
+	defer cleanupInlineKey(configPath)
 
 	target := rcloneTarget(destination, fileName)
 	if target == "" {
@@ -885,6 +967,27 @@ func rcloneCopy(ctx context.Context, destination *core.BackupDestination, secret
 		return target, string(output), fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(string(output)))
 	}
 	return target, string(output), nil
+}
+
+func cleanupInlineKey(configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "key_file") {
+			continue
+		}
+		_, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		path := strings.TrimSpace(value)
+		if strings.Contains(path, "stack-manager-sftp-key-") {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 func writeRcloneConfig(destination *core.BackupDestination, secrets map[string]string) (string, error) {
@@ -916,7 +1019,16 @@ func writeRcloneConfig(destination *core.BackupDestination, secrets map[string]s
 			}
 			body.WriteString("pass = " + obscured + "\n")
 		}
-		if keyFile := destination.Config["key_file"]; keyFile != "" {
+		// Inline private key wins over an on-disk key_file path so a
+		// browser-pasted or server-generated key works without any host
+		// filesystem access.
+		if privateKey := strings.TrimSpace(secrets["private_key"]); privateKey != "" {
+			keyPath, err := materializeSSHKey(privateKey)
+			if err != nil {
+				return "", err
+			}
+			body.WriteString("key_file = " + keyPath + "\n")
+		} else if keyFile := destination.Config["key_file"]; keyFile != "" {
 			body.WriteString("key_file = " + keyFile + "\n")
 		}
 		if port := destination.Config["port"]; port != "" {
@@ -957,6 +1069,32 @@ func writeRcloneConfig(destination *core.BackupDestination, secrets map[string]s
 		return "", err
 	}
 	return file.Name(), nil
+}
+
+// materializeSSHKey writes an SSH private key to a temp file with 0600
+// permissions and returns its path. The caller is responsible for
+// removing the file. Best-effort cleanup happens in rcloneCopy via a
+// glob on the tmp prefix; leaked keys will still be readable only by
+// the server UID.
+func materializeSSHKey(content string) (string, error) {
+	f, err := os.CreateTemp("", "stack-manager-sftp-key-*.pem")
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(strings.TrimSpace(content) + "\n"); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	if err := os.Chmod(f.Name(), 0o600); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 func rcloneObscure(password string) (string, error) {

@@ -42,6 +42,7 @@ const emptyDestinationForm = {
   },
   secrets: {
     password: '',
+    private_key: '',
     access_key_id: '',
     secret_access_key: '',
   },
@@ -91,8 +92,11 @@ export default function Settings() {
   const [resetForm, setResetForm] = useState({ username: '', password: '' });
   const [changeMyPasswordForm, setChangeMyPasswordForm] = useState({ current: '', next: '', confirm: '' });
   const [destinationForm, setDestinationForm] = useState(emptyDestinationForm);
+  const [destinationFormOpen, setDestinationFormOpen] = useState(false);
+  const [destinationPublicKey, setDestinationPublicKey] = useState('');
   const [scheduleForm, setScheduleForm] = useState(emptyScheduleForm);
   const [agentForm, setAgentForm] = useState(emptyAgentForm);
+  const [agentFormOpen, setAgentFormOpen] = useState(false);
   const [registryForm, setRegistryForm] = useState({ registry: '', username: '', password: '' });
   const [dockerHubForm, setDockerHubForm] = useState({ username: '', password: '' });
   const [savedRegistries, setSavedRegistries] = useState([]);
@@ -402,6 +406,12 @@ export default function Settings() {
 
   const editAgent = (agent) => {
     setAgentForm({ id: agent.id, name: agent.name, base_url: agent.base_url || '', mode: agent.mode || (agent.base_url ? 'inbound' : 'callback'), token: '', enabled: Boolean(agent.enabled) });
+    setAgentFormOpen(true);
+  };
+
+  const closeAgentForm = () => {
+    setAgentFormOpen(false);
+    setAgentForm(emptyAgentForm);
   };
 
   const saveAgent = async (event) => {
@@ -409,7 +419,7 @@ export default function Settings() {
     try {
       const res = await agents.save(agentForm);
       showMessage(`Saved agent ${res.data.name}`);
-      setAgentForm(emptyAgentForm);
+      closeAgentForm();
       load();
     } catch (err) {
       showError(err);
@@ -644,7 +654,7 @@ export default function Settings() {
     setDestinationForm({ ...destinationForm, secrets: { ...destinationForm.secrets, [key]: value } });
   };
 
-  const editDestination = (destination) => {
+  const editDestination = async (destination) => {
     setDestinationForm({
       ...emptyDestinationForm,
       id: destination.id,
@@ -654,6 +664,38 @@ export default function Settings() {
       config: { ...emptyDestinationForm.config, ...(destination.config || {}) },
       secrets: { ...emptyDestinationForm.secrets },
     });
+    setDestinationPublicKey('');
+    setDestinationFormOpen(true);
+    // Try to fetch the saved public key (SFTP only) so an edit can show
+    // the same key the operator has to authorize on the remote side.
+    if (destination.type === 'sftp') {
+      try {
+        const res = await backup.destinationPublicKey(destination.id);
+        setDestinationPublicKey(res.data?.public_key || '');
+      } catch { /* no key saved is fine */ }
+    }
+  };
+
+  const closeDestinationForm = () => {
+    setDestinationFormOpen(false);
+    setDestinationForm(emptyDestinationForm);
+    setDestinationPublicKey('');
+  };
+
+  const generateSSHKey = async () => {
+    try {
+      const res = await backup.generateSSHKey();
+      const priv = res.data?.private_key || '';
+      const pub = res.data?.public_key || '';
+      setDestinationForm(current => ({
+        ...current,
+        secrets: { ...current.secrets, private_key: priv },
+      }));
+      setDestinationPublicKey(pub);
+      showMessage('Ed25519 key generated. Save the endpoint, then copy the public key to the SFTP server.');
+    } catch (err) {
+      showError(err);
+    }
   };
 
   const saveDestination = async (event) => {
@@ -669,7 +711,7 @@ export default function Settings() {
     try {
       const res = await backup.saveDestination(body);
       showMessage(`Saved backup endpoint ${res.data.name}`);
-      setDestinationForm(emptyDestinationForm);
+      closeDestinationForm();
       load();
     } catch (err) {
       showError(err);
@@ -878,7 +920,7 @@ export default function Settings() {
       )}
 
       {admin && activeTab === 'agents' && (
-        <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+        <div className="space-y-4">
           <div className="space-y-4">
             <div className="section-panel">
               <h2 className="text-lg font-semibold text-gray-950">Agent Setup</h2>
@@ -937,7 +979,10 @@ export default function Settings() {
               <p className="mt-3 text-sm text-gray-600">The agent runs as a container from <code className="rounded bg-gray-100 px-1">docker-compose.agent.yml</code>. Pick a mode above and the sample commands update to use the matching <code className="rounded bg-gray-100 px-1">APP_MODE</code>. The compose file mounts <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code> from the host so the agent sees the same paths projects use.</p>
             </div>
             <div className="section-panel">
-              <h2 className="mb-3 text-lg font-semibold text-gray-950">Registered Agents</h2>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-gray-950">Registered Agents</h2>
+                <button type="button" className="btn-primary" onClick={() => { setAgentForm(emptyAgentForm); setAgentFormOpen(true); }} title="Open the agent editor.">Add Agent</button>
+              </div>
               <div>
                 <table className="w-full table-fixed text-left text-sm">
                   <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="w-[18%] py-2">Name</th><th className="w-[12%]">Mode</th><th className="w-[26%]">URL</th><th className="w-[12%]">Status</th><th className="w-[16%]">Last Seen</th><th className="w-[16%] text-right">Actions</th></tr></thead>
@@ -961,32 +1006,33 @@ export default function Settings() {
               </div>
             </div>
           </div>
-          <form onSubmit={saveAgent} className="section-panel space-y-3">
-            <h2 className="text-lg font-semibold text-gray-950">{agentForm.id ? 'Edit Agent' : 'Add Agent'}</h2>
-            <Field label="Name" title="Friendly unique name for the remote compose host. Saving an existing name updates it.">
-              <input value={agentForm.name} onChange={e => setAgentForm({ ...agentForm, name: e.target.value })} className="input" placeholder="docker03" required />
-            </Field>
-            <Field label="Mode" title="Outbound check-in is for clients that cannot accept inbound connections. Inbound URL is for directly reachable agents.">
-              <select value={agentForm.mode} onChange={e => setAgentForm({ ...agentForm, mode: e.target.value })} className="input">
-                <option value="callback">Outbound check-in</option>
-                <option value="inbound">Inbound URL</option>
-              </select>
-            </Field>
-            <Field label="Agent URL" title="Base URL for inbound agents only, for example https://docker03.example.com:8192. Leave blank for outbound check-in agents.">
-              <input value={agentForm.base_url} onChange={e => setAgentForm({ ...agentForm, base_url: e.target.value })} className="input" placeholder="https://host:8192" required={agentForm.mode === 'inbound'} />
-            </Field>
-            <Field label="Token" title="Bearer token used by the agent and controller. Leave blank when editing to keep the saved token.">
-              <input type="password" value={agentForm.token} onChange={e => setAgentForm({ ...agentForm, token: e.target.value })} className="input" placeholder={agentForm.id ? 'leave blank to keep saved token' : 'agent token'} />
-            </Field>
-            <label className="flex items-center gap-2 text-sm text-gray-700" title="Disabled agents remain saved but scheduled actions will not run.">
-              <input type="checkbox" checked={agentForm.enabled} onChange={e => setAgentForm({ ...agentForm, enabled: e.target.checked })} />
-              Enabled
-            </label>
-            <div className="flex gap-2">
-              <button type="submit" className="btn-primary">Save Agent</button>
-              {agentForm.id ? <button type="button" onClick={() => setAgentForm(emptyAgentForm)} className="btn-secondary">Clear</button> : null}
-            </div>
-          </form>
+          <Modal open={agentFormOpen} onClose={closeAgentForm} title={agentForm.id ? 'Edit Agent' : 'Add Agent'}>
+            <form onSubmit={saveAgent} className="space-y-3">
+              <Field label="Name" title="Friendly unique name for the remote compose host. Saving an existing name updates it.">
+                <input value={agentForm.name} onChange={e => setAgentForm({ ...agentForm, name: e.target.value })} className="input" placeholder="docker03" required />
+              </Field>
+              <Field label="Mode" title="Outbound check-in is for clients that cannot accept inbound connections. Inbound URL is for directly reachable agents.">
+                <select value={agentForm.mode} onChange={e => setAgentForm({ ...agentForm, mode: e.target.value })} className="input">
+                  <option value="callback">Outbound check-in</option>
+                  <option value="inbound">Inbound URL</option>
+                </select>
+              </Field>
+              <Field label="Agent URL" title="Base URL for inbound agents only, for example https://docker03.example.com:8192. Leave blank for outbound check-in agents.">
+                <input value={agentForm.base_url} onChange={e => setAgentForm({ ...agentForm, base_url: e.target.value })} className="input" placeholder="https://host:8192" required={agentForm.mode === 'inbound'} />
+              </Field>
+              <Field label="Token" title="Bearer token used by the agent and controller. Leave blank when editing to keep the saved token.">
+                <input type="password" value={agentForm.token} onChange={e => setAgentForm({ ...agentForm, token: e.target.value })} className="input" placeholder={agentForm.id ? 'leave blank to keep saved token' : 'agent token'} />
+              </Field>
+              <label className="flex items-center gap-2 text-sm text-gray-700" title="Disabled agents remain saved but scheduled actions will not run.">
+                <input type="checkbox" checked={agentForm.enabled} onChange={e => setAgentForm({ ...agentForm, enabled: e.target.checked })} />
+                Enabled
+              </label>
+              <div className="flex gap-2 pt-2">
+                <button type="submit" className="btn-primary">Save Agent</button>
+                <button type="button" onClick={closeAgentForm} className="btn-secondary">Cancel</button>
+              </div>
+            </form>
+          </Modal>
         </div>
       )}
 
@@ -1409,7 +1455,11 @@ export default function Settings() {
             <h2 className="text-lg font-semibold text-gray-950">Backup Endpoints</h2>
             <p className="text-sm text-gray-600">Configure local, mounted, FTP, SFTP, and S3 destinations. CIFS and NFS should be mounted on the host and exposed to the server container as paths.</p>
           </div>
-          <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm text-gray-600">{destinationList.length} endpoint{destinationList.length === 1 ? '' : 's'} saved.</div>
+            <button type="button" className="btn-primary" onClick={() => { setDestinationForm(emptyDestinationForm); setDestinationFormOpen(true); }} title="Open the endpoint editor.">Add Endpoint</button>
+          </div>
+          <div className="mt-3">
             <div>
               <table className="w-full table-fixed text-left text-sm">
                 <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="w-[20%] py-2">Name</th><th className="w-[12%]">Type</th><th className="w-[36%]">Path / Target</th><th className="w-[14%]">Status</th><th className="w-[18%] text-right">Actions</th></tr></thead>
@@ -1431,9 +1481,10 @@ export default function Settings() {
               </table>
               {destinationList.length === 0 && <div className="py-6 text-sm text-gray-500">No backup endpoints configured.</div>}
             </div>
+          </div>
 
+          <Modal open={destinationFormOpen} onClose={closeDestinationForm} title={destinationForm.id ? 'Edit Backup Endpoint' : 'Add Backup Endpoint'}>
             <form onSubmit={saveDestination} className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase text-gray-500">{destinationForm.id ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
               <input className="input" placeholder="endpoint name" value={destinationForm.name} onChange={e => setDestinationForm({ ...destinationForm, name: e.target.value })} required title="Friendly name shown in backup dropdowns." />
               <select className="input" value={destinationForm.type} onChange={e => setDestinationForm({ ...destinationForm, type: e.target.value })} title="Choose the backup endpoint type.">
                 {DESTINATION_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
@@ -1455,7 +1506,33 @@ export default function Settings() {
                     <input className="input" placeholder="username" value={destinationForm.config.username} onChange={e => setDestinationConfig('username', e.target.value)} required title="FTP/SFTP username." />
                   </div>
                   <input className="input" type="password" placeholder={destinationForm.id ? 'password, leave blank to keep saved' : 'password'} value={destinationForm.secrets.password} onChange={e => setDestinationSecret('password', e.target.value)} title="FTP/SFTP password. Leave blank during edits to keep the saved secret." />
-                  {destinationForm.type === 'sftp' && <input className="input" placeholder="/state/keys/backup_id_ed25519" value={destinationForm.config.key_file} onChange={e => setDestinationConfig('key_file', e.target.value)} title="Optional SFTP private key path inside the server container." />}
+                  {destinationForm.type === 'sftp' && (
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-gray-800">SSH private key</div>
+                        <button type="button" className="mini-button" onClick={generateSSHKey} title="Generate a fresh Ed25519 key on the server. Paste the returned public key into the SFTP server's ~/.ssh/authorized_keys.">Generate Ed25519 key</button>
+                      </div>
+                      <textarea
+                        className="input mt-2 font-mono text-xs"
+                        rows={4}
+                        placeholder={'Paste private key (OpenSSH PEM, -----BEGIN OPENSSH PRIVATE KEY----- ...) or click Generate.\nLeave blank on edit to keep the saved key.'}
+                        value={destinationForm.secrets.private_key}
+                        onChange={e => setDestinationSecret('private_key', e.target.value)}
+                        title="Private key content. Stored encrypted-at-rest in MariaDB alongside the password."
+                      />
+                      <input className="input mt-2" placeholder="Advanced: key_file inside container (leave blank if pasting a key above)" value={destinationForm.config.key_file} onChange={e => setDestinationConfig('key_file', e.target.value)} title="Optional path to a private key file already inside the server container. Only needed if you don't want to paste the key above." />
+                      {destinationPublicKey && (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs font-medium uppercase text-gray-500">Public key — paste into the SFTP server</div>
+                            <button type="button" className="mini-button" onClick={() => copyToClipboard('sftp-pub', destinationPublicKey)}>{copiedKey === 'sftp-pub' ? 'Copied' : 'Copy'}</button>
+                          </div>
+                          <pre className="mt-1 whitespace-pre-wrap break-all rounded bg-gray-950 p-2 font-mono text-xs text-gray-100">{destinationPublicKey}</pre>
+                          <div className="mt-1 text-xs text-gray-600">On the SFTP host, append this line to <code className="rounded bg-gray-100 px-1">~/.ssh/authorized_keys</code> for user <code className="rounded bg-gray-100 px-1">{destinationForm.config.username || '(username)'}</code>.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <input className="input" placeholder="remote/path" value={destinationForm.config.remote_path} onChange={e => setDestinationConfig('remote_path', e.target.value)} title="Remote directory for uploaded backup archives." />
                 </div>
               )}
@@ -1474,12 +1551,12 @@ export default function Settings() {
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-2">
                 <button className="btn-primary" title="Save this backup endpoint in MariaDB.">Save Endpoint</button>
-                {destinationForm.id > 0 && <button type="button" onClick={() => setDestinationForm(emptyDestinationForm)} className="btn-secondary" title="Clear the edit form.">Cancel</button>}
+                <button type="button" onClick={closeDestinationForm} className="btn-secondary" title="Close without saving.">Cancel</button>
               </div>
             </form>
-          </div>
+          </Modal>
         </div>
       )}
 
@@ -1623,6 +1700,21 @@ export default function Settings() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children, widthClass = 'max-w-xl' }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-gray-950/60 p-4" onClick={onClose}>
+      <div className={`mt-16 w-full ${widthClass} rounded-lg bg-white p-5 shadow-xl`} onClick={e => e.stopPropagation()}>
+        <div className="mb-3 flex items-start justify-between gap-4">
+          <h3 className="text-base font-semibold text-gray-950">{title}</h3>
+          <button type="button" className="mini-button" onClick={onClose} aria-label="Close">Close</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }

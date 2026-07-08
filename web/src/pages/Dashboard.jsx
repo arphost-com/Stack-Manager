@@ -637,7 +637,7 @@ export default function Dashboard() {
       <div className="section-panel">
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setMainTab('projects')} className={mainTab === 'projects' ? 'btn-primary' : 'btn-secondary'} title="Show project discovery, filters, and compose actions.">Projects</button>
-          <button type="button" onClick={() => setMainTab('updates')} className={mainTab === 'updates' ? 'btn-primary' : availableUpdateProjects.length > 0 ? 'btn-secondary' : 'btn-secondary opacity-60'} title={availableUpdateProjects.length > 0 ? 'Show projects with available image updates.' : 'No checked projects have available updates.'}>Updates {availableUpdateProjects.length > 0 ? `(${availableUpdateProjects.length})` : ''}</button>
+          <button type="button" onClick={() => setMainTab('updates')} className={mainTab === 'updates' ? 'btn-primary' : 'btn-secondary'} title={availableUpdateProjects.length > 0 ? 'Show projects with available image updates.' : 'No checked projects have available updates. Click to check registries.'}>Updates {availableUpdateProjects.length > 0 ? `(${availableUpdateProjects.length})` : ''}</button>
           <button type="button" onClick={() => setMainTab('backups')} className={mainTab === 'backups' ? 'btn-primary' : 'btn-secondary'} title="Run and schedule backups across projects.">Backups</button>
           <button type="button" onClick={() => setMainTab('system')} className={mainTab === 'system' ? 'btn-primary' : 'btn-secondary'} title="Show system health, enabled modules, and historical host statistics.">System Status</button>
         </div>
