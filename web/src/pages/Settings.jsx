@@ -1588,8 +1588,19 @@ export default function Settings() {
               </div>
             </div>
             {firewallStatus?.version && <div className="mt-2 text-xs font-mono text-gray-600 break-all">{firewallStatus.version}</div>}
+            {firewallStatus && firewallStatus.helper_installed === false && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                <div className="text-sm font-medium text-amber-900">Host helper script not installed</div>
+                <p className="mt-1 text-xs text-amber-900">The server container drives csf through <code className="rounded bg-white/60 px-1">/usr/local/sbin/stack-manager-csf</code> on the host. Install it once on this host before using this panel — no sudoers changes needed.</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <pre className="flex-1 whitespace-pre-wrap break-all rounded bg-gray-950 p-2 font-mono text-xs text-gray-100">{firewallStatus.helper_install_hint || 'sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf'}</pre>
+                  <button type="button" className="mini-button" onClick={() => copyToClipboard('firewall-helper-hint', firewallStatus.helper_install_hint || 'sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf')} title="Copy the install command.">{copiedKey === 'firewall-helper-hint' ? 'Copied' : 'Copy'}</button>
+                </div>
+                <p className="mt-2 text-xs text-amber-900">After running that on the host, click <span className="font-medium">Refresh</span> below.</p>
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
-              {!firewallStatus?.installed && <button className="btn-primary" disabled={firewallBusy} onClick={installFirewall} title="Clone Black-HOST/csf and run its installer via the root helper.">Install csf</button>}
+              {!firewallStatus?.installed && firewallStatus?.helper_installed !== false && <button className="btn-primary" disabled={firewallBusy} onClick={installFirewall} title="Clone Black-HOST/csf and run its installer via the root helper.">Install csf</button>}
               {firewallStatus?.installed && <>
                 <button className="btn-secondary" disabled={firewallBusy} onClick={restartFirewall} title="Run csf -r on the host.">Restart csf</button>
                 <button className="btn-secondary" disabled={firewallBusy} onClick={reloadLFD} title="systemctl restart lfd.">Reload lfd</button>

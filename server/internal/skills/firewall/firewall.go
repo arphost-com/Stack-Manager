@@ -153,28 +153,57 @@ func (s *Skill) AllowIP(ctx context.Context, ip, comment string) error {
 		comment = "Stack Manager"
 	}
 	_, err := s.runHelper(ctx, commandTimeout, nil, "allow-ip", ip, comment)
+	if errors.Is(err, errHelperMissing) {
+		// Firewall not set up on this host. Login should not be gated
+		// on it and repeated logs are noise.
+		return nil
+	}
 	return err
 }
 
 // --- HTTP handlers -----------------------------------------------------------
 
 type StatusResult struct {
-	Installed     bool   `json:"installed"`
-	TestingMode   string `json:"testing_mode"`
-	IptablesRules int    `json:"iptables_rules"`
-	LFDActive     bool   `json:"lfd_active"`
-	Version       string `json:"version"`
-	Raw           string `json:"raw"`
+	Installed         bool   `json:"installed"`
+	HelperInstalled   bool   `json:"helper_installed"`
+	HelperInstallHint string `json:"helper_install_hint,omitempty"`
+	TestingMode       string `json:"testing_mode"`
+	IptablesRules     int    `json:"iptables_rules"`
+	LFDActive         bool   `json:"lfd_active"`
+	Version           string `json:"version"`
+	Raw               string `json:"raw"`
+}
+
+// errHelperMissing is a sentinel for the "the root helper script is not
+// installed on the host" state. The Firewall panel loads /status on
+// every visit, and we don't want to greet the user with a red error
+// toast when the only thing wrong is that they haven't run the one-time
+// install command yet.
+var errHelperMissing = errors.New("host helper script not installed at " + defaultHelperPath)
+
+func helperInstallHint() string {
+	return "Run this on the host once (one-time setup):\n" +
+		"sudo install -m 750 scripts/stack-manager-csf.sh " + defaultHelperPath
 }
 
 func (s *Skill) handleStatus(w http.ResponseWriter, r *http.Request) {
 	out, err := s.runHelper(r.Context(), commandTimeout, nil, "status")
+	if errors.Is(err, errHelperMissing) {
+		writeJSON(w, http.StatusOK, StatusResult{
+			Installed:         false,
+			HelperInstalled:   false,
+			HelperInstallHint: helperInstallHint(),
+			Version:           "host helper not installed",
+		})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	vout, _ := s.runHelper(r.Context(), commandTimeout, nil, "version")
 	result := parseStatus(out, vout)
+	result.HelperInstalled = true
 	s.mu.Lock()
 	s.lastStatus = result
 	s.statusTime = time.Now().UTC()
@@ -404,6 +433,16 @@ func (s *Skill) runHelper(ctx context.Context, timeout time.Duration, stdin io.R
 	err := cmd.Run()
 	out := stdout.String()
 	if err != nil {
+		combined := stderr.String() + " " + out
+		// chroot returns 127 when the target binary is missing. Detect
+		// the specific "helper script not present on the host" case so
+		// callers can surface it as a first-run install prompt rather
+		// than an error toast.
+		if strings.Contains(combined, "chroot") &&
+			strings.Contains(combined, s.helperPath) &&
+			(strings.Contains(combined, "No such file") || strings.Contains(combined, "can't execute")) {
+			return out, errHelperMissing
+		}
 		return out, fmt.Errorf("helper failed: %s: %s", err.Error(), strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
