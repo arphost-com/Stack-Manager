@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi } from '../api/client';
+import { useFollowingScroll } from '../hooks/useFollowingScroll';
 
 // Client-side snapshot cache so the Dashboard paints the last-known state
 // immediately on mount, then refreshes in the background. Keyed by the
@@ -1404,6 +1405,11 @@ function ActionResult({ result, onDismiss }) {
   const succeededProjects = bulk ? bulk.results.filter(r => r.success) : [];
   const [showFailed, setShowFailed] = useState(true);
   const [showSucceeded, setShowSucceeded] = useState(false);
+  // Sticky-tail the single-job output pane while the action is running.
+  // Once status flips off "running" the hook stops forcing scroll so
+  // users can browse the finished log without being yanked to the end.
+  const output = result.job?.output || result.result?.output || '';
+  const outputPreRef = useFollowingScroll(output.length, result.status === 'running');
   return (
     <div className={`sticky top-2 z-30 rounded-md border-2 px-4 py-3 text-sm shadow-lg ${tone}`}>
       <div className="flex items-start justify-between gap-4">
@@ -1450,9 +1456,9 @@ function ActionResult({ result, onDismiss }) {
               )}
             </div>
           )}
-          {!bulk && (result.job?.output || result.result?.output) && (
-            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
-              {result.job?.output || result.result?.output}
+          {!bulk && output && (
+            <pre ref={outputPreRef} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
+              {output}
             </pre>
           )}
         </div>

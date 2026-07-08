@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import { projects, jobs, debug as debugApi, security, backup, dbadmin, watch as watchApi } from '../api/client';
+import { useFollowingScroll } from '../hooks/useFollowingScroll';
 
 const TABS = ['overview', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
@@ -523,6 +524,10 @@ function Sessions({ data, projectName }) {
   const sessions = (Array.isArray(data) ? data : []).filter(job => job.project === projectName)
     .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
   const open = sessions.find(job => job.id === openId) || sessions[0];
+  // Sticky-tail the running session's output. When the session ends the
+  // hook stops trying to scroll, so users can browse the finished log
+  // freely.
+  const sessionPreRef = useFollowingScroll(open?.output?.length || 0, open?.status === 'running');
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
       <div className="space-y-2">
@@ -547,7 +552,7 @@ function Sessions({ data, projectName }) {
               <span className="font-mono text-xs text-gray-500">{open.id}</span>
               {open.duration && <span className="text-xs text-gray-500">{open.duration}</span>}
             </div>
-            <pre className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs text-gray-100 whitespace-pre-wrap">{open.output || 'No output yet.'}</pre>
+            <pre ref={sessionPreRef} className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs text-gray-100 whitespace-pre-wrap">{open.output || 'No output yet.'}</pre>
           </>
         ) : null}
       </div>
@@ -846,7 +851,11 @@ function WatchTab({ data, projectName, reload }) {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
-  const preRef = useRef(null);
+  // Sticky-tail: stays pinned to the bottom while the stream advances,
+  // pauses when the user scrolls up to read history, resumes when they
+  // scroll back down. The autoScroll checkbox is now an explicit off
+  // switch — leave it on for the default follow-the-tail behavior.
+  const preRef = useFollowingScroll(lines.length, autoScroll);
   const esRef = useRef(null);
 
   useEffect(() => {
@@ -882,11 +891,6 @@ function WatchTab({ data, projectName, reload }) {
       esRef.current = null;
     };
   }, [selectedId, projectName]);
-
-  useEffect(() => {
-    if (!autoScroll) return;
-    if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
-  }, [lines, autoScroll]);
 
   const startNew = async () => {
     setStarting(true);
@@ -930,7 +934,7 @@ function WatchTab({ data, projectName, reload }) {
         {selected?.running && (
           <button className="btn-secondary" onClick={stopSession} title="Kill the log follower for this session. The log file stays on disk.">Stop follower</button>
         )}
-        <label className="ml-auto flex items-center gap-2 pb-2 text-sm text-gray-700" title="Uncheck to read history without the view jumping.">
+        <label className="ml-auto flex items-center gap-2 pb-2 text-sm text-gray-700" title="Follow the tail as new lines arrive. If you scroll up mid-stream the view pauses on its own until you scroll back to the bottom; uncheck this to disable auto-scroll entirely.">
           <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} />
           Auto-scroll
         </label>
