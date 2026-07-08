@@ -26,8 +26,17 @@ func NewMetricsCollector(engine *Engine, store MetricsStore, interval, cacheTTL 
 	if interval < 15*time.Minute {
 		interval = 15 * time.Minute
 	}
+	// Cap the projects:list cache TTL at 30 minutes so a very large
+	// METRICS_REFRESH_MINUTES (e.g. 99999) cannot freeze the Dashboard
+	// STATE column for days. Operators who set a huge interval intended
+	// to reduce CPU from background discovery, not to stop the list
+	// endpoint from ever refreshing.
+	const maxCacheTTL = 30 * time.Minute
 	if cacheTTL < interval {
 		cacheTTL = interval * 2
+	}
+	if cacheTTL > maxCacheTTL {
+		cacheTTL = maxCacheTTL
 	}
 	return &MetricsCollector{
 		engine:   engine,
