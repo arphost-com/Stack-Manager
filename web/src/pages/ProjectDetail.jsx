@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { projects, jobs, debug as debugApi, security, backup, dbadmin, watch as watchApi } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 
@@ -42,6 +42,7 @@ const updateStatusTone = (project) => {
 export default function ProjectDetail() {
   const { name } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const [project, setProject] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [tabData, setTabData] = useState(null);
@@ -172,6 +173,24 @@ export default function ProjectDetail() {
     }
   };
 
+  const deleteProject = async () => {
+    const confirmName = window.prompt(`Type ${name} to delete the whole project directory. This runs docker compose down first and then removes ${project?.dir || 'the project folder'} — data volumes referenced by the compose file are kept unless you pass down -v elsewhere.`);
+    if (confirmName !== name) {
+      setActionResult({ status: 'error', label: `delete ${name}`, error: 'Project name confirmation did not match.' });
+      return;
+    }
+    try {
+      setActionResult({ status: 'running', label: `delete ${name}` });
+      await projects.delete(name, { confirm_name: confirmName, stop_first: true });
+      // Navigate back to the Dashboard; the current page 404s once the
+      // directory is gone.
+      navigate('/');
+    } catch (err) {
+      setActionResult({ status: 'error', label: `delete ${name}`, error: err.message, result: err.data });
+      fetchProject();
+    }
+  };
+
   const saveUpdatePolicy = async (event) => {
     event.preventDefault();
     try {
@@ -246,6 +265,11 @@ export default function ProjectDetail() {
           <button title={project.inactive ? 'Remove the .inactive marker so normal operations include this project.' : 'Create .inactive so normal operations skip this project.'} onClick={toggleInactive} className="btn-secondary">
             {project.inactive ? 'Activate' : 'Deactivate'}
           </button>
+          {project.inactive && (
+            <button title="Delete the whole project directory after exact-name confirmation. Runs docker compose down first. Volumes referenced by the compose file are kept." onClick={deleteProject} className="btn-danger">
+              Delete
+            </button>
+          )}
           <button title="Refresh project status, containers, hooks, and parsed sources." onClick={fetchProject} className="btn-secondary">Refresh</button>
         </div>
       </div>
