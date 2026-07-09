@@ -344,6 +344,175 @@ cd server && go test ./internal/core -run TestName
 
 ---
 
+## Technical Reference
+
+Everything below is the full technical detail for operators, contributors, and anyone scripting against the CLI or API.
+
+### Project Layout
+
+The CLI expects projects organized under a root directory:
+
+```
+/docker/                          # Root directory (configurable with --root)
+├── .stack-manager/             # Configuration directory
+│   └── hooks/                    # Custom update hooks
+│       └── post-update_netbox-docker.sh
+├── project-a/
+│   └── compose.yml
+├── project-b/
+│   ├── compose.yml
+│   └── .inactive                 # Marker file - project is skipped
+├── netbox-docker/
+│   └── docker-compose.yml
+└── stack-manager_20240115_143022.log  # Auto-generated log file
+```
+
+### Compose File Detection
+
+For each subdirectory, the script looks for compose files in this order:
+1. `compose.yml`
+2. `compose.yaml`
+3. `docker-compose.yml`
+4. `docker-compose.yaml`
+
+The first match is used.
+
+### Update Hook Override
+
+If `<hooks-dir>/post-update_<project>.sh` exists, `update` runs only that hook and skips the normal `docker compose pull` + `up -d`. This exists so projects like NetBox that require a specific upgrade sequence do not get broken by generic pull/up.
+
+### Update Policies
+
+Per-project setting stored in MariaDB, cached in Redis:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Build-only GitHub/GitLab projects (no registry image) are auto-treated as `no_updates`; others allow updates |
+| `allow` | Always run update actions |
+| `no_updates` | Skip update actions and record a skipped action session with the configured reason |
+
+Scheduled updates and bulk actions respect this policy.
+
+### Project Deletion Guardrails
+
+Directory deletion (CLI and API) enforces:
+
+1. Project must be marked inactive first.
+2. Exact project-name confirmation required.
+3. Target must be a discovered project.
+4. Refuse to delete the configured `DOCKER_ROOT` or any path outside it.
+
+By default deletion runs `docker compose down` before removing the project directory.
+
+### Backup Endpoint Details
+
+Project backups are always created locally under `BACKUP_DIR` first, then copied/uploaded to the selected endpoint. Endpoint types (`Linux path`, `Mounted path`, `CIFS mount`, `NFS mount`, `FTP`, `SFTP`, `S3`) are managed in Settings, stored in MariaDB, and secrets are never returned to the browser after save. FTP/SFTP/S3 use `rclone`; local/mounted just copy under `/backup-targets`.
+
+If a non-root server user cannot read project data (e.g. Postgres/MariaDB/Redis bind mounts), backup falls back to a short-lived root helper container through the Docker socket.
+
+### Background Cache And Metrics
+
+Stack Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background every `METRICS_REFRESH_MINUTES`. Dashboard reads use Redis-cached summaries so normal page loads do not wait for Docker inspection commands.
+
+Metrics stored in MariaDB for historical graphing:
+
+| Metric | Source |
+|--------|--------|
+| CPU and memory | `docker stats --no-stream` sampled in the background |
+| Inbound/outbound traffic | Docker network RX/TX counters |
+| Backup count/bytes | Backup skill create events |
+| Restore count/bytes | Backup skill restore events |
+| Upload bytes | Backup endpoint copy/upload events |
+
+### Root-Sensitive Projects
+
+GitLab, PMM, and similar stacks may run containers as root internally or require root-owned data. Stack Manager does not need to run as host root for the containers themselves; Docker handles container users. Stack Manager needs filesystem access to the project directory and compose files under `DOCKER_ROOT`.
+
+Recommended model for mixed hosts:
+
+1. Run Stack Manager as the host service user (`SERVER_USER=1000:1000`).
+2. Keep compose files and `.env` readable by that UID/GID.
+3. Store application data in Docker named volumes where possible.
+4. For root-only project directories, run a separate root-capable Stack Manager agent with `SERVER_USER=0:0` and register it from the main server.
+
+### Persistent State
+
+| Path | Purpose |
+|------|---------|
+| `mariadb/` | MariaDB data for users, jobs, project settings, agents, schedules |
+| `redis/` | Redis append-only data for sessions/cache |
+| `hooks/` | Update hooks used by the API server |
+| `backups/` | Project backups and database dumps |
+| `backup-targets/` | Default host-backed mount for UI-configured backup destinations |
+| `docker-config/` | Docker registry credentials from dashboard registry login |
+| `ssl/` | TLS certificates (self-signed or Let's Encrypt) |
+
+### Inactive Project Management
+
+```bash
+# Mark a project inactive (creates .inactive file)
+touch /docker/project-name/.inactive
+
+# Re-activate
+rm /docker/project-name/.inactive
+
+# List only active projects
+stack-manager.sh --root /docker list
+```
+
+Inactive projects are excluded from `status`, `check`, `pull`, `update`, `up`, `restart`, `down`, and `prune` unless targeted by name.
+
+### Custom Update Hooks
+
+```bash
+# Create a hook for a project
+cat > ~/.stack-manager/hooks/post-update_netbox-docker.sh << 'EOF'
+#!/bin/bash
+cd "$PROJECT_DIR"
+git pull
+docker compose pull
+docker compose up -d
+EOF
+chmod +x ~/.stack-manager/hooks/post-update_netbox-docker.sh
+```
+
+When `update` runs for `netbox-docker`, only this hook executes. Normal pull/up is skipped.
+
+### Logging
+
+All operations are logged to timestamped files:
+
+```
+/docker/stack-manager_20240115_143022.log
+```
+
+Override the log directory with `--log-dir` or disable with `--no-log`.
+
+### Signal Handling
+
+Ctrl-C during a batch run interrupts the current project and prints a summary of completed projects. No projects after the current one are started.
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All operations completed |
+| 1 | One or more operations failed |
+| 2 | Invalid arguments or configuration |
+| 130 | Interrupted by Ctrl-C |
+
+### GitLab Pipeline
+
+The GitLab pipeline treats docker02 as the dev environment:
+
+- `deploy:docker02` runs automatically on the default branch after validation, tests, builds, and security scans pass.
+- The deploy job preserves existing `.env` secrets or generates secure first-run values.
+- `smoke:docker02` runs automatically after deploy.
+- `smoke:stack-template` and `smoke:stack-templates:all` are manual test-server jobs. Set `STACK_TEMPLATE_TEST_HOST` to the test server IP. Use `--skip` to exclude specific templates.
+- `push:github` is an optional manual job that mirrors tested `main` to GitHub.
+
+---
+
 ## License
 
 See [LICENSE](LICENSE) for details.

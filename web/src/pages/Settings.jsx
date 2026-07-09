@@ -1794,8 +1794,8 @@ export default function Settings() {
                         <tbody>
                           {firewallAllow.map(entry => (
                             <tr key={'allow-' + entry.raw} className="border-t border-gray-100">
-                              <td className="p-2 font-mono break-all">{entry.ip}</td>
-                              <td className="p-2 break-all">{entry.comment}</td>
+                              <td className="p-2 font-mono whitespace-nowrap">{entry.ip}</td>
+                              <td className="p-2">{entry.comment}</td>
                               <td className="p-2 text-right whitespace-nowrap"><button className="mini-danger" disabled={firewallBusy} onClick={() => removeFirewallIP(entry.ip)} title="Remove from both allow and deny.">Remove</button></td>
                             </tr>
                           ))}
@@ -1812,8 +1812,8 @@ export default function Settings() {
                         <tbody>
                           {firewallDeny.map(entry => (
                             <tr key={'deny-' + entry.raw} className="border-t border-gray-100">
-                              <td className="p-2 font-mono break-all">{entry.ip}</td>
-                              <td className="p-2 break-all">{entry.comment}</td>
+                              <td className="p-2 font-mono whitespace-nowrap">{entry.ip}</td>
+                              <td className="p-2">{entry.comment}</td>
                               <td className="p-2 text-right whitespace-nowrap"><button className="mini-danger" disabled={firewallBusy} onClick={() => removeFirewallIP(entry.ip)} title="Remove from both allow and deny.">Remove</button></td>
                             </tr>
                           ))}
