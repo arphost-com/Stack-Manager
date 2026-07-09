@@ -1026,11 +1026,11 @@ volumes:
 		{
 			ID: "concrete-cms", Name: "Concrete CMS", Description: "Traditional CMS with in-context editing.",
 			Category: "cms",
-			Source: "docker-hub", Image: "concretecms/concrete-cms:latest",
+			Source: "docker-hub", Image: "concretecms/concretecms:latest",
 			Tags: []string{"cms"},
 			ComposeContent: `services:
   concrete:
-    image: concretecms/concrete-cms:latest
+    image: concretecms/concretecms:latest
     ports:
       - "${CONCRETE_PORT:-8085}:80"
     volumes:
