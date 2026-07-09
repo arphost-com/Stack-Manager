@@ -432,7 +432,7 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
                   <td className="py-2 font-mono">{c.name}</td>
                   <td className="font-mono text-xs text-gray-600">{c.image}</td>
                   <td><Badge tone={c.state === 'running' ? 'green' : 'gray'}>{c.state}</Badge></td>
-                  <td className="text-xs text-gray-500">{c.ports}</td>
+                  <td className="text-xs"><ContainerPorts ports={c.ports} state={c.state} /></td>
                 </tr>
               ))}
             </tbody>
@@ -442,6 +442,33 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
       </div>
     </div>
   );
+}
+
+function ContainerPorts({ ports, state }) {
+  if (!ports) return <span className="text-gray-400">—</span>;
+  // Parse port mappings like "0.0.0.0:8080->80/tcp, [::]:8080->80/tcp"
+  // and generate clickable links for host-mapped ports.
+  const seen = new Set();
+  const links = [];
+  for (const part of ports.split(',')) {
+    const match = part.trim().match(/(\d+\.\d+\.\d+\.\d+):(\d+)->(\d+)\/(tcp|udp)/);
+    if (match) {
+      const hostPort = match[2];
+      if (seen.has(hostPort)) continue;
+      seen.add(hostPort);
+      // Common HTTPS ports or high ports likely use HTTPS if the dashboard does.
+      const proto = ['443', '8443', '8993', '9443'].includes(hostPort) ? 'https' : 'http';
+      const url = `${proto}://${window.location.hostname}:${hostPort}`;
+      links.push(
+        <a key={hostPort} href={url} target="_blank" rel="noreferrer"
+          className={`inline-block rounded px-1.5 py-0.5 font-mono ${state === 'running' ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-gray-100 text-gray-500'}`}
+          title={`Open ${url} in a new tab`}
+        >{hostPort}</a>
+      );
+    }
+  }
+  if (links.length === 0) return <span className="text-gray-500">{ports}</span>;
+  return <div className="flex flex-wrap gap-1">{links}</div>;
 }
 
 function ProjectDocs({ docs, projectName }) {

@@ -236,7 +236,7 @@ const enhancedGuides = {
       'Set all passwords in .env: POSTGRES_PASSWORD, NEO4J_PASSWORD, MEM0_API_KEY, N8N_PASSWORD, and optionally OPENAI_API_KEY.',
       'Pull a model: docker exec <ollama-container> ollama pull llama3.1',
       'Open WebUI: https://<host>:WEBUI_PORT — chat interface connected to Ollama.',
-      'Mem0 API: http://<host>:MEM0_PORT — durable memory layer. Store and retrieve memories: curl -X POST http://<host>:8000/v1/memories -H "Authorization: Bearer YOUR_MEM0_API_KEY" -d \'{"messages":[{"role":"user","content":"Remember that I like Python"}]}\'',
+      'Mem0 API: http://<host>:MEM0_PORT — durable memory layer. Store and retrieve memories via the REST API using your MEM0_API_KEY from .env.',
       'n8n: http://<host>:N8N_PORT — login with admin / N8N_PASSWORD. Build workflows that chain Ollama, Mem0, Neo4j, and external APIs.',
       'Neo4j Browser: http://<host>:NEO4J_HTTP_PORT — explore the graph memory that Mem0 builds.',
       'Example n8n workflow: HTTP trigger → call Ollama for reasoning → store result in Mem0 → query Neo4j for related memories → respond.',
