@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';
@@ -1759,8 +1760,39 @@ export default function Settings() {
         <div className="space-y-4">
           <div className="section-panel">
             <h2 className="text-lg font-semibold text-gray-950">Reverse Proxy (Nginx Proxy Manager)</h2>
-            <p className="mt-1 text-sm text-gray-600">Connect to a running NPM instance to manage proxy hosts from this dashboard. Deploy NPM from the Stack Catalog first, then enter its admin URL and credentials below. Only needed when you have real domain names.</p>
+            <p className="mt-1 text-sm text-gray-600">{npmStatus?.connected ? 'Connected to NPM. Manage proxy hosts below.' : 'Set up a reverse proxy when you have real domain names and want per-domain HTTPS via Let\'s Encrypt.'}</p>
           </div>
+
+          {!npmStatus?.connected && (
+            <>
+              <div className="section-panel space-y-3">
+                <h3 className="text-base font-semibold text-gray-950">Setup Guide</h3>
+                <ol className="list-decimal space-y-3 pl-5 text-sm text-gray-700">
+                  <li>
+                    <span className="font-medium">Deploy NPM from the Stack Catalog.</span> Go to <Link to="/catalog" className="underline text-blue-700">Stack Catalog</Link>, search for <code className="rounded bg-gray-100 px-1">nginx-proxy-manager</code>, and click <span className="font-medium">Spin it Up</span>. It binds ports 80 (HTTP), 443 (HTTPS), and 81 (admin).
+                  </li>
+                  <li>
+                    <span className="font-medium">Resolve port conflicts.</span> If Stack Manager's web container also binds port 80, change <code className="rounded bg-gray-100 px-1">WEB_HTTP_PORT</code> in <Link to="/settings" onClick={() => {}} className="underline text-blue-700">Settings &gt; General</Link> to a different port or set it to <code className="rounded bg-gray-100 px-1">0</code> to disable. Restart the stack afterward.
+                  </li>
+                  <li>
+                    <span className="font-medium">Log into NPM admin.</span> Open <code className="rounded bg-gray-100 px-1">http://&lt;host-ip&gt;:81</code>. Default credentials: <code className="rounded bg-gray-100 px-1">admin@example.com</code> / <code className="rounded bg-gray-100 px-1">changeme</code>. <strong>Change the password immediately.</strong>
+                  </li>
+                  <li>
+                    <span className="font-medium">Connect below.</span> Enter the NPM admin URL and your updated credentials, then click Connect. Once connected, you can manage proxy hosts from this panel.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="section-panel border-amber-200 bg-amber-50">
+                <h3 className="text-base font-semibold text-amber-900">When NOT to use a reverse proxy</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+                  <li>Private networks with no public DNS — Let's Encrypt can't issue certificates for IPs or unreachable domains.</li>
+                  <li>Public IPs with no domain — same reason. Use the self-signed cert and accept the browser warning.</li>
+                  <li>Single-service hosts — a reverse proxy adds complexity. The built-in nginx with a self-signed cert is simpler.</li>
+                </ul>
+              </div>
+            </>
+          )}
 
           <div className="section-panel space-y-3">
             <h3 className="text-base font-semibold text-gray-950">NPM Connection</h3>
@@ -1785,7 +1817,10 @@ export default function Settings() {
           {npmStatus?.connected && (
             <>
               <div className="section-panel space-y-3">
-                <h3 className="text-base font-semibold text-gray-950">Proxy Hosts ({npmHosts.length})</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-base font-semibold text-gray-950">Proxy Hosts ({npmHosts.length})</h3>
+                  <a href={npmStatus?.url || '#'} target="_blank" rel="noreferrer" className="text-xs text-blue-700 underline" title="Open the full NPM admin panel in a new tab.">Open NPM Admin</a>
+                </div>
                 {npmHosts.length > 0 && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
@@ -1803,7 +1838,7 @@ export default function Settings() {
                     </table>
                   </div>
                 )}
-                {npmHosts.length === 0 && <p className="text-sm text-gray-500">No proxy hosts configured in NPM.</p>}
+                {npmHosts.length === 0 && <p className="text-sm text-gray-500">No proxy hosts configured yet. Add one below or use the <a href={npmStatus?.url || '#'} target="_blank" rel="noreferrer" className="underline text-blue-700">NPM admin panel</a> for full control.</p>}
               </div>
 
               <div className="section-panel space-y-3">
@@ -1839,19 +1874,20 @@ export default function Settings() {
                   </Field>
                 </div>
                 <button className="btn-primary" onClick={createProxyHost}>Create Proxy Host</button>
-                <p className="text-xs text-gray-500">After creating, open NPM admin to enable SSL and request a Let's Encrypt certificate for this host.</p>
+                <p className="text-xs text-gray-500">After creating, open <a href={npmStatus?.url || '#'} target="_blank" rel="noreferrer" className="underline text-blue-700">NPM admin</a> to enable SSL and request a Let's Encrypt certificate for this host.</p>
+              </div>
+
+              <div className="section-panel space-y-3">
+                <h3 className="text-base font-semibold text-gray-950">NPM Documentation</h3>
+                <p className="text-sm text-gray-600">For full proxy host configuration, SSL certificates, redirections, streams, access lists, and advanced settings, use the NPM admin panel directly.</p>
+                <div className="flex flex-wrap gap-2">
+                  <a href={npmStatus?.url || '#'} target="_blank" rel="noreferrer" className="btn-secondary inline-flex items-center gap-1">Open NPM Admin</a>
+                  <a href="https://nginxproxymanager.com/guide/" target="_blank" rel="noreferrer" className="btn-secondary inline-flex items-center gap-1">NPM Official Docs</a>
+                  <Link to="/documentation" className="btn-secondary inline-flex items-center gap-1">Stack Manager Docs</Link>
+                </div>
               </div>
             </>
           )}
-
-          <div className="section-panel border-amber-200 bg-amber-50">
-            <h3 className="text-base font-semibold text-amber-900">When NOT to use a reverse proxy</h3>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
-              <li>Private networks with no public DNS — Let's Encrypt can't issue certificates for IPs or unreachable domains.</li>
-              <li>Public IPs with no domain — same reason. Use the self-signed cert and accept the browser warning.</li>
-              <li>Single-service hosts — a reverse proxy adds complexity. The built-in nginx with a self-signed cert is simpler.</li>
-            </ul>
-          </div>
         </div>
       )}
 
