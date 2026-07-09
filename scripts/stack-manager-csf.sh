@@ -224,13 +224,13 @@ cmd_install() {
 
   # Install prerequisites CSF needs at runtime.
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq unzip perl iptables >/dev/null 2>&1 || true
+    apt-get update -qq && apt-get install -y -qq unzip perl libwww-perl iptables >/dev/null 2>&1 || true
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y -q unzip perl iptables >/dev/null 2>&1 || true
+    dnf install -y -q unzip perl perl-libwww-perl iptables >/dev/null 2>&1 || true
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y -q unzip perl iptables >/dev/null 2>&1 || true
+    yum install -y -q unzip perl perl-libwww-perl iptables >/dev/null 2>&1 || true
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache unzip perl iptables >/dev/null 2>&1 || true
+    apk add --no-cache unzip perl perl-libwww iptables >/dev/null 2>&1 || true
   fi
 
   local workdir=""
