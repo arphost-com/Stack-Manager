@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image/png"
 	"log"
 	"net"
 	"net/http"
@@ -12,7 +15,28 @@ import (
 	cmauth "github.com/arphost-com/Stack-Manager/server/internal/auth"
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/pquerna/otp"
 )
+
+// totpQRDataURI renders an otpauth:// URL to a base64 PNG data URI so the
+// enrollment QR is generated on the server. This keeps the TOTP secret (which
+// is embedded in otpauth URLs) inside our own trust boundary instead of
+// shipping it to a third-party QR image service, and works on airgapped hosts.
+func totpQRDataURI(otpURL string) string {
+	key, err := otp.NewKeyFromURL(otpURL)
+	if err != nil {
+		return ""
+	}
+	img, err := key.Image(220, 220)
+	if err != nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}
 
 // IPAllower is implemented by the firewall skill. Kept as an interface so
 // auth doesn't depend on skills package.
@@ -131,6 +155,7 @@ func (h *AuthHandler) TOTPEnroll(w http.ResponseWriter, r *http.Request) {
 		"secret":       secret,
 		"backup_codes": backupCodes,
 		"otp_url":      otpURL,
+		"qr_data_uri":  totpQRDataURI(otpURL),
 	})
 }
 
