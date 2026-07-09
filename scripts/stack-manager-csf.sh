@@ -248,28 +248,21 @@ cmd_install() {
   ( cd "$workdir/csf" && sh "$installer" )
   [[ -x "$CSF_BIN" ]] || die "install did not produce $CSF_BIN"
 
-  # --- Docker compatibility ---
-  # CSF flushes all iptables rules on restart, which destroys Docker's
-  # NAT/FORWARD chains and breaks container networking. Fix:
-  # 1. Set DOCKER = "1" in csf.conf (tells CSF to accommodate Docker).
-  # 2. Write csfpre.sh to save Docker's iptables state before flush.
-  # 3. Write csfpost.sh to restart Docker after CSF applies its rules
-  #    so Docker re-inserts its chains cleanly.
-  if command -v docker >/dev/null 2>&1; then
-    log "Docker detected — configuring CSF for Docker compatibility"
-    # Enable DOCKER mode in csf.conf if the setting exists.
-    if grep -q '^DOCKER\s*=' "$CSF_ETC/csf.conf" 2>/dev/null; then
-      sed -i 's/^DOCKER\s*=.*/DOCKER = "1"/' "$CSF_ETC/csf.conf"
-    elif grep -q '^#.*DOCKER\s*=' "$CSF_ETC/csf.conf" 2>/dev/null; then
-      sed -i 's/^#.*DOCKER\s*=.*/DOCKER = "1"/' "$CSF_ETC/csf.conf"
-    else
-      printf '\nDOCKER = "1"\n' >> "$CSF_ETC/csf.conf"
-    fi
-
-    # Replace CSF's default cPanel-oriented port rules with a minimal
-    # Stack Manager config. ONLY the dashboard port inbound. Users who
-    # need SSH add their IP to csf.allow — the auto-allow on login and
-    # the IP added below handle the installer's access.
+  # --- Stack Manager csf.conf template ---
+  # Replace CSF's default cPanel-oriented config with our pre-configured
+  # template. No sed games — one file copy sets everything:
+  # TCP_IN=8993 only, UDP_IN empty, all outbound open, DOCKER=1,
+  # TESTING=0, RESTRICT_SYSLOG=3.
+  helper_dir="$(dirname "$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")")"
+  template="${helper_dir}/csf.conf.stackmanager"
+  if [[ ! -f "$template" ]]; then
+    # Fallback: look relative to common install locations.
+    for try in /usr/local/sbin/csf.conf.stackmanager ./scripts/csf.conf.stackmanager ../scripts/csf.conf.stackmanager; do
+      [[ -f "$try" ]] && template="$try" && break
+    done
+  fi
+  if [[ -f "$template" ]]; then
+    # Read WEB_SSL_PORT from .env if available.
     sm_ssl_port=8993
     for envfile in .env ../stack-manager/.env ../Stack-Manager/.env; do
       if [[ -f "$envfile" ]]; then
@@ -278,69 +271,44 @@ cmd_install() {
         break
       fi
     done
-
-    # TCP IN: dashboard only. SSH access is via IP allowlist, not open port.
-    sed -i "s|^TCP_IN\s*=.*|TCP_IN = \"${sm_ssl_port}\"|" "$CSF_ETC/csf.conf"
-    log "Set TCP_IN to ${sm_ssl_port} (dashboard only)"
-
-    # UDP IN: empty — no inbound UDP needed.
-    sed -i 's/^UDP_IN\s*=.*/UDP_IN = ""/' "$CSF_ETC/csf.conf"
-    log "Cleared UDP_IN"
-
-    # IPv6: match IPv4.
-    sed -i "s|^TCP6_IN\s*=.*|TCP6_IN = \"${sm_ssl_port}\"|" "$CSF_ETC/csf.conf"
-    sed -i 's/^UDP6_IN\s*=.*/UDP6_IN = ""/' "$CSF_ETC/csf.conf"
-
-    # Auto-allow the installer's IP so they don't get locked out.
-    # Detect the IP of whoever is connected via SSH right now.
-    installer_ip=""
-    if [[ -n "${SSH_CLIENT:-}" ]]; then
-      installer_ip="$(printf '%s' "$SSH_CLIENT" | awk '{print $1}')"
-    elif [[ -n "${SSH_CONNECTION:-}" ]]; then
-      installer_ip="$(printf '%s' "$SSH_CONNECTION" | awk '{print $1}')"
+    cp "$template" "$CSF_ETC/csf.conf"
+    # Patch the dashboard port if it's not the default 8993.
+    if [[ "$sm_ssl_port" != "8993" ]]; then
+      sed -i "s/^TCP_IN = \"8993\"/TCP_IN = \"${sm_ssl_port}\"/" "$CSF_ETC/csf.conf"
+      sed -i "s/^TCP6_IN = \"8993\"/TCP6_IN = \"${sm_ssl_port}\"/" "$CSF_ETC/csf.conf"
     fi
-    if [[ -n "$installer_ip" ]]; then
-      "$CSF_BIN" -a "$installer_ip" "Stack Manager installer" 2>/dev/null || true
-      log "Auto-allowed installer IP ${installer_ip} in csf.allow"
-    fi
+    log "Installed Stack Manager csf.conf template (TCP_IN=${sm_ssl_port}, TESTING=0, DOCKER=1)"
+  else
+    log "WARNING: csf.conf.stackmanager template not found — using CSF defaults"
+  fi
 
-    # All outbound open — Docker needs unrestricted outbound for image
-    # pulls, DNS, package updates, API calls, etc.
-    sed -i 's/^TCP_OUT\s*=.*/TCP_OUT = "1:65535"/' "$CSF_ETC/csf.conf"
-    sed -i 's/^UDP_OUT\s*=.*/UDP_OUT = "1:65535"/' "$CSF_ETC/csf.conf"
-    sed -i 's/^TCP6_OUT\s*=.*/TCP6_OUT = "1:65535"/' "$CSF_ETC/csf.conf"
-    sed -i 's/^UDP6_OUT\s*=.*/UDP6_OUT = "1:65535"/' "$CSF_ETC/csf.conf"
-    log "Set all outbound open (1:65535)"
+  # Auto-allow the installer's IP so they don't get locked out.
+  installer_ip=""
+  if [[ -n "${SSH_CLIENT:-}" ]]; then
+    installer_ip="$(printf '%s' "$SSH_CLIENT" | awk '{print $1}')"
+  elif [[ -n "${SSH_CONNECTION:-}" ]]; then
+    installer_ip="$(printf '%s' "$SSH_CONNECTION" | awk '{print $1}')"
+  fi
+  if [[ -n "$installer_ip" ]]; then
+    "$CSF_BIN" -a "$installer_ip" "Stack Manager installer" 2>/dev/null || true
+    log "Auto-allowed installer IP ${installer_ip} in csf.allow"
+  fi
 
-    # csfpre.sh — runs BEFORE csf flushes iptables.
-    cat > "$CSF_ETC/csfpre.sh" << 'CSFPRE'
+  # csfpre.sh — runs BEFORE csf flushes iptables.
+  cat > "$CSF_ETC/csfpre.sh" << 'CSFPRE'
 #!/bin/bash
-# Save Docker iptables state before CSF flushes everything.
-# csfpost.sh will restart Docker to re-create the chains cleanly.
 iptables-save > /tmp/.csf-docker-iptables-backup 2>/dev/null || true
 CSFPRE
-    chmod 700 "$CSF_ETC/csfpre.sh"
+  chmod 700 "$CSF_ETC/csfpre.sh"
 
-    # csfpost.sh — runs AFTER csf applies its rules.
-    # The Docker restart is backgrounded with a 5-second delay so the
-    # Stack Manager helper container (which runs csf -r via docker run)
-    # has time to finish and return output before Docker kills it.
-    cat > "$CSF_ETC/csfpost.sh" << 'CSFPOST'
+  # csfpost.sh — delayed Docker restart after CSF applies rules.
+  cat > "$CSF_ETC/csfpost.sh" << 'CSFPOST'
 #!/bin/bash
-# Delayed Docker restart — gives the caller container time to finish.
 echo "[csfpost] Docker restart scheduled in 5 seconds..."
 nohup bash -c 'sleep 5 && (systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || true) && echo "[csfpost] Docker restarted."' >> /var/log/csfpost-docker.log 2>&1 &
 CSFPOST
-    chmod 700 "$CSF_ETC/csfpost.sh"
-    log "Wrote $CSF_ETC/csfpre.sh and $CSF_ETC/csfpost.sh for Docker compatibility"
-
-    # Disable testing mode — the essential ports (SSH, dashboard, NPM)
-    # are already added to TCP_IN so it's safe to go live immediately.
-    if grep -q '^TESTING\s*=\s*"1"' "$CSF_ETC/csf.conf" 2>/dev/null; then
-      sed -i 's/^TESTING\s*=.*/TESTING = "0"/' "$CSF_ETC/csf.conf"
-      log "Disabled testing mode (TESTING=0) — essential ports are open"
-    fi
-  fi
+  chmod 700 "$CSF_ETC/csfpost.sh"
+  log "Wrote csfpre.sh and csfpost.sh for Docker compatibility"
 
   "$CSF_BIN" -v
 }
