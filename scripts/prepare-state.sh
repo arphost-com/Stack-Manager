@@ -268,8 +268,15 @@ else
   fi
 fi
 
-find "${state_dir}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type d -exec chmod 2770 {} +
-find "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${backup_target_root}" -type f -exec chmod 660 {} +
+# Exclude mariadb and redis dirs — those services own their data files
+# and chown/chmod breaks them.
+find "${state_dir}" -maxdepth 1 -type d -exec chmod 2770 {} + 2>/dev/null || true
+for subdir in hooks backups docker-config jobs; do
+  find "${state_dir}/${subdir}" -type d -exec chmod 2770 {} + 2>/dev/null || true
+  find "${state_dir}/${subdir}" -type f -exec chmod 660 {} + 2>/dev/null || true
+done
+find "${backup_target_root}" -type d -exec chmod 2770 {} + 2>/dev/null || true
+find "${backup_target_root}" -type f -exec chmod 660 {} + 2>/dev/null || true
 # SSL dir: needs to be readable by both the Go server (SERVER_USER) and the
 # web container (also SERVER_USER now), with the ACME webroot writable so
 # certbot helper containers can drop challenge files.

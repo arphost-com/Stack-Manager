@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,13 +21,25 @@ const (
 	ImageUpdateStatusUnknown   = "unknown"
 )
 
-// CheckProjectUpdates compares local image digests to registry manifests without pulling images.
+// CheckProjectUpdates compares local image digests to registry manifests
+// without pulling images. For git-based projects with no registry images,
+// it checks for new commits instead.
 func (e *Engine) CheckProjectUpdates(ctx context.Context, project *Project) ProjectUpdateStatus {
 	status := ProjectUpdateStatus{Checked: true}
 	if project == nil {
 		status.Error = "project is nil"
 		return status
 	}
+
+	// Git-based projects: check for upstream commits instead of registry images.
+	if project.IsGit {
+		gitStatus := e.checkGitUpdates(ctx, project)
+		if gitStatus.Checked {
+			return gitStatus
+		}
+		// Fall through to image check if git check couldn't determine anything.
+	}
+
 	sources := project.ImageSources
 	if len(sources) == 0 {
 		sources = e.ImageSources(project)
@@ -50,6 +63,50 @@ func (e *Engine) CheckProjectUpdates(ctx context.Context, project *Project) Proj
 	}
 	if len(status.Images) > 0 {
 		status.CheckedAt = &now
+	}
+	return status
+}
+
+// checkGitUpdates runs git fetch --dry-run and compares HEAD to the
+// upstream branch to see if there are new commits.
+func (e *Engine) checkGitUpdates(ctx context.Context, project *Project) ProjectUpdateStatus {
+	status := ProjectUpdateStatus{Checked: true}
+	now := time.Now().UTC()
+	status.CheckedAt = &now
+
+	// git fetch to update remote refs.
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	fetchCmd := exec.CommandContext(fetchCtx, "git", "fetch", "--all", "--prune")
+	fetchCmd.Dir = project.Dir
+	if out, err := fetchCmd.CombinedOutput(); err != nil {
+		status.Error = "git fetch failed: " + strings.TrimSpace(string(out))
+		return status
+	}
+
+	// Count commits behind upstream.
+	behindCmd := exec.CommandContext(ctx, "git", "rev-list", "--count", "HEAD..@{upstream}")
+	behindCmd.Dir = project.Dir
+	out, err := behindCmd.Output()
+	if err != nil {
+		// No upstream tracking branch — not an error, just can't determine.
+		status.Checked = false
+		return status
+	}
+
+	behind := strings.TrimSpace(string(out))
+	if behind != "0" && behind != "" {
+		n, _ := strconv.Atoi(behind)
+		status.Available = true
+		status.Count = n
+		status.Images = append(status.Images, ImageUpdateCheck{
+			Project:         project.Name,
+			Service:         "git",
+			Image:           "git repository",
+			Status:          behind + " commits behind",
+			UpdateAvailable: true,
+			CheckedAt:       now,
+		})
 	}
 	return status
 }
