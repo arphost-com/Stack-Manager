@@ -170,28 +170,24 @@ func (h *DockerSettingsHandler) runDocker(args ...string) ([]byte, error) {
 	return exec.Command("docker", args...).CombinedOutput()
 }
 
-// RestartDocker restarts the Docker daemon on the host via nsenter.
-// This is needed after daemon.json changes and is equivalent to
-// running `systemctl restart docker` on the host. All containers will
-// briefly stop and restart.
+// RestartDocker restarts the Docker daemon on the host. Uses a
+// detached helper container with a short delay so the API response
+// returns before Docker kills the server container.
 func (h *DockerSettingsHandler) RestartDocker(w http.ResponseWriter, r *http.Request) {
 	if !middleware.RequireAdmin(w, r) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
 	helperImage := h.helperImage()
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--privileged", "--network=host", "--pid=host",
+	cmd := exec.Command("docker", "run", "-d", "--rm", "--privileged", "--network=host", "--pid=host",
 		"-v", "/:/host", helperImage,
-		"chroot", "/host", "systemctl", "restart", "docker")
+		"chroot", "/host", "bash", "-c", "sleep 3 && systemctl restart docker")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to restart Docker: %s: %s", err.Error(), strings.TrimSpace(string(output))))
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to schedule Docker restart: %s: %s", err.Error(), strings.TrimSpace(string(output))))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"output": strings.TrimSpace(string(output)),
-		"status": "Docker restarted. Containers with restart policies will come back automatically.",
+		"status": "Docker restart scheduled in 3 seconds. The dashboard will briefly disconnect and reconnect automatically.",
 	})
 }
 
