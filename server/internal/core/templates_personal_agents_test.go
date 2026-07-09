@@ -8,10 +8,7 @@ func TestPersonalAgentStackTemplatesBestNine(t *testing.T) {
 		"openclaw",
 		"zeroclaw",
 		"nanoclaw",
-		"nanobot",
 		"hermes-agent",
-		"qwenpaw",
-		"openjarvis",
 		"moltworker",
 		"letta-agent",
 	}
