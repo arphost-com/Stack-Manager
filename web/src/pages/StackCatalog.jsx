@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { projects, stackTemplates } from '../api/client';
+import { projects, stackTemplates, system } from '../api/client';
 
 const CATEGORY_LABELS = {
   ai: 'AI',
@@ -100,13 +100,18 @@ export default function StackCatalog() {
   const [message, setMessage] = useState(null);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [gpuInfo, setGpuInfo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorDetails, setErrorDetails] = useState('');
 
   const load = async () => {
     try {
-      const res = await stackTemplates.list();
+      const [res, gpuRes] = await Promise.all([
+        stackTemplates.list(),
+        system.gpu().catch(() => ({ data: { available: false } })),
+      ]);
       setTemplates(res.data || []);
+      setGpuInfo(gpuRes.data || { available: false });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
       setErrorDetails(err.data?.output || err.data?.error || '');
@@ -166,19 +171,40 @@ export default function StackCatalog() {
   const end = Math.min(filtered.length, safePage * pageSize);
   const pagedTemplates = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
+  const gpuDeploySnippet = '    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n';
+
   const openTemplate = (template) => {
     setSelected(template);
+    let compose = template.compose_content;
+
+    // Auto-inject GPU config for AI templates when a GPU is detected.
+    const isAI = template.category === 'ai';
+    const hasGPU = gpuInfo?.available;
+    if (isAI && hasGPU && !compose.includes('capabilities: [gpu]')) {
+      // Insert deploy block after the first service's restart line.
+      compose = compose.replace(
+        /(restart:\s*unless-stopped\n)/,
+        '$1' + gpuDeploySnippet
+      );
+    }
+
     setForm({
       name: template.id,
-      compose_content: template.compose_content,
+      compose_content: compose,
       env_content: template.env_content || '',
       run_as_uid: '',
       run_as_gid: '',
-      enforce_user: true,
+      enforce_user: false,
       inactive: false,
       overwrite: false,
     });
-    setMessage(null);
+    if (isAI && hasGPU) {
+      setMessage({ type: 'success', text: `GPU detected (${gpuInfo.gpu_name || 'NVIDIA'}) — GPU acceleration enabled in compose.` });
+    } else if (isAI && !hasGPU) {
+      setMessage({ type: 'info', text: 'No GPU detected — this AI stack will run in CPU mode. Add GPU config manually if you attach one later.' });
+    } else {
+      setMessage(null);
+    }
     setErrorDetails('');
   };
 

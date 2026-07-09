@@ -10,6 +10,7 @@ func TestPersonalAgentStackTemplatesBestNine(t *testing.T) {
 		"nanoclaw",
 		"moltworker",
 		"letta-agent",
+		"hermes-agent",
 	}
 
 	if len(templates) != len(wantIDs) {

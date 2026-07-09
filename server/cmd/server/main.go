@@ -245,6 +245,9 @@ func main() {
 			r.Delete("/proxy/hosts", proxyHandler.DeleteHost)
 			r.Get("/proxy/suggestions", proxyHandler.ProjectSuggestions)
 
+			// System info
+			r.Get("/system/gpu", handlers.GPUDetect)
+
 			// General settings (.env)
 			r.Get("/settings/env", envSettingsHandler.Get)
 			r.Put("/settings/env", envSettingsHandler.Save)

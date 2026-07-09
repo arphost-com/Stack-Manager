@@ -231,10 +231,6 @@ export const dbadmin = {
   projectDumps: (name) => request(`/skills/dbadmin/dumps/${name}`),
 };
 
-export const system = {
-  prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
-};
-
 export const registries = {
   login: (body) => request('/registries/login', { method: 'POST', body: JSON.stringify(body) }),
   list: () => request('/registries'),
@@ -254,6 +250,11 @@ export const proxy = {
   createHost: (body) => request('/proxy/hosts', { method: 'POST', body: JSON.stringify(body) }),
   deleteHost: (id) => request(`/proxy/hosts?id=${id}`, { method: 'DELETE' }),
   suggestions: () => request('/proxy/suggestions'),
+};
+
+export const system = {
+  gpu: () => request('/system/gpu'),
+  prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
 };
 
 export const envSettings = {

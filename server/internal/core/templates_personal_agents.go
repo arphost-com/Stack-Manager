@@ -158,5 +158,15 @@ volumes:
 			EnvContent: "LETTA_PORT=8283\nLETTA_SERVER_PASSWORD=\nLETTA_POSTGRES_PASSWORD=\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\nOLLAMA_BASE_URL=\n",
 			Notes:      "Use Letta when durable memory and self-improving agents matter more than chat-channel breadth. Set one provider key or an Ollama URL before creating agents.",
 		},
+		{
+			ID: "hermes-agent", Name: "Hermes Agent",
+			Description: "Autonomous AI agent gateway by NousResearch with OpenAI-compatible API, web dashboard, and multi-channel support.",
+			Category:    "ai", Subcategory: "personal-agents",
+			Source: "docker-hub", Image: "nousresearch/hermes-agent:latest",
+			Tags: []string{"ai", "personal-agent", "gateway", "autonomous"},
+			ComposeContent: "services:\n  hermes:\n    image: nousresearch/hermes-agent:latest\n    command: [\"gateway\", \"run\"]\n    restart: unless-stopped\n    ports:\n      - \"${HERMES_API_PORT:-8642}:8642\"\n      - \"${HERMES_DASHBOARD_PORT:-9119}:9119\"\n    environment:\n      HERMES_DASHBOARD: \"1\"\n      HERMES_LLM_API_KEY: ${HERMES_API_KEY:-}\n      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}\n    volumes:\n      - hermes-data:/opt/data\nvolumes:\n  hermes-data:\n",
+			EnvContent: "HERMES_API_PORT=8642\nHERMES_DASHBOARD_PORT=9119\nHERMES_API_KEY=\nANTHROPIC_API_KEY=\n",
+			Notes:      "Set HERMES_API_KEY or ANTHROPIC_API_KEY before starting. API at port 8642, dashboard at port 9119.",
+		},
 	}
 }
