@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <!-- Three stacked layers representing Docker Compose stacks -->
+  <rect x="4" y="22" width="32" height="8" rx="2" fill="#3B82F6" opacity="0.9"/>
+  <rect x="6" y="14" width="28" height="8" rx="2" fill="#60A5FA" opacity="0.85"/>
+  <rect x="8" y="6" width="24" height="8" rx="2" fill="#93C5FD" opacity="0.8"/>
+  <!-- Container dots on each layer -->
+  <circle cx="12" cy="26" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="17" cy="26" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="22" cy="26" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="27" cy="26" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="14" cy="18" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="19" cy="18" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="24" cy="18" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="16" cy="10" r="1.5" fill="white" opacity="0.9"/>
+  <circle cx="21" cy="10" r="1.5" fill="white" opacity="0.9"/>
+  <!-- Upward arrow / management indicator -->
+  <path d="M32 8 L36 14 L33 14 L33 20 L31 20 L31 14 L28 14 Z" fill="#1D4ED8" opacity="0.7"/>
+</svg>
