@@ -134,17 +134,12 @@ func adminOnly(next http.Handler) http.Handler {
 	})
 }
 
-// SyncProjectPorts adds csf.allow rules for any host-mapped ports
-// from the given port strings (e.g. "0.0.0.0:8080->80/tcp"). Uses
-// csf.allow format "tcp|in|d=PORT|s=0.0.0.0/0" which takes effect
-// on the next csf -r without modifying csf.conf.
-//
-// Returns the list of newly added ports so the caller can decide
-// whether to prompt for a CSF restart.
-func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) []string {
-	if len(portStrings) == 0 {
-		return nil
-	}
+// ParseProjectPorts extracts host-mapped ports from Docker port
+// strings (e.g. "0.0.0.0:8080->80/tcp"). Returns unique port numbers.
+// Does NOT modify the firewall — the caller shows these to the user
+// so they know what to allow.
+func ParseProjectPorts(portStrings []string) []string {
+	seen := map[string]bool{}
 	var ports []string
 	for _, ps := range portStrings {
 		for _, mapping := range strings.Split(ps, ",") {
@@ -153,36 +148,22 @@ func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) []st
 				hostPart := mapping[:idx]
 				if colonIdx := strings.LastIndex(hostPart, ":"); colonIdx >= 0 {
 					port := strings.TrimSpace(hostPart[colonIdx+1:])
-					if port != "" && port != "0" {
+					if port != "" && port != "0" && !seen[port] {
+						seen[port] = true
 						ports = append(ports, port)
 					}
 				}
 			}
 		}
 	}
-	if len(ports) == 0 {
-		return nil
-	}
+	return ports
+}
 
-	// Read current csf.allow to see which ports are already allowed.
-	allowRaw, err := s.runHelper(ctx, commandTimeout, nil, "list-allow")
-	if errors.Is(err, errHelperMissing) || err != nil {
-		return nil
-	}
-
-	var added []string
-	for _, port := range ports {
-		rule := "tcp|in|d=" + port + "|s=0.0.0.0/0"
-		if strings.Contains(allowRaw, rule) {
-			continue
-		}
-		// Use allow-ip with the port rule format — csf -a accepts these.
-		_, err := s.runHelper(ctx, commandTimeout, nil, "allow-ip", rule, "Stack Manager project port "+port)
-		if err == nil {
-			added = append(added, port)
-		}
-	}
-	return added
+// SyncProjectPorts is kept as a no-op interface implementation.
+// Port management is manual — the UI shows which ports need opening
+// after a project starts.
+func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) []string {
+	return ParseProjectPorts(portStrings)
 }
 
 // AllowIP is called by the auth handler after a successful login. It
