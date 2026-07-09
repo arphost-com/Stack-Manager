@@ -82,10 +82,12 @@ MARIADB_ROOT_PASSWORD=change-me-root
     ports:
       - "${WEB_PORT:-8080}:80"
     volumes:
-      - ./html:/usr/share/nginx/html:ro
+      - web-html:/usr/share/nginx/html
+volumes:
+  web-html:
 `,
 			EnvContent: "WEB_PORT=8080\n",
-			Notes:      "Create an html directory beside compose.yml before starting, or edit the bind mount.",
+			Notes: "Drop files into the web-html volume or replace it with a `./html:/usr/share/nginx/html:ro` bind mount for host-side editing.",
 		},
 		{
 			ID:          "postgres",
@@ -279,11 +281,11 @@ GRAFANA_PORT=3000
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    command: ["caddy", "file-server", "--listen", ":80"]
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
 volumes:
@@ -291,7 +293,7 @@ volumes:
   caddy-config:
 `,
 			EnvContent: "HTTP_PORT=80\nHTTPS_PORT=443\n",
-			Notes:      "Create a Caddyfile beside compose.yml before starting.",
+			Notes: "Starts with a built-in file server. For reverse proxy or custom config, create a Caddyfile, add a `./Caddyfile:/etc/caddy/Caddyfile:ro` volume mount, and remove the command line.",
 		},
 		{
 			ID:          "nginx-proxy-manager",
@@ -1569,18 +1571,18 @@ volumes:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    command: ["caddy", "file-server", "--listen", ":80", "--root", "/usr/share/caddy"]
     ports:
       - "${CADDY_STATIC_PORT:-8080}:80"
     volumes:
-      - ./site:/usr/share/caddy:ro
+      - caddy-site:/usr/share/caddy
       - caddy-data:/data
-      - caddy-config:/config
 volumes:
+  caddy-site:
   caddy-data:
-  caddy-config:
 `,
 			EnvContent: "CADDY_STATIC_PORT=8080\n",
-			Notes:      "Create a site directory beside compose.yml before starting, or edit the bind mount.",
+			Notes: "Drop files into the caddy-site volume or replace it with a `./site:/usr/share/caddy:ro` bind mount.",
 		},
 		{
 			ID:          "crowdsec",
