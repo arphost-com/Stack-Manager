@@ -147,9 +147,14 @@ if [ "${agent_mode}" -eq 1 ]; then
   ensure_setting AGENT_NAME "$(detect_agent_name)"
   ensure_secret AGENT_TOKEN
   ensure_setting AGENT_PORT 8192
-  # Force-set instead of ensure_setting so the .env.example placeholder is
-  # replaced; operators still need to point this at their real controller.
-  set_env_value AGENT_CONTROLLER_URL https://change-me:8993
+  # Only set if empty or still the placeholder. Don't overwrite a URL the
+  # operator already configured.
+  current_controller="$(env_value AGENT_CONTROLLER_URL)"
+  case "${current_controller}" in
+    "" | *change-me*)
+      set_env_value AGENT_CONTROLLER_URL "https://change-me:8993"
+      ;;
+  esac
   ensure_setting AGENT_CHECKIN_SECONDS 60
 else
   set_env_value APP_MODE server
@@ -385,12 +390,19 @@ fi
 printf '\n'
 printf '============================================================\n'
 if [ "${agent_mode}" -eq 1 ]; then
+  controller_url="$(env_value AGENT_CONTROLLER_URL)"
   printf 'Stack Manager AGENT is ready.\n'
   printf '\n'
-  printf 'Agent URL:   %s\n' "${login_url}"
   printf 'Agent name:  %s\n' "$(env_value AGENT_NAME)"
   printf 'Agent token: %s\n' "$(env_value AGENT_TOKEN)"
+  printf 'Controller:  %s\n' "${controller_url}"
   printf '\n'
+  if printf '%s' "${controller_url}" | grep -q 'change-me'; then
+    printf '*** ACTION REQUIRED ***\n'
+    printf 'Edit .env and set AGENT_CONTROLLER_URL to your controller'\''s URL:\n'
+    printf '  Example: AGENT_CONTROLLER_URL=https://10.10.10.93:8993\n'
+    printf '\n'
+  fi
   printf 'Register from the controller: Settings > Agents.\n'
 else
   printf 'Stack Manager is ready.\n'
