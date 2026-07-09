@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 )
 
 type DockerSettingsHandler struct {
@@ -165,6 +168,28 @@ func (h *DockerSettingsHandler) runDocker(args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("DOCKER_DAEMON_DIR must be an absolute host path")
 	}
 	return exec.Command("docker", args...).CombinedOutput()
+}
+
+// RestartDocker restarts the Docker daemon on the host via nsenter.
+// This is needed after daemon.json changes and is equivalent to
+// running `systemctl restart docker` on the host. All containers will
+// briefly stop and restart.
+func (h *DockerSettingsHandler) RestartDocker(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "--", "systemctl", "restart", "docker")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to restart Docker: %s: %s", err.Error(), strings.TrimSpace(string(output))))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"output": strings.TrimSpace(string(output)),
+		"status": "Docker restarted. Containers with restart policies will come back automatically.",
+	})
 }
 
 func prettyJSON(config map[string]interface{}) string {

@@ -217,6 +217,7 @@ func main() {
 			r.Post("/metrics/refresh", metricsHandler.Refresh)
 			r.Get("/docker/daemon", dockerSettingsHandler.GetDaemon)
 			r.Put("/docker/daemon", dockerSettingsHandler.SaveDaemon)
+			r.Post("/docker/restart", dockerSettingsHandler.RestartDocker)
 
 			// Reverse proxy (NPM)
 			r.Get("/proxy/status", proxyHandler.Status)

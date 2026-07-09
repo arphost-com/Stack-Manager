@@ -244,6 +244,7 @@ export const registries = {
 export const dockerSettings = {
   daemon: () => request('/docker/daemon'),
   saveDaemon: (body) => request('/docker/daemon', { method: 'PUT', body: JSON.stringify(body) }),
+  restartDocker: () => request('/docker/restart', { method: 'POST' }),
 };
 
 export const proxy = {

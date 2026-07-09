@@ -1482,7 +1482,16 @@ export default function Settings() {
                 <h2 className="text-lg font-semibold text-gray-950">Docker Settings</h2>
                 <p className="text-sm text-gray-600">Edit the host Docker daemon configuration. Saves write `daemon.json`; Docker must be restarted on the host before settings apply.</p>
               </div>
-              <button type="button" onClick={loadDockerSettings} className="btn-secondary" title="Reload /etc/docker/daemon.json from the Docker host.">Reload</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={loadDockerSettings} className="btn-secondary" title="Reload /etc/docker/daemon.json from the Docker host.">Reload</button>
+                <button type="button" className="mini-danger" title="Restart the Docker daemon on the host via nsenter. All containers will briefly stop and restart with their restart policies." onClick={async () => {
+                  if (!window.confirm('Restart Docker on the host? All containers will briefly stop. Containers with restart policies come back automatically.')) return;
+                  try {
+                    const res = await dockerSettings.restartDocker();
+                    showMessage(res.data?.status || 'Docker restarted.');
+                  } catch (err) { showError(err); }
+                }}>Restart Docker</button>
+              </div>
             </div>
 
             {dockerStatus?.warnings?.length > 0 && (
