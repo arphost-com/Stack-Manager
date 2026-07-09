@@ -266,6 +266,31 @@ cmd_install() {
       printf '\nDOCKER = "1"\n' >> "$CSF_ETC/csf.conf"
     fi
 
+    # Auto-add Stack Manager + common service ports to TCP_IN so the
+    # dashboard, NPM admin, and SSH remain accessible after csf -r.
+    # Reads WEB_SSL_PORT from the .env beside the compose file if found.
+    sm_ssl_port=8993
+    for envfile in .env ../stack-manager/.env ../Stack-Manager/.env; do
+      if [[ -f "$envfile" ]]; then
+        val="$(awk -F= '/^WEB_SSL_PORT=/{print $2}' "$envfile" 2>/dev/null)"
+        [[ -n "$val" ]] && sm_ssl_port="$val"
+        break
+      fi
+    done
+    extra_ports="22,${sm_ssl_port},81"
+    current_tcp_in="$(awk -F'"' '/^TCP_IN\s*=/{print $2}' "$CSF_ETC/csf.conf" 2>/dev/null)"
+    needs_add=""
+    for p in ${extra_ports//,/ }; do
+      if ! printf '%s' ",$current_tcp_in," | grep -q ",$p,"; then
+        needs_add="${needs_add:+$needs_add,}$p"
+      fi
+    done
+    if [[ -n "$needs_add" ]]; then
+      new_tcp_in="${current_tcp_in},${needs_add}"
+      sed -i "s|^TCP_IN\s*=.*|TCP_IN = \"${new_tcp_in}\"|" "$CSF_ETC/csf.conf"
+      log "Added ports ${needs_add} to TCP_IN (now: ${new_tcp_in})"
+    fi
+
     # csfpre.sh — runs BEFORE csf flushes iptables.
     cat > "$CSF_ETC/csfpre.sh" << 'CSFPRE'
 #!/bin/bash
