@@ -13,9 +13,9 @@ import (
 )
 
 // PortSyncer is implemented by the firewall skill. It auto-adds
-// project ports to CSF's TCP_IN after a project is started.
+// project ports to CSF's csf.allow after a project is started.
 type PortSyncer interface {
-	SyncProjectPorts(ctx context.Context, portStrings []string)
+	SyncProjectPorts(ctx context.Context, portStrings []string) []string
 }
 
 // ProjectHandler handles all project-related API endpoints.

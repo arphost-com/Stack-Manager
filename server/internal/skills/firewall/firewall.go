@@ -134,15 +134,17 @@ func adminOnly(next http.Handler) http.Handler {
 	})
 }
 
-// SyncProjectPorts reads the current TCP_IN from csf.conf, adds any
-// host-mapped ports from the given port strings (e.g. "0.0.0.0:8080->80/tcp"),
-// and writes back if anything changed. Called after project up/update/create
-// so CSF doesn't block newly deployed stacks.
-func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) {
+// SyncProjectPorts adds csf.allow rules for any host-mapped ports
+// from the given port strings (e.g. "0.0.0.0:8080->80/tcp"). Uses
+// csf.allow format "tcp|in|d=PORT|s=0.0.0.0/0" which takes effect
+// on the next csf -r without modifying csf.conf.
+//
+// Returns the list of newly added ports so the caller can decide
+// whether to prompt for a CSF restart.
+func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) []string {
 	if len(portStrings) == 0 {
-		return
+		return nil
 	}
-	// Parse host ports from Docker port mappings like "0.0.0.0:8080->80/tcp"
 	var ports []string
 	for _, ps := range portStrings {
 		for _, mapping := range strings.Split(ps, ",") {
@@ -159,43 +161,28 @@ func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) {
 		}
 	}
 	if len(ports) == 0 {
-		return
+		return nil
 	}
 
-	// Read current TCP_IN, add missing ports, write back + restart
-	raw, err := s.runHelper(ctx, commandTimeout, nil, "read-config", "csf.conf")
+	// Read current csf.allow to see which ports are already allowed.
+	allowRaw, err := s.runHelper(ctx, commandTimeout, nil, "list-allow")
 	if errors.Is(err, errHelperMissing) || err != nil {
-		return
-	}
-	parsed := parseConfKeys(raw, []string{"TCP_IN"})
-	currentTCPIn := parsed["TCP_IN"]
-	if currentTCPIn == "" {
-		return
-	}
-
-	currentSet := map[string]bool{}
-	for _, p := range strings.Split(currentTCPIn, ",") {
-		currentSet[strings.TrimSpace(p)] = true
+		return nil
 	}
 
 	var added []string
-	for _, p := range ports {
-		if !currentSet[p] {
-			added = append(added, p)
-			currentSet[p] = true
+	for _, port := range ports {
+		rule := "tcp|in|d=" + port + "|s=0.0.0.0/0"
+		if strings.Contains(allowRaw, rule) {
+			continue
+		}
+		// Use allow-ip with the port rule format — csf -a accepts these.
+		_, err := s.runHelper(ctx, commandTimeout, nil, "allow-ip", rule, "Stack Manager project port "+port)
+		if err == nil {
+			added = append(added, port)
 		}
 	}
-	if len(added) == 0 {
-		return
-	}
-
-	newTCPIn := currentTCPIn + "," + strings.Join(added, ",")
-	updated := strings.ReplaceAll(applyConfChanges(raw, map[string]string{"tcp_in": newTCPIn}), "\x00", "")
-	_, _ = s.runHelper(ctx, commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
-	// Do NOT restart CSF here — csf -r flushes Docker's iptables chains
-	// which breaks the very container that just started. The ports are
-	// written to csf.conf and will take effect on the next manual
-	// csf -r or the next CSF restart from the Firewall panel.
+	return added
 }
 
 // AllowIP is called by the auth handler after a successful login. It
