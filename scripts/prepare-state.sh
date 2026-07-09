@@ -177,7 +177,11 @@ else
   ensure_setting SERVER_USER "$(id -u):$(id -g)"
 fi
 if [ "${agent_mode}" -eq 1 ]; then
-  ensure_setting HOST_URL "$(detect_host_url "$(env_value AGENT_PORT)")"
+  # Agent mode: HOST_URL is the inbound listener address for the
+  # controller to reach this agent. Use 0.0.0.0 so it binds all
+  # interfaces. The controller's AGENT_CONTROLLER_URL is what the
+  # agent phones home to — that's a separate setting.
+  ensure_setting HOST_URL "http://0.0.0.0:$(env_value AGENT_PORT)"
 else
   ensure_setting WEB_HTTP_PORT 8193
   ensure_setting WEB_SSL_PORT 8993
