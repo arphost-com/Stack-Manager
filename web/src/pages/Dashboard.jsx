@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
@@ -62,6 +62,137 @@ const updateStatusTone = (project) => {
   if (status.error) return 'amber';
   return 'gray';
 };
+
+// Small inline icons so the selector reads at a glance without an icon lib.
+function ServerIcon({ kind, className = 'h-4 w-4' }) {
+  if (kind === 'all') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3c2.5 2.5 3.5 5.7 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.7-3.5-9s1-6.5 3.5-9z" />
+      </svg>
+    );
+  }
+  if (kind === 'local') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <rect x="3" y="4" width="18" height="7" rx="1.5" />
+        <rect x="3" y="13" width="18" height="7" rx="1.5" />
+        <path d="M7 7.5h.01M7 16.5h.01" />
+      </svg>
+    );
+  }
+  // agent
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 2v6M9 8h6M8 8v3a4 4 0 0 0 8 0V8" />
+      <path d="M12 15v3a3 3 0 0 0 3 3h3" />
+    </svg>
+  );
+}
+
+// Custom server-filter dropdown. Replaces a bare <select> with an icon-led
+// control + popover so the active scope (controller vs a named agent) is
+// obvious at a glance. projects is already scoped to the current selection,
+// so the count reflects the active server only.
+function ServerSelector({ value, onChange, agents = [], projects = [] }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const options = [
+    { key: 'all', kind: 'all', label: 'All Servers', sub: 'Controller and every agent' },
+    { key: 'local', kind: 'local', label: 'This Server', sub: 'Local controller host' },
+    ...agents.map(a => ({
+      key: a.name,
+      kind: 'agent',
+      label: a.name,
+      sub: a.base_url || (a.mode === 'callback' ? 'Check-in agent' : 'Remote agent'),
+      enabled: a.enabled !== false,
+    })),
+  ];
+  const active = options.find(o => o.key === value) || options[0];
+  const tint = active.kind === 'all' ? 'bg-blue-100 text-blue-700'
+    : active.kind === 'local' ? 'bg-green-100 text-green-800'
+    : 'bg-violet-100 text-violet-800';
+
+  return (
+    <div className="relative inline-block" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Filter projects by server. Choose the controller, all servers, or a specific agent."
+        className="group inline-flex items-center gap-2.5 rounded-md border border-gray-300 bg-white py-1.5 pl-2 pr-2.5 shadow-sm transition-all duration-75 hover:bg-gray-50 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+      >
+        <span className={`flex h-7 w-7 items-center justify-center rounded-md ${tint}`}>
+          <ServerIcon kind={active.kind} />
+        </span>
+        <span className="flex flex-col items-start leading-tight">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Server</span>
+          <span className="max-w-[160px] truncate text-sm font-semibold text-gray-900">{active.label}</span>
+        </span>
+        <span className="ml-1 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">{projects.length}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl" role="listbox">
+          <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Filter by server</div>
+          {options.map((o, i) => {
+            const isActive = o.key === value;
+            const rowTint = o.kind === 'all' ? 'bg-blue-100 text-blue-700'
+              : o.kind === 'local' ? 'bg-green-100 text-green-800'
+              : 'bg-violet-100 text-violet-800';
+            return (
+              <div key={o.key}>
+                {o.kind === 'agent' && i > 0 && options[i - 1].kind !== 'agent' && (
+                  <div className="mx-2 my-1 border-t border-gray-100" />
+                )}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isActive}
+                  onClick={() => { onChange(o.key); setOpen(false); }}
+                  className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors ${isActive ? 'bg-gray-100' : 'hover:bg-gray-100'}`}
+                >
+                  <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${rowTint}`}>
+                    <ServerIcon kind={o.kind} className="h-4 w-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className="flex items-center gap-1.5">
+                      <span className={`truncate text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-900'}`}>{o.label}</span>
+                      {o.kind === 'agent' && (
+                        <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${o.enabled ? 'bg-green-500' : 'bg-gray-300'}`} title={o.enabled ? 'Enabled' : 'Disabled'} />
+                      )}
+                    </span>
+                    <span className="truncate text-xs text-gray-500">{o.sub}</span>
+                  </span>
+                  {isActive && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="ml-auto h-4 w-4 flex-shrink-0 text-blue-600">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   // Initial state hydrates from localStorage snapshot when one exists so
@@ -611,13 +742,13 @@ export default function Dashboard() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-gray-950">Stack Manager</h1>
-          <div className="mt-1 flex items-center gap-2">
-            <select className="input max-w-[200px]" value={serverSource} onChange={e => { const v = e.target.value; setServerSource(v); try { localStorage.setItem('cm_server_source', v); } catch {} }} title="Filter projects by server. 'All Servers' shows local + agent projects.">
-              <option value="all">All Servers</option>
-              <option value="local">This Server</option>
-              {agentList.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-            </select>
-            <span className="text-sm text-gray-600">{projectList.length} projects</span>
+          <div className="mt-2">
+            <ServerSelector
+              value={serverSource}
+              onChange={(v) => { setServerSource(v); try { localStorage.setItem('cm_server_source', v); } catch {} }}
+              agents={agentList}
+              projects={projectList}
+            />
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
