@@ -1402,6 +1402,7 @@ volumes:
 	templates = append(templates, linuxserverMediaTemplates()...)
 	templates = append(templates, gamingTemplates()...)
 	templates = append(templates, remoteDesktopTemplates()...)
+	templates = append(templates, openbrainTemplates()...)
 	// Deduplicate by ID — first occurrence wins so the primary
 	// templates.go definition takes precedence over fill templates.
 	seen := map[string]bool{}
@@ -3115,3 +3116,4 @@ volumes:
 		},
 	}
 }
+

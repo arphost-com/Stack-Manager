@@ -88,30 +88,6 @@ volumes:
 			Notes:      "This stack mounts the Docker socket so NanoClaw can launch isolated workers. Use only on hosts where that trust boundary is acceptable.",
 		},
 		{
-			ID: "hermes-agent", Name: "Hermes Agent",
-			Description: "Nous Research personal agent focused on learning from completed tasks and turning successful patterns into reusable skills.",
-			Category:    "ai", Subcategory: "personal-agents",
-			Source: "github", Image: "ghcr.io/nousresearch/hermes-agent:latest",
-			Tags: []string{"ai", "personal-agent", "memory", "nous"},
-			ComposeContent: `services:
-  hermes:
-    image: ghcr.io/nousresearch/hermes-agent:latest
-    command: ["hermes", "gateway", "--host", "0.0.0.0", "--port", "8080"]
-    environment:
-      HERMES_LLM_PROVIDER: ${HERMES_PROVIDER:-openai}
-      HERMES_LLM_API_KEY: ${HERMES_API_KEY:?set HERMES_API_KEY in .env}
-    ports:
-      - "${HERMES_PORT:-18793}:8080"
-    volumes:
-      - hermes-data:/data
-    restart: unless-stopped
-volumes:
-  hermes-data:
-`,
-			EnvContent: "HERMES_PORT=18793\nHERMES_PROVIDER=openai\nHERMES_API_KEY=\n",
-			Notes:      "Good second choice next to OpenClaw for solo-founder workflows where persistent improvement and reusable skills matter.",
-		},
-		{
 			ID: "moltworker", Name: "Moltworker",
 			Description: "Cloudflare-maintained OpenClaw worker/sandbox gateway for customers who want a Cloudflare-edge deployment path.",
 			Category:    "ai", Subcategory: "personal-agents",
