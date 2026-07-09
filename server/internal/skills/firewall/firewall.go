@@ -190,7 +190,7 @@ func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) {
 	}
 
 	newTCPIn := currentTCPIn + "," + strings.Join(added, ",")
-	updated := applyConfChanges(raw, map[string]string{"tcp_in": newTCPIn})
+	updated := strings.ReplaceAll(applyConfChanges(raw, map[string]string{"tcp_in": newTCPIn}), "\x00", "")
 	_, _ = s.runHelper(ctx, commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
 	_, _ = s.runHelper(ctx, commandTimeout, nil, "restart")
 }
@@ -395,11 +395,12 @@ func (s *Skill) handleWriteConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(body.Content) > 512*1024 {
+	content := strings.ReplaceAll(body.Content, "\x00", "")
+	if len(content) > 512*1024 {
 		writeError(w, http.StatusRequestEntityTooLarge, "config too large")
 		return
 	}
-	out, err := s.runHelper(r.Context(), commandTimeout, strings.NewReader(body.Content), "write-config", name)
+	out, err := s.runHelper(r.Context(), commandTimeout, strings.NewReader(content), "write-config", name)
 	writeCommandResult(w, out, err)
 }
 
@@ -499,7 +500,7 @@ func (s *Skill) handleSaveConfSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	updated := applyConfChanges(raw, body)
+	updated := strings.ReplaceAll(applyConfChanges(raw, body), "\x00", "")
 	_, err = s.runHelper(r.Context(), commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
