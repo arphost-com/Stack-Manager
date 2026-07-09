@@ -135,6 +135,9 @@ export const projects = {
   setUpdatePolicy: (name, body) => request(`/projects/${name}/update-policy`, { method: 'PUT', body: JSON.stringify(body) }),
   setInactive: (name, inactive) => request(`/projects/${name}/inactive`, { method: 'PUT', body: JSON.stringify({ inactive }) }),
   bulk: (action, body) => request(`/projects/bulk/${action}`, { method: 'POST', body: JSON.stringify(body) }),
+  files: (name) => request(`/projects/${encodeURIComponent(name)}/files`),
+  fileContent: (name, path) => request(`/projects/${encodeURIComponent(name)}/files/content?path=${encodeURIComponent(path)}`),
+  saveFile: (name, path, content) => request(`/projects/${encodeURIComponent(name)}/files/content`, { method: 'PUT', body: JSON.stringify({ path, content }) }),
 };
 
 export const updates = {

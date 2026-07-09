@@ -106,6 +106,7 @@ func main() {
 	watchHandler := handlers.NewWatchHandler(watchManager)
 	skillHandler := handlers.NewSkillHandler(registry)
 	shellHandler := handlers.NewShellHandler(engine)
+	projectFileHandler := handlers.NewProjectFileHandler(engine)
 	envSettingsHandler := handlers.NewEnvSettingsHandler(cfg.StateDir)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 	authHandler.IPAllower = firewallSkill
@@ -175,6 +176,10 @@ func main() {
 
 			r.Get("/projects/{name}/shell/containers", shellHandler.ListContainers)
 			r.Get("/projects/{name}/shell/exec", shellHandler.ExecWebSocket)
+
+			r.Get("/projects/{name}/files", projectFileHandler.ListFiles)
+			r.Get("/projects/{name}/files/content", projectFileHandler.ReadFile)
+			r.Put("/projects/{name}/files/content", projectFileHandler.WriteFile)
 
 			r.Post("/projects/{name}/update", projectHandler.Update)
 			r.Post("/projects/{name}/restart", projectHandler.Restart)

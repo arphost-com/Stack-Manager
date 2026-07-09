@@ -6,7 +6,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
-const TABS = ['overview', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
+const TABS = ['overview', 'config', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull and recreate containers, unless an update hook exists.' },
   { key: 'pull', label: 'Pull', title: 'Pull images without restarting containers.' },
@@ -327,6 +327,8 @@ export default function ProjectDetail() {
 
         <div className="pt-4">
           {activeTab === 'overview' && <Overview project={project} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
+          {activeTab === 'config' && <ConfigEditor projectName={name} />}
+
           {activeTab === 'docs' && <ProjectDocs docs={tabData || project.documentation || []} projectName={name} />}
 
           {activeTab === 'logs' && (
@@ -520,6 +522,85 @@ function ProjectDocs({ docs, projectName }) {
         {!loading && !error && (
           <pre className="max-h-[640px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs leading-6 text-gray-100 whitespace-pre-wrap">{docContent?.content || 'No content.'}</pre>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ConfigEditor({ projectName }) {
+  const [files, setFiles] = useState([]);
+  const [selectedFile, setSelectedFile] = useState('');
+  const [content, setContent] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await projects.files(projectName);
+        const all = (res.data || []).filter(f => f.editable);
+        setFiles(all);
+        if (all.length > 0 && !selectedFile) {
+          const compose = all.find(f => f.name === 'compose.yml' || f.name === 'docker-compose.yml');
+          setSelectedFile((compose || all[0]).name);
+        }
+      } catch {}
+    };
+    load();
+  }, [projectName]);
+
+  useEffect(() => {
+    if (!selectedFile) return;
+    const load = async () => {
+      try {
+        const res = await projects.fileContent(projectName, selectedFile);
+        setContent(res.data?.content || '');
+        setDirty(false);
+        setMessage('');
+      } catch (err) {
+        setContent('');
+        setMessage('Failed to load: ' + err.message);
+      }
+    };
+    load();
+  }, [selectedFile, projectName]);
+
+  const save = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await projects.saveFile(projectName, selectedFile, content);
+      setDirty(false);
+      setMessage(res.data?.hint || 'Saved.');
+    } catch (err) {
+      setMessage('Error: ' + err.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="File" title="Select a project config file to edit.">
+          <select className="input w-64" value={selectedFile} onChange={e => { setSelectedFile(e.target.value); }}>
+            {files.map(f => <option key={f.name} value={f.name}>{f.name} ({(f.size / 1024).toFixed(1)} KB)</option>)}
+          </select>
+        </Field>
+        <button className="btn-primary" disabled={!dirty || saving} onClick={save} title="Save the file. A .bak backup is created automatically.">{saving ? 'Saving...' : 'Save'}</button>
+        <button className="btn-secondary" disabled={!dirty} onClick={() => { setSelectedFile(selectedFile); }} title="Reload the file and discard changes.">Discard</button>
+      </div>
+      {message && <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{message}</div>}
+      {dirty && <div className="text-xs text-amber-700">Unsaved changes.</div>}
+      <textarea
+        className="w-full rounded-md border border-gray-700 bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100"
+        rows={24}
+        spellCheck={false}
+        value={content}
+        onChange={e => { setContent(e.target.value); setDirty(true); }}
+      />
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        After saving, run <code className="rounded bg-white/60 px-1">docker compose up -d</code> from the Shell tab or click Start/Restart to apply compose changes. <code className="rounded bg-white/60 px-1">.env</code> changes apply on the next container recreate.
       </div>
     </div>
   );
