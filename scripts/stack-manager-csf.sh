@@ -221,15 +221,22 @@ cmd_install() {
     printf 'already installed: %s\n' "$("$CSF_BIN" -v 2>&1 | head -1)"
     return 0
   fi
+
+  # Install prerequisites CSF needs at runtime.
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq unzip perl iptables >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y -q unzip perl iptables >/dev/null 2>&1 || true
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y -q unzip perl iptables >/dev/null 2>&1 || true
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache unzip perl iptables >/dev/null 2>&1 || true
+  fi
+
   local workdir=""
-  # ${workdir:-} guard keeps `set -u` happy if the trap fires before
-  # mktemp completes (mktemp itself fails on a full /tmp, etc.).
   trap 'rm -rf "${workdir:-}"' EXIT
   workdir="$(mktemp -d /tmp/stack-manager-csf-install.XXXXXX)"
   git clone --depth 1 "$UPSTREAM_URL" "$workdir/csf" >&2
-  # Look for the installer by file existence, not executable bit —
-  # `git clone` on some hosts strips +x from tracked files. csf is
-  # designed to be run via `sh install.sh` anyway.
   local installer=""
   if [[ -f "$workdir/csf/install.sh" ]]; then
     installer="install.sh"
@@ -240,6 +247,51 @@ cmd_install() {
   fi
   ( cd "$workdir/csf" && sh "$installer" )
   [[ -x "$CSF_BIN" ]] || die "install did not produce $CSF_BIN"
+
+  # --- Docker compatibility ---
+  # CSF flushes all iptables rules on restart, which destroys Docker's
+  # NAT/FORWARD chains and breaks container networking. Fix:
+  # 1. Set DOCKER = "1" in csf.conf (tells CSF to accommodate Docker).
+  # 2. Write csfpre.sh to save Docker's iptables state before flush.
+  # 3. Write csfpost.sh to restart Docker after CSF applies its rules
+  #    so Docker re-inserts its chains cleanly.
+  if command -v docker >/dev/null 2>&1; then
+    log "Docker detected — configuring CSF for Docker compatibility"
+    # Enable DOCKER mode in csf.conf if the setting exists.
+    if grep -q '^DOCKER\s*=' "$CSF_ETC/csf.conf" 2>/dev/null; then
+      sed -i 's/^DOCKER\s*=.*/DOCKER = "1"/' "$CSF_ETC/csf.conf"
+    elif grep -q '^#.*DOCKER\s*=' "$CSF_ETC/csf.conf" 2>/dev/null; then
+      sed -i 's/^#.*DOCKER\s*=.*/DOCKER = "1"/' "$CSF_ETC/csf.conf"
+    else
+      printf '\nDOCKER = "1"\n' >> "$CSF_ETC/csf.conf"
+    fi
+
+    # csfpre.sh — runs BEFORE csf flushes iptables.
+    cat > "$CSF_ETC/csfpre.sh" << 'CSFPRE'
+#!/bin/bash
+# Save Docker iptables state before CSF flushes everything.
+# csfpost.sh will restart Docker to re-create the chains cleanly.
+iptables-save > /tmp/.csf-docker-iptables-backup 2>/dev/null || true
+CSFPRE
+    chmod 700 "$CSF_ETC/csfpre.sh"
+
+    # csfpost.sh — runs AFTER csf applies its rules.
+    cat > "$CSF_ETC/csfpost.sh" << 'CSFPOST'
+#!/bin/bash
+# Restart Docker so it re-inserts its NAT, FORWARD, and DOCKER chains
+# on top of CSF's rules. This is the most reliable approach — surgical
+# iptables re-insertion breaks when Docker networks or containers change.
+# Containers with restart policies come back automatically.
+echo "[csfpost] Restarting Docker to restore container networking..."
+systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || true
+# Brief pause for Docker to finish re-creating its chains.
+sleep 2
+echo "[csfpost] Docker restarted."
+CSFPOST
+    chmod 700 "$CSF_ETC/csfpost.sh"
+    log "Wrote $CSF_ETC/csfpre.sh and $CSF_ETC/csfpost.sh for Docker compatibility"
+  fi
+
   "$CSF_BIN" -v
 }
 
