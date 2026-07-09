@@ -275,6 +275,47 @@ chmod 2775 "${state_dir}/ssl" "${state_dir}/ssl/acme-webroot"
 printf '%s\n' "Prepared ${state_dir} for ${state_uid}:${state_gid}."
 printf '%s\n' "Prepared ${backup_target_root} for backup endpoint mounts."
 
+# Fix Docker DNS on hosts using systemd-resolved. The stub resolver at
+# 127.0.0.53 is unreachable from inside Docker containers because they
+# have a different network namespace. Detect it and add public DNS to
+# daemon.json so Docker builds and container DNS resolution work.
+docker_daemon_json="${DOCKER_DAEMON_DIR:-/etc/docker}/daemon.json"
+if command -v docker >/dev/null 2>&1; then
+  resolv_ns="$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null || true)"
+  if [ "${resolv_ns}" = "127.0.0.53" ] || [ "${resolv_ns}" = "127.0.0.1" ]; then
+    # Check if daemon.json already has a dns key.
+    has_dns=0
+    if [ -f "${docker_daemon_json}" ]; then
+      grep -q '"dns"' "${docker_daemon_json}" 2>/dev/null && has_dns=1
+    fi
+    if [ "${has_dns}" -eq 0 ]; then
+      printf '%s\n' "Detected systemd-resolved stub (${resolv_ns}). Adding public DNS to ${docker_daemon_json} so Docker containers can resolve hostnames."
+      if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json, os
+path = '${docker_daemon_json}'
+d = {}
+if os.path.exists(path):
+    with open(path) as f: d = json.load(f)
+d.setdefault('dns', ['8.8.8.8', '1.1.1.1'])
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, 'w') as f: json.dump(d, f, indent=2)
+"
+      else
+        # Minimal fallback without python3.
+        if [ ! -f "${docker_daemon_json}" ]; then
+          mkdir -p "$(dirname "${docker_daemon_json}")"
+          printf '{"dns":["8.8.8.8","1.1.1.1"]}\n' > "${docker_daemon_json}"
+        fi
+      fi
+      if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker 2>/dev/null; then
+        systemctl restart docker
+        printf '%s\n' "Docker restarted with public DNS."
+      fi
+    fi
+  fi
+fi
+
 printf '%s\n' ""
 printf '%s\n' "Stack Manager settings written to ${env_file}:"
 if [ "${agent_mode}" -eq 1 ]; then
