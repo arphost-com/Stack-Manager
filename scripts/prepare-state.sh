@@ -141,10 +141,9 @@ if [ ! -f "${env_file}" ]; then
 fi
 
 if [ "${agent_mode}" -eq 1 ]; then
-  # APP_MODE default for agent installs is outbound check-in. Operators can
-  # override to "agent" (inbound listener) or "agent-both" (combined) either
-  # inline (APP_MODE=agent docker compose ... up -d) or by editing .env.
-  ensure_setting APP_MODE agent-callback
+  # APP_MODE must be force-set because .env.example ships with
+  # APP_MODE=server which ensure_setting would not overwrite.
+  set_env_value APP_MODE agent-callback
   ensure_setting AGENT_NAME "$(detect_agent_name)"
   ensure_secret AGENT_TOKEN
   ensure_setting AGENT_PORT 8192
