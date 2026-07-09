@@ -64,7 +64,7 @@ export default function Layout() {
       </main>
       <footer className="mx-auto flex max-w-7xl items-center justify-end gap-3 px-6 pb-6 text-right text-sm">
         <span className="brand-wordmark text-lg text-blue-800">ARPHost Stack Manager</span>
-        <span className="text-xs text-gray-400">v1.0.0</span>
+        <span className="text-xs text-gray-400">v1.1.0</span>
         <a href="https://arphost.com" className="text-blue-700 hover:underline" title="Open ARPHost website.">arphost.com</a>
       </footer>
     </div>
