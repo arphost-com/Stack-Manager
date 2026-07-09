@@ -12,12 +12,19 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// PortSyncer is implemented by the firewall skill. It auto-adds
+// project ports to CSF's TCP_IN after a project is started.
+type PortSyncer interface {
+	SyncProjectPorts(ctx context.Context, portStrings []string)
+}
+
 // ProjectHandler handles all project-related API endpoints.
 type ProjectHandler struct {
 	Engine       *core.Engine
 	Jobs         *core.JobManager
 	Store        *storage.Store
 	UpdateChecks *core.UpdateCheckManager
+	PortSyncer   PortSyncer
 }
 
 // NewProjectHandler creates a new ProjectHandler.
@@ -27,6 +34,27 @@ func NewProjectHandler(engine *core.Engine, jobs *core.JobManager, store *storag
 
 func (h *ProjectHandler) SetUpdateCheckManager(manager *core.UpdateCheckManager) {
 	h.UpdateChecks = manager
+}
+
+// syncPorts fires a best-effort CSF port sync after a project starts.
+// Runs in a goroutine so it doesn't slow down the API response.
+func (h *ProjectHandler) syncPorts(ctx context.Context, projectName string) {
+	if h.PortSyncer == nil {
+		return
+	}
+	go func() {
+		project, err := h.Engine.GetProject(projectName)
+		if err != nil || project == nil {
+			return
+		}
+		var portStrings []string
+		for _, c := range project.Containers {
+			if c.Ports != "" {
+				portStrings = append(portStrings, c.Ports)
+			}
+		}
+		h.PortSyncer.SyncProjectPorts(ctx, portStrings)
+	}()
 }
 
 // Create creates a new compose project under the configured root.
@@ -180,6 +208,7 @@ func (h *ProjectHandler) Up(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := h.Engine.Up(project)
+	h.syncPorts(r.Context(), project.Name)
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -205,6 +234,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results := h.Engine.Update(project, timeout)
+	h.syncPorts(r.Context(), project.Name)
 	writeJSON(w, http.StatusOK, results)
 }
 

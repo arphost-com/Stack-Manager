@@ -312,6 +312,13 @@ nohup bash -c 'sleep 5 && (systemctl restart docker 2>/dev/null || service docke
 CSFPOST
     chmod 700 "$CSF_ETC/csfpost.sh"
     log "Wrote $CSF_ETC/csfpre.sh and $CSF_ETC/csfpost.sh for Docker compatibility"
+
+    # Disable testing mode — the essential ports (SSH, dashboard, NPM)
+    # are already added to TCP_IN so it's safe to go live immediately.
+    if grep -q '^TESTING\s*=\s*"1"' "$CSF_ETC/csf.conf" 2>/dev/null; then
+      sed -i 's/^TESTING\s*=.*/TESTING = "0"/' "$CSF_ETC/csf.conf"
+      log "Disabled testing mode (TESTING=0) — essential ports are open"
+    fi
   fi
 
   "$CSF_BIN" -v

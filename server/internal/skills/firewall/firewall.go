@@ -134,6 +134,67 @@ func adminOnly(next http.Handler) http.Handler {
 	})
 }
 
+// SyncProjectPorts reads the current TCP_IN from csf.conf, adds any
+// host-mapped ports from the given port strings (e.g. "0.0.0.0:8080->80/tcp"),
+// and writes back if anything changed. Called after project up/update/create
+// so CSF doesn't block newly deployed stacks.
+func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) {
+	if len(portStrings) == 0 {
+		return
+	}
+	// Parse host ports from Docker port mappings like "0.0.0.0:8080->80/tcp"
+	var ports []string
+	for _, ps := range portStrings {
+		for _, mapping := range strings.Split(ps, ",") {
+			mapping = strings.TrimSpace(mapping)
+			if idx := strings.Index(mapping, "->"); idx > 0 {
+				hostPart := mapping[:idx]
+				if colonIdx := strings.LastIndex(hostPart, ":"); colonIdx >= 0 {
+					port := strings.TrimSpace(hostPart[colonIdx+1:])
+					if port != "" && port != "0" {
+						ports = append(ports, port)
+					}
+				}
+			}
+		}
+	}
+	if len(ports) == 0 {
+		return
+	}
+
+	// Read current TCP_IN, add missing ports, write back + restart
+	raw, err := s.runHelper(ctx, commandTimeout, nil, "read-config", "csf.conf")
+	if errors.Is(err, errHelperMissing) || err != nil {
+		return
+	}
+	parsed := parseConfKeys(raw, []string{"TCP_IN"})
+	currentTCPIn := parsed["TCP_IN"]
+	if currentTCPIn == "" {
+		return
+	}
+
+	currentSet := map[string]bool{}
+	for _, p := range strings.Split(currentTCPIn, ",") {
+		currentSet[strings.TrimSpace(p)] = true
+	}
+
+	var added []string
+	for _, p := range ports {
+		if !currentSet[p] {
+			added = append(added, p)
+			currentSet[p] = true
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+
+	newTCPIn := currentTCPIn + "," + strings.Join(added, ",")
+	updated := applyConfChanges(raw, map[string]string{"tcp_in": newTCPIn})
+	_, _ = s.runHelper(ctx, commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
+	_, _ = s.runHelper(ctx, commandTimeout, nil, "restart")
+}
+
 // AllowIP is called by the auth handler after a successful login. It
 // swallows errors (they're logged by runHelper stderr) so a firewall
 // misconfiguration cannot break login. It also skips loopback / unspec

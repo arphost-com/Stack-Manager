@@ -95,6 +95,7 @@ func main() {
 	// Handlers
 	projectHandler := handlers.NewProjectHandler(engine, jobs, appStore)
 	projectHandler.SetUpdateCheckManager(updateChecker)
+	projectHandler.PortSyncer = firewallSkill
 	agentHandler := handlers.NewAgentHandler(appStore)
 	agentCheckinHandler := handlers.NewAgentCheckinHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
