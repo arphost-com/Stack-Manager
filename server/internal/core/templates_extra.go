@@ -1774,29 +1774,7 @@ volumes:
 		},
 
 		// ---- Non-AI: proxy +7 ----
-		{
-			ID: "nginx-proxy-manager", Name: "Nginx Proxy Manager", Description: "Web UI for managing Nginx reverse proxies and Let's Encrypt certs.",
-			Category: "proxy",
-			Source: "docker-hub", Image: "jc21/nginx-proxy-manager:latest",
-			Tags: []string{"proxy", "reverse-proxy"},
-			ComposeContent: `services:
-  npm:
-    image: jc21/nginx-proxy-manager:latest
-    ports:
-      - "${NPM_HTTP:-80}:80"
-      - "${NPM_ADMIN:-81}:81"
-      - "${NPM_HTTPS:-443}:443"
-    volumes:
-      - npm-data:/data
-      - npm-letsencrypt:/etc/letsencrypt
-    restart: unless-stopped
-volumes:
-  npm-data:
-  npm-letsencrypt:
-`,
-			EnvContent: "NPM_HTTP=80\nNPM_ADMIN=81\nNPM_HTTPS=443\n",
-			Notes:      "First login: admin@example.com / changeme. Update credentials immediately.",
-		},
+		// nginx-proxy-manager is defined in templates.go with correct env var names.
 		{
 			ID: "haproxy", Name: "HAProxy", Description: "Reliable, high-performance L4/L7 load balancer.",
 			Category: "proxy",

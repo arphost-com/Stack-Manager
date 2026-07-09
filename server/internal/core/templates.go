@@ -1402,10 +1402,21 @@ volumes:
 	templates = append(templates, linuxserverMediaTemplates()...)
 	templates = append(templates, gamingTemplates()...)
 	templates = append(templates, remoteDesktopTemplates()...)
-	sort.Slice(templates, func(i, j int) bool {
-		return templates[i].Name < templates[j].Name
+	// Deduplicate by ID — first occurrence wins so the primary
+	// templates.go definition takes precedence over fill templates.
+	seen := map[string]bool{}
+	deduped := make([]StackTemplate, 0, len(templates))
+	for _, t := range templates {
+		if seen[t.ID] {
+			continue
+		}
+		seen[t.ID] = true
+		deduped = append(deduped, t)
+	}
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Name < deduped[j].Name
 	})
-	return templates
+	return deduped
 }
 
 func categoryExpansionStackTemplates() []StackTemplate {
