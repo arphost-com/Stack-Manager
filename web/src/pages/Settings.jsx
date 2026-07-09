@@ -2160,6 +2160,92 @@ export default function Settings() {
                 </div>
                 <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-950 p-3 font-mono text-xs text-gray-100 whitespace-pre-wrap break-all">{firewallLog || '(empty)'}</pre>
               </div>
+
+              <div className="section-panel space-y-3">
+                <h3 className="text-base font-semibold text-gray-950">CSF Documentation</h3>
+
+                <div className="space-y-4 text-sm text-gray-700">
+                  <div>
+                    <h4 className="font-semibold text-gray-950">What is CSF?</h4>
+                    <p className="mt-1">ConfigServer Security &amp; Firewall (CSF) is an iptables/nftables-based firewall for Linux. It manages INPUT, OUTPUT, and FORWARD chains to control which network traffic is allowed to and from your server. LFD (Login Failure Daemon) monitors log files for repeated failed login attempts and temporarily blocks offending IPs.</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Testing Mode vs Production</h4>
+                    <p className="mt-1"><strong>Testing mode (TESTING=1)</strong> loads your firewall rules but automatically flushes them after 5 minutes. This is a safety net: if you lock yourself out with a bad rule, wait 5 minutes and your connection will be restored. Once your port rules are verified, uncheck Testing mode and click Restart csf to switch to production mode where rules persist permanently.</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Port Configuration</h4>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      <li><strong>TCP IN</strong> — ports other machines connect TO on your server: SSH (22), HTTP (80), HTTPS (443), and any Stack Manager or project ports (8993, 3000, etc.).</li>
+                      <li><strong>TCP OUT</strong> — ports your server connects OUT on: DNS (53), HTTP/HTTPS (80, 443), SMTP (25, 587), and Docker registry pulls.</li>
+                      <li><strong>UDP IN/OUT</strong> — same concept for UDP. Typically DNS (53), NTP (123), and WireGuard (51820) if used.</li>
+                    </ul>
+                    <p className="mt-2">If a port is not listed in the appropriate direction, CSF blocks it. Always include your SSH port (usually 22) in TCP IN or you will lose remote access.</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">CSF + Docker</h4>
+                    <p className="mt-1">Docker and CSF both manage iptables rules. Without configuration, <code className="rounded bg-gray-100 px-1">csf -r</code> (restart) flushes Docker's NAT and FORWARD chains, breaking container networking. Stack Manager handles this automatically:</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      <li><strong>DOCKER=1</strong> in csf.conf tells CSF to accommodate Docker's chains (auto-set during install).</li>
+                      <li><strong>csfpost.sh</strong> runs <code className="rounded bg-gray-100 px-1">systemctl restart docker</code> after every <code className="rounded bg-gray-100 px-1">csf -r</code> so Docker cleanly re-creates its chains.</li>
+                      <li><strong>csfpre.sh</strong> saves the iptables state before CSF flushes, as a safety backup.</li>
+                    </ul>
+                    <p className="mt-2">If container networking ever breaks after a CSF restart, run <code className="rounded bg-gray-100 px-1">systemctl restart docker</code> on the host (or use the Restart Docker button in Docker Settings).</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Allow / Deny Lists</h4>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      <li><strong>csf.allow</strong> — IPs that are always permitted, regardless of port rules. Use for your admin IP, office range, or VPN exit.</li>
+                      <li><strong>csf.deny</strong> — IPs that are always blocked. LFD adds entries here when it detects brute-force attacks.</li>
+                      <li><strong>csf.ignore</strong> — IPs that LFD should never block (even if they trigger login failures). Useful for monitoring systems that generate auth errors.</li>
+                    </ul>
+                    <p className="mt-2">Stack Manager auto-allows the caller's IP on every successful dashboard login. This means you can always reach the dashboard from your current IP, even after tightening firewall rules.</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Common Scenarios</h4>
+                    <div className="mt-1 overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead><tr className="border-b border-gray-200 text-gray-500"><th className="py-1 pr-3">Scenario</th><th className="py-1">Ports to add to TCP IN</th></tr></thead>
+                        <tbody>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">Web server (HTTP + HTTPS)</td><td className="py-1 font-mono">80, 443</td></tr>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">Stack Manager default</td><td className="py-1 font-mono">8993 (or 443 if using standard ports)</td></tr>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">Nginx Proxy Manager admin</td><td className="py-1 font-mono">81</td></tr>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">Mail server</td><td className="py-1 font-mono">25, 110, 143, 465, 587, 993, 995</td></tr>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">WireGuard VPN</td><td className="py-1 font-mono">51820 (UDP IN)</td></tr>
+                          <tr className="border-b border-gray-100"><td className="py-1 pr-3">Docker project on custom port</td><td className="py-1 font-mono">the host-mapped port from docker compose</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Troubleshooting</h4>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      <li><strong>Locked out?</strong> If testing mode was on, wait 5 minutes. If not, access the server via console/IPMI and run <code className="rounded bg-gray-100 px-1">csf -x</code> to disable the firewall temporarily.</li>
+                      <li><strong>Docker containers can't reach the internet?</strong> Run <code className="rounded bg-gray-100 px-1">systemctl restart docker</code> on the host. CSF may have flushed Docker's iptables chains.</li>
+                      <li><strong>LFD keeps blocking legitimate IPs?</strong> Add them to csf.ignore (not csf.allow — ignore prevents the block; allow overrides it after the fact).</li>
+                      <li><strong>High CPU from LFD?</strong> Set <code className="rounded bg-gray-100 px-1">PT_USERMEM</code> and <code className="rounded bg-gray-100 px-1">PT_USERTIME</code> to 0 in csf.conf to disable process tracking if you don't need it.</li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Host Setup</h4>
+                    <p className="mt-1">CSF is managed from the dashboard but the host needs a one-time helper script install:</p>
+                    <pre className="mt-2 rounded bg-gray-950 p-2 font-mono text-xs text-gray-100">sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf</pre>
+                    <p className="mt-2">After that, use the Install csf button above. The installer auto-configures Docker mode and creates the csfpre/csfpost scripts.</p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-950">Upstream</h4>
+                    <p className="mt-1">Stack Manager uses the community fork at <a className="underline" href="https://github.com/Black-HOST/csf" target="_blank" rel="noreferrer">Black-HOST/csf</a>. The original ConfigServer development was discontinued in August 2025; the community fork continues active maintenance.</p>
+                  </div>
+                </div>
+              </div>
             </>
           )}
         </div>
