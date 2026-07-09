@@ -136,6 +136,8 @@ export default function Settings() {
   const [firewallIPForm, setFirewallIPForm] = useState({ ip: '', comment: '' });
   const [firewallMyIP, setFirewallMyIP] = useState('');
   const [firewallBusy, setFirewallBusy] = useState(false);
+  const [firewallConf, setFirewallConf] = useState(null);
+  const [firewallConfForm, setFirewallConfForm] = useState({});
   const [generalSettings, setGeneralSettings] = useState(null);
   const [generalForm, setGeneralForm] = useState({});
   const [rolledAPIKey, setRolledAPIKey] = useState('');
@@ -321,7 +323,7 @@ export default function Settings() {
       setFirewallStatus(statusRes.data);
       setFirewallMyIP(myIpRes.data?.ip || '');
       if (statusRes.data?.installed) {
-        await Promise.all([loadFirewallLists(), loadFirewallLog(firewallLogLines)]);
+        await Promise.all([loadFirewallLists(), loadFirewallLog(firewallLogLines), loadFirewallConf()]);
       }
     } catch (err) {
       showError(err);
@@ -425,6 +427,23 @@ export default function Settings() {
       const res = await firewallApi.allowMyIP();
       showMessage(`allowed ${res.data?.ip}: ${res.data?.output?.trim() || 'ok'}`);
       await loadFirewallLists();
+    } catch (err) { showError(err); } finally { setFirewallBusy(false); }
+  };
+
+  const loadFirewallConf = async () => {
+    try {
+      const res = await firewallApi.confSettings();
+      setFirewallConf(res.data);
+      setFirewallConfForm(res.data);
+    } catch {}
+  };
+
+  const saveFirewallConf = async () => {
+    setFirewallBusy(true);
+    try {
+      const res = await firewallApi.saveConfSettings(firewallConfForm);
+      showMessage(res.data?.hint || 'Saved.');
+      setFirewallConf(firewallConfForm);
     } catch (err) { showError(err); } finally { setFirewallBusy(false); }
   };
 
@@ -2052,9 +2071,56 @@ export default function Settings() {
                 </div>
               </div>
 
+              {firewallConf && (
+                <div className="section-panel space-y-4">
+                  <h3 className="text-base font-semibold text-gray-950">Firewall Settings</h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <label className="flex items-center gap-2 text-sm" title="TESTING=1 means csf writes rules but flushes on lfd restart. Disable testing mode once your ports are correct so rules persist.">
+                      <input type="checkbox" checked={firewallConfForm.testing === '1'} onChange={e => setFirewallConfForm({ ...firewallConfForm, testing: e.target.checked ? '1' : '0' })} />
+                      <span>Testing mode <span className="text-xs text-gray-500">(TESTING)</span></span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm" title="Enable Docker compatibility so CSF accommodates Docker's iptables chains.">
+                      <input type="checkbox" checked={firewallConfForm.docker === '1'} onChange={e => setFirewallConfForm({ ...firewallConfForm, docker: e.target.checked ? '1' : '0' })} />
+                      <span>Docker mode <span className="text-xs text-gray-500">(DOCKER)</span></span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm" title="Enable SYN flood protection.">
+                      <input type="checkbox" checked={firewallConfForm.synflood === '1'} onChange={e => setFirewallConfForm({ ...firewallConfForm, synflood: e.target.checked ? '1' : '0' })} />
+                      <span>SYN flood protection</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm" title="Restrict syslog/kernel logging to prevent log injection attacks. 0=off, 3=most restrictive.">
+                      <span className="whitespace-nowrap">Syslog restrict</span>
+                      <select className="input w-16" value={firewallConfForm.restrict_syslog || '0'} onChange={e => setFirewallConfForm({ ...firewallConfForm, restrict_syslog: e.target.value })}>
+                        <option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="TCP IN (incoming)" hint="Ports people connect TO (SSH, HTTP, HTTPS, etc.)" title="Comma-separated list of allowed incoming TCP ports.">
+                      <input className="input font-mono text-xs" value={firewallConfForm.tcp_in || ''} onChange={e => setFirewallConfForm({ ...firewallConfForm, tcp_in: e.target.value })} placeholder="22,80,443" />
+                    </Field>
+                    <Field label="TCP OUT (outgoing)" hint="Ports your server connects OUT on (DNS, HTTP, SMTP, etc.)" title="Comma-separated list of allowed outgoing TCP ports.">
+                      <input className="input font-mono text-xs" value={firewallConfForm.tcp_out || ''} onChange={e => setFirewallConfForm({ ...firewallConfForm, tcp_out: e.target.value })} placeholder="20,21,22,25,53,80,110,113,443" />
+                    </Field>
+                    <Field label="UDP IN" title="Comma-separated list of allowed incoming UDP ports.">
+                      <input className="input font-mono text-xs" value={firewallConfForm.udp_in || ''} onChange={e => setFirewallConfForm({ ...firewallConfForm, udp_in: e.target.value })} placeholder="20,21,53" />
+                    </Field>
+                    <Field label="UDP OUT" title="Comma-separated list of allowed outgoing UDP ports.">
+                      <input className="input font-mono text-xs" value={firewallConfForm.udp_out || ''} onChange={e => setFirewallConfForm({ ...firewallConfForm, udp_out: e.target.value })} placeholder="20,21,53,113,123" />
+                    </Field>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button className="btn-primary" disabled={firewallBusy} onClick={saveFirewallConf} title="Save changes to csf.conf. Click Restart csf to apply.">Save Settings</button>
+                    <button className="btn-secondary" disabled={firewallBusy} onClick={loadFirewallConf}>Reset</button>
+                    <button className="btn-secondary" disabled={firewallBusy} onClick={restartFirewall} title="Apply saved settings by running csf -r.">Restart csf</button>
+                  </div>
+                </div>
+              )}
+
               <div className="section-panel">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold text-gray-950">Config file</h3>
+                  <h3 className="text-base font-semibold text-gray-950">Advanced: raw config file</h3>
                   <div className="flex flex-wrap gap-2">
                     <select className="input" value={firewallConfigName} onChange={e => setFirewallConfigName(e.target.value)}>
                       {['csf.conf', 'csf.allow', 'csf.deny', 'csf.ignore', 'csf.pignore'].map(name => <option key={name} value={name}>{name}</option>)}

@@ -284,6 +284,8 @@ export const firewall = {
   readConfig: (name) => request(`/skills/firewall/config/${encodeURIComponent(name)}`),
   writeConfig: (name, content) => request(`/skills/firewall/config/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   tailLog: (lines = 200) => request(`/skills/firewall/log?lines=${encodeURIComponent(lines)}`),
+  confSettings: () => request('/skills/firewall/conf-settings'),
+  saveConfSettings: (body) => request('/skills/firewall/conf-settings', { method: 'PUT', body: JSON.stringify(body) }),
   clientIP: () => request('/skills/firewall/client-ip'),
   allowMyIP: () => request('/skills/firewall/allow-my-ip', { method: 'POST' }),
 };

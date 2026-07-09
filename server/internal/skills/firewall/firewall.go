@@ -118,6 +118,8 @@ func (s *Skill) RegisterRoutes(r chi.Router) {
 		gr.Delete("/ips/{ip}", s.handleRemoveIP)
 		gr.Get("/config/{name}", s.handleReadConfig)
 		gr.Put("/config/{name}", s.handleWriteConfig)
+		gr.Get("/conf-settings", s.handleGetConfSettings)
+		gr.Put("/conf-settings", s.handleSaveConfSettings)
 		gr.Get("/log", s.handleTailLog)
 		gr.Post("/allow-my-ip", s.handleAllowMyIP)
 	})
@@ -372,6 +374,140 @@ func (s *Skill) handleAllowMyIP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"ip": ip, "output": out})
+}
+
+// --- csf.conf structured settings -------------------------------------------
+
+type confSettings struct {
+	Testing       string `json:"testing"`
+	TCPIn         string `json:"tcp_in"`
+	TCPOut        string `json:"tcp_out"`
+	UDPIn         string `json:"udp_in"`
+	UDPOut        string `json:"udp_out"`
+	TCP6In        string `json:"tcp6_in"`
+	TCP6Out       string `json:"tcp6_out"`
+	UDP6In        string `json:"udp6_in"`
+	UDP6Out       string `json:"udp6_out"`
+	Syslog        string `json:"restrict_syslog"`
+	SynFlood      string `json:"synflood"`
+	ConnLimit     string `json:"connlimit"`
+	PortFlood     string `json:"portflood"`
+	Docker        string `json:"docker"`
+}
+
+var confKeys = []string{
+	"TESTING", "TCP_IN", "TCP_OUT", "UDP_IN", "UDP_OUT",
+	"TCP6_IN", "TCP6_OUT", "UDP6_IN", "UDP6_OUT",
+	"RESTRICT_SYSLOG", "SYNFLOOD", "CONNLIMIT", "PORTFLOOD", "DOCKER",
+}
+
+func (s *Skill) handleGetConfSettings(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.runHelper(r.Context(), commandTimeout, nil, "read-config", "csf.conf")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	parsed := parseConfKeys(raw, confKeys)
+	settings := confSettings{
+		Testing:   parsed["TESTING"],
+		TCPIn:     parsed["TCP_IN"],
+		TCPOut:    parsed["TCP_OUT"],
+		UDPIn:     parsed["UDP_IN"],
+		UDPOut:    parsed["UDP_OUT"],
+		TCP6In:    parsed["TCP6_IN"],
+		TCP6Out:   parsed["TCP6_OUT"],
+		UDP6In:    parsed["UDP6_IN"],
+		UDP6Out:   parsed["UDP6_OUT"],
+		Syslog:    parsed["RESTRICT_SYSLOG"],
+		SynFlood:  parsed["SYNFLOOD"],
+		ConnLimit: parsed["CONNLIMIT"],
+		PortFlood: parsed["PORTFLOOD"],
+		Docker:    parsed["DOCKER"],
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (s *Skill) handleSaveConfSettings(w http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	raw, err := s.runHelper(r.Context(), commandTimeout, nil, "read-config", "csf.conf")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated := applyConfChanges(raw, body)
+	_, err = s.runHelper(r.Context(), commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"saved": "csf.conf", "hint": "Click Restart csf to apply."})
+}
+
+func parseConfKeys(content string, keys []string) map[string]string {
+	keySet := map[string]bool{}
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	result := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.Index(line, "=")
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		if !keySet[key] {
+			continue
+		}
+		val := strings.TrimSpace(line[idx+1:])
+		val = strings.Trim(val, `"'`)
+		result[key] = val
+	}
+	return result
+}
+
+func applyConfChanges(content string, changes map[string]string) string {
+	keyMap := map[string]string{
+		"testing": "TESTING", "tcp_in": "TCP_IN", "tcp_out": "TCP_OUT",
+		"udp_in": "UDP_IN", "udp_out": "UDP_OUT",
+		"tcp6_in": "TCP6_IN", "tcp6_out": "TCP6_OUT",
+		"udp6_in": "UDP6_IN", "udp6_out": "UDP6_OUT",
+		"restrict_syslog": "RESTRICT_SYSLOG", "synflood": "SYNFLOOD",
+		"connlimit": "CONNLIMIT", "portflood": "PORTFLOOD", "docker": "DOCKER",
+	}
+	updates := map[string]string{}
+	for jsonKey, val := range changes {
+		if confKey, ok := keyMap[jsonKey]; ok {
+			updates[confKey] = val
+		}
+	}
+	if len(updates) == 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		idx := strings.Index(trimmed, "=")
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(trimmed[:idx])
+		if newVal, ok := updates[key]; ok {
+			lines[i] = key + " = \"" + newVal + "\""
+			delete(updates, key)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // --- helpers -----------------------------------------------------------------
