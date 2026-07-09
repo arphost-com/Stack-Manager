@@ -192,7 +192,10 @@ func (s *Skill) SyncProjectPorts(ctx context.Context, portStrings []string) {
 	newTCPIn := currentTCPIn + "," + strings.Join(added, ",")
 	updated := strings.ReplaceAll(applyConfChanges(raw, map[string]string{"tcp_in": newTCPIn}), "\x00", "")
 	_, _ = s.runHelper(ctx, commandTimeout, strings.NewReader(updated), "write-config", "csf.conf")
-	_, _ = s.runHelper(ctx, commandTimeout, nil, "restart")
+	// Do NOT restart CSF here — csf -r flushes Docker's iptables chains
+	// which breaks the very container that just started. The ports are
+	// written to csf.conf and will take effect on the next manual
+	// csf -r or the next CSF restart from the Firewall panel.
 }
 
 // AllowIP is called by the auth handler after a successful login. It
