@@ -723,9 +723,19 @@ func sanitizeComment(comment string) string {
 }
 
 func clientIP(r *http.Request) string {
-	// chi.RealIP already normalizes r.RemoteAddr from X-Forwarded-For /
-	// X-Real-IP for trusted hops, but it keeps the ":port" suffix from a
-	// direct socket. Strip it either way.
+	// The built-in nginx sets X-Real-IP to the browser's address. Read
+	// it directly rather than relying on chi.RealIP middleware (which
+	// only trusts loopback as a proxy source by default, and Docker
+	// bridge IPs like 172.18.0.x don't qualify).
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if idx := strings.Index(xff, ","); idx > 0 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
 		return host
