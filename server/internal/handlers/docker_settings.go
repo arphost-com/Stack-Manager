@@ -48,6 +48,9 @@ func (h *DockerSettingsHandler) helperImage() string {
 }
 
 func (h *DockerSettingsHandler) GetDaemon(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
 	raw, exists, err := h.readDaemonJSON()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -71,6 +74,9 @@ func (h *DockerSettingsHandler) GetDaemon(w http.ResponseWriter, r *http.Request
 }
 
 func (h *DockerSettingsHandler) SaveDaemon(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
 	var req dockerDaemonSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")

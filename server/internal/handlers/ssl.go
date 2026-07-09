@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 )
 
 // SSLHandler manages the TLS material used by the web container. Cert files
@@ -72,6 +74,9 @@ type sslSelfSignedRequest struct {
 
 // RegenerateSelfSigned rebuilds the self-signed cert in place and reloads nginx.
 func (h *SSLHandler) RegenerateSelfSigned(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
 	var req sslSelfSignedRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -145,6 +150,9 @@ type sslLetsEncryptRequest struct {
 // EnableLetsEncrypt runs certbot in a helper container to obtain a cert via
 // HTTP-01, then copies the issued cert into the nginx-visible paths.
 func (h *SSLHandler) EnableLetsEncrypt(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
 	var req sslLetsEncryptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -206,6 +214,9 @@ func (h *SSLHandler) EnableLetsEncrypt(w http.ResponseWriter, r *http.Request) {
 // RenewLetsEncrypt attempts to renew any Let's Encrypt cert whose expiry is
 // within the certbot default renewal window.
 func (h *SSLHandler) RenewLetsEncrypt(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
 	if !h.hasLetsEncryptState() {
 		writeError(w, http.StatusPreconditionFailed, "no Let's Encrypt state to renew")
 		return

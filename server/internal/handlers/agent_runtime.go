@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -27,7 +28,7 @@ func (h *AgentRuntimeHandler) Auth(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Agent-Token")
 		}
-		if token == "" || token != h.Token {
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.Token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
