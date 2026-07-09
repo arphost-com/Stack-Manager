@@ -2,20 +2,24 @@
 
 Manage all your Docker Compose stacks from one dashboard. Discover, deploy, update, back up, and monitor projects across a fleet of hosts — with a 200-template catalog, scheduled updates, live shell access, firewall management, two-factor auth, and agents that phone home from behind NAT.
 
-![Dashboard](docs/images/dashboard-dark.png)
+<!-- Replace with your own screenshot: docs/images/dashboard-dark.png -->
 
 ---
 
 ## Highlights
 
 - **200+ one-click stack templates** — AI, databases, CMS, monitoring, proxies, dev tools, media, and more. Pick a template, review the compose and env, and spin it up.
+- **In-browser config editor** — edit compose.yml, .env, Caddyfile, and other project files directly from the dashboard with automatic .bak backups.
 - **Fleet management with agents** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents. Schedule actions across all of them from one controller.
 - **Scheduled updates** — daily at 03:00, weekly on Saturday, monthly on the 15th, or every N minutes. Per-project update policies prevent accidental breakage.
 - **Backup to anywhere** — local paths, CIFS, NFS, FTP, SFTP (with in-browser SSH key generation), and S3. Automatic local archive + remote copy.
-- **Live in-browser shell** — xterm.js terminal that opens a real interactive session inside any running container via WebSocket + docker exec.
-- **Firewall management** — install, configure, and monitor ConfigServer Firewall (csf/lfd) from the dashboard. Login IPs are auto-allowlisted.
+- **Live in-browser shell** — xterm.js terminal with real PTY support that opens an interactive session inside any running container via WebSocket + docker exec. Tab completion, arrow keys, colors, and resize — as fast as SSH.
+- **Firewall management** — install, configure, and monitor ConfigServer Firewall (csf/lfd) from the dashboard with structured port forms, testing-mode toggle, allow/deny lists, config editor, and live log viewer. Login IPs are auto-allowlisted. Docker compatibility is auto-configured.
+- **Reverse proxy integration** — connect to a running Nginx Proxy Manager instance from Settings to list, create, and delete proxy hosts. Running projects with exposed ports auto-populate the form.
 - **Two-factor authentication** — TOTP (Google Authenticator / Authy) with QR enrollment, backup codes, and per-user enable/disable.
 - **Self-signed TLS out of the box** — HTTPS on first boot with zero config. Optional Let's Encrypt or Nginx Proxy Manager for real domains.
+- **General settings in the browser** — change ports, cache TTLs, host URL, and roll the API key from Settings > General without touching .env or SSH.
+- **Multiple Docker roots** — discover projects across more than one host directory via `EXTRA_DOCKER_ROOTS`.
 - **Docker daemon settings** — edit `daemon.json` from the browser with tooltips, backups, and teardown guidance for network changes.
 - **Security scans** — image vulnerability scanning and compose audit from the project detail page.
 - **Database checks** — health checks and SQL dumps for MariaDB, MySQL, and PostgreSQL containers.
@@ -39,13 +43,26 @@ Open the URL printed by the setup script (default `https://<your-ip>:8993`). All
 
 ## Screenshots
 
-> Add your own screenshots below. Suggested shots:
+Existing catalog screenshots:
 
-![Stack Catalog](docs/images/catalog-personal-ai-agents-dark.png)
+![AI Stack Catalog](docs/images/catalog-personal-ai-agents-dark.png)
+![Web Catalog](docs/images/catalog-web-dark.png)
+![CMS Catalog](docs/images/catalog-cms-dark.png)
+![Database Catalog](docs/images/catalog-database-light.png)
+![Queue Catalog](docs/images/catalog-queue-light.png)
+![Dev Tools Catalog](docs/images/catalog-devtools-light.png)
 
-![Project Detail](docs/images/project-detail-placeholder.png)
-
-![Settings](docs/images/settings-placeholder.png)
+<!-- Add more screenshots as you take them:
+![Dashboard](docs/images/dashboard-dark.png)
+![Project Detail](docs/images/project-detail.png)
+![Settings General](docs/images/settings-general.png)
+![Firewall Panel](docs/images/firewall-panel.png)
+![Interactive Shell](docs/images/interactive-shell.png)
+![Config Editor](docs/images/config-editor.png)
+![TOTP Enrollment](docs/images/totp-enrollment.png)
+![Reverse Proxy](docs/images/reverse-proxy.png)
+![Scheduled Updates](docs/images/scheduled-updates.png)
+-->
 
 ---
 
@@ -54,8 +71,6 @@ Open the URL printed by the setup script (default `https://<your-ip>:8993`). All
 ### Dashboard
 
 The main page shows every discovered Compose project with live state, image sources, update availability, and one-click actions: start, stop, restart, update, pull, backup, and delete. Filter by running, stopped, inactive, or projects with available updates. Bulk actions apply to the filtered list or a manual selection.
-
-![Dashboard filters](docs/images/dashboard-filters-placeholder.png)
 
 ### Stack Catalog (200+ Templates)
 
@@ -77,6 +92,10 @@ Browse and deploy from a curated catalog organized into 14 categories and 10 AI 
 | **Automation** | n8n, Huginn, Cronicle, Changedetection.io |
 
 Templates load into an editable Create Project form — review ports, volumes, passwords, and env vars before deploying. Nothing deploys until you click Create.
+
+### In-Browser Config Editor
+
+The **Config** tab on each project detail page lets you edit compose.yml, .env, Dockerfile, Caddyfile, nginx.conf, and other config files directly from the browser. Every save creates a `.bak` backup. A hint reminds you to restart the stack after compose changes.
 
 ### Scheduled Updates
 
@@ -117,20 +136,60 @@ The Settings > Agents page shows setup commands with Copy buttons, a controller 
 
 ### Interactive Shell
 
-Open a live terminal inside any running container from the Shell tab. Powered by xterm.js + WebSocket + `docker exec`. Pick a container from the dropdown, click Connect, and type commands. Sessions are auth-gated and scoped to the project's containers.
+Open a live terminal inside any running container from the Shell tab. Powered by xterm.js + WebSocket + `docker exec` with a real PTY (via `creack/pty`). Full terminal support: colored prompt, tab completion, arrow keys, Ctrl-C, history, and automatic resize. Pick a container from the dropdown, click Connect, and type commands. Sessions are auth-gated and scoped to the project's containers.
 
-### Firewall (CSF)
+### Firewall (ConfigServer csf/lfd)
 
-Settings > Firewall manages ConfigServer Firewall on the host:
+Settings > Firewall provides full management of ConfigServer Firewall on the host. The server uses `nsenter` into the host's PID namespace so CSF operations (including `csf -r` which flushes all iptables) survive without killing the server container.
 
-- **Install / uninstall** csf from the browser
-- **Status dashboard** — installed, testing mode, LFD active, iptables rule count
-- **Allow / deny lists** — add, remove, view entries (IPv4 and IPv6)
-- **Config editor** — edit `csf.conf`, `csf.allow`, `csf.deny`, `csf.ignore`, `csf.pignore` with timestamped backups
-- **Log viewer** — tail `/var/log/lfd.log` with configurable line count
-- **Auto-allowlist on login** — every successful dashboard login runs `csf -a` for the caller's IP
+**Status dashboard:**
+- Installed / not installed indicator with one-click Install from [Black-HOST/csf](https://github.com/Black-HOST/csf)
+- Testing mode, LFD active, iptables rule count
+- CSF version
 
-One-time host setup: `sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf`
+**Firewall Settings panel:**
+- **Testing mode** checkbox — disable after verifying your port rules
+- **Docker mode** checkbox — auto-set during install on Docker hosts; ensures CSF accommodates Docker's iptables chains
+- **SYN flood protection** checkbox
+- **Syslog restrict** level (0–3)
+- **TCP IN / TCP OUT / UDP IN / UDP OUT** — comma-separated port fields with hints explaining what each direction means
+- Save + Restart csf buttons
+
+**IP management:**
+- Your detected IP shown with an **Add my IP** button
+- Manual allow / deny form for any IPv4 or IPv6 address with a comment
+- Allow list and deny list tables with per-entry Remove buttons
+- Auto-allowlist on login — every successful dashboard login runs `csf -a` for the caller's IP
+
+**Config editor:**
+- In-browser editor for `csf.conf`, `csf.allow`, `csf.deny`, `csf.ignore`, `csf.pignore`
+- Every save creates a timestamped backup under `/var/backups/stack-manager-csf/`
+
+**Log viewer:**
+- Tail `/var/log/lfd.log` with configurable line count (up to 5000)
+
+**Docker compatibility:**
+- Install auto-sets `DOCKER = "1"` in `csf.conf`
+- Writes `csfpre.sh` (saves iptables state) and `csfpost.sh` (restarts Docker after CSF reload) so `csf -r` never breaks container networking
+- Installs `unzip`, `perl`, and `iptables` as prerequisites
+
+**One-time host setup:**
+
+```bash
+sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf
+```
+
+If the helper is not installed, the Firewall panel shows an amber install-command card with a Copy button instead of an error.
+
+### Reverse Proxy (Nginx Proxy Manager)
+
+Settings > Reverse Proxy connects to a running NPM instance and manages proxy hosts from the dashboard:
+
+- **Connect** with the NPM admin URL, email, and password
+- **List proxy hosts** with domain, forward target, SSL status
+- **Create proxy hosts** — running projects with exposed ports appear as clickable chips that auto-fill the form
+- **Delete proxy hosts** directly from the table
+- Only needed when you have real domain names — private networks and IP-only hosts should use the built-in self-signed cert
 
 ### Two-Factor Authentication
 
@@ -142,6 +201,18 @@ Protect accounts with TOTP (Google Authenticator, Authy, or any compatible app):
 4. Enter a 6-digit code to verify and enable
 
 Once enabled, login requires a code after the password step. Admins can reset another user's 2FA from the Users tab.
+
+### General Settings
+
+Settings > General lets admins change `.env` values from the browser:
+
+- **Ports** — WEB_SSL_PORT (default 8993), WEB_HTTP_PORT (default 8193)
+- **Cache and refresh** — CACHE_TTL_SECONDS, METRICS_REFRESH_MINUTES, WARM_CACHE_TTL_MINUTES
+- **Host URL** — the dashboard URL shown in setup output and agent commands
+- **Extra Docker roots** — comma-separated additional directories to discover projects in
+- **Roll API key** — generate a new API key with one click (takes effect on restart)
+
+Port changes require a full `docker compose --env-file .env up -d` restart.
 
 ### Docker Settings
 
@@ -163,18 +234,14 @@ HTTPS works on first boot with an auto-generated self-signed certificate. For re
 
 - **Self-signed** — regenerate with custom CN and SANs from the SSL panel
 - **Let's Encrypt** — set ports 80/443 and issue via HTTP-01 from the SSL panel
-- **Nginx Proxy Manager** — deploy from the Stack Catalog and proxy individual projects with per-domain LE certs (see Settings > Reverse Proxy for setup steps)
-
-### Reverse Proxy
-
-Settings > Reverse Proxy explains how to set up Nginx Proxy Manager alongside Stack Manager for domain-based HTTPS. Only needed when you have real domain names — private networks and IP-only hosts should use the built-in self-signed cert.
+- **Nginx Proxy Manager** — deploy from the Stack Catalog and manage from Settings > Reverse Proxy
 
 ### Documentation
 
 The Documentation page has two tabs:
 
 - **Current Stacks** — auto-generated project guides for every discovered project, plus any README or docs files found in the stack directory
-- **Stack Catalog** — searchable documentation for all 200 catalog templates, with setup steps, env key references, caution notes, and upstream links
+- **Stack Catalog** — searchable documentation for all 200+ catalog templates, with setup steps, env key references, caution notes, and upstream links
 
 ### Security & Audit
 
@@ -190,13 +257,14 @@ Each project has a dedicated page with tabs:
 | Tab | What it shows |
 |-----|--------------|
 | Overview | Containers, state, update policy, image sources, compose hooks |
+| Config | In-browser editor for compose.yml, .env, and other config files |
 | Docs | Auto-generated project guide + any README/docs files |
-| Sessions | Action history with full output logs |
+| Sessions | Action history with full output logs and sticky-follow scroll |
 | Sources | Image origin, registry, access status per service |
 | Watch | Live startup log streaming (Up + Watch) with color-coded services |
 | Logs | Docker compose logs with timestamps |
 | Stats | CPU, memory, network I/O per container |
-| Shell | Scoped compose commands + interactive terminal |
+| Shell | Scoped compose commands + interactive xterm.js terminal |
 | Security | Image scan + compose audit results |
 | Backups | Create, restore, download, delete archives |
 | Databases | Health checks and SQL dumps for supported engines |
@@ -210,12 +278,14 @@ Each project has a dedicated page with tabs:
 ```
 Browser ──HTTPS──> nginx (web container, TLS termination)
                       │
-                      ├── /api/* ──> Go server (port 8192)
+                      ├── /api/* ──> Go server (port 8192, pid:host, nsenter for firewall)
                       │                 ├── MariaDB (users, jobs, settings, schedules, audit)
                       │                 ├── Redis (sessions, cache)
-                      │                 └── Docker socket (/var/run/docker.sock)
+                      │                 ├── Docker socket (/var/run/docker.sock)
+                      │                 └── WebSocket (/api/v1/projects/*/shell/exec)
                       │
-                      └── /* ──> React SPA (hashed assets, no-cache index.html)
+                      └── /* ──> React SPA (hashed assets with immutable cache,
+                                           no-cache index.html for instant deploys)
 ```
 
 The same Go binary runs in two modes:
@@ -273,6 +343,7 @@ The CLI is a single Bash script with no dependencies beyond Docker Compose. It s
 | `DB_ROOT_PASSWORD` | generated | MariaDB root password |
 | `REDIS_PASSWORD` | generated | Redis password |
 | `DOCKER_ROOT` | `~/docker` | Host directory containing managed Compose projects |
+| `EXTRA_DOCKER_ROOTS` | empty | Comma-separated additional directories to scan for projects |
 | `STATE_DIR` | `.stack-manager` | Persistent state (MariaDB, Redis, hooks, backups, SSL) |
 | `SERVER_USER` | detected | UID:GID for the server container |
 | `DOCKER_GID` | detected | Docker socket group ID |
@@ -281,6 +352,7 @@ The CLI is a single Bash script with no dependencies beyond Docker Compose. It s
 | `HOST_URL` | detected | Dashboard URL shown in setup output |
 | `CACHE_TTL_SECONDS` | `15` | Redis cache TTL for project state |
 | `METRICS_REFRESH_MINUTES` | `15` | Background discovery and stats interval |
+| `WARM_CACHE_TTL_MINUTES` | `30` | Redis TTL for background-warmed caches |
 
 ---
 
@@ -412,7 +484,7 @@ If a non-root server user cannot read project data (e.g. Postgres/MariaDB/Redis 
 
 ### Background Cache And Metrics
 
-Stack Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background every `METRICS_REFRESH_MINUTES`. Dashboard reads use Redis-cached summaries so normal page loads do not wait for Docker inspection commands.
+Stack Manager warms project discovery, update-policy metadata, image-source metadata, and container stats in the background every `METRICS_REFRESH_MINUTES`. The projects:list cache TTL is capped at 30 minutes regardless of the metrics interval so a very large METRICS_REFRESH_MINUTES cannot freeze the dashboard STATE column. Dashboard reads use Redis-cached summaries so normal page loads do not wait for Docker inspection commands.
 
 Metrics stored in MariaDB for historical graphing:
 
