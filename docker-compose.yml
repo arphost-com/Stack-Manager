@@ -60,6 +60,8 @@ services:
       DOCKER_CONFIG: "/state/docker-config"
       DOCKER_DAEMON_DIR: "${DOCKER_DAEMON_DIR:-/etc/docker}"
       BASE_IMAGE_PREFIX: "${BASE_IMAGE_PREFIX:-}"
+      WEB_HTTP_PORT: "${WEB_HTTP_PORT:-${WEB_PORT:-8193}}"
+      WEB_SSL_PORT: "${WEB_SSL_PORT:-8993}"
       FRONTEND_EXTERNAL: "true"
     user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     group_add:
