@@ -1399,6 +1399,9 @@ volumes:
 	templates = append(templates, catalogFillTemplates()...)
 	templates = append(templates, vettedAIStackTemplates()...)
 	templates = append(templates, personalAgentStackTemplates()...)
+	templates = append(templates, linuxserverMediaTemplates()...)
+	templates = append(templates, gamingTemplates()...)
+	templates = append(templates, remoteDesktopTemplates()...)
 	sort.Slice(templates, func(i, j int) bool {
 		return templates[i].Name < templates[j].Name
 	})
@@ -2638,4 +2641,466 @@ func RenderStackTemplate(id string) (CreateProjectRequest, error) {
 		ComposeContent: template.ComposeContent,
 		EnvContent:     template.EnvContent,
 	}, nil
+}
+
+func linuxserverMediaTemplates() []StackTemplate {
+	return []StackTemplate{
+		{
+			ID:          "radarr",
+			Name:        "Radarr",
+			Description: "Movie management and automated downloading.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/radarr:latest",
+			Tags:        []string{"media", "movies", "automation", "pvr"},
+			ComposeContent: `services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    restart: unless-stopped
+    ports:
+      - "${RADARR_PORT:-7878}:7878"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - radarr-config:/config
+      - radarr-downloads:/downloads
+volumes:
+  radarr-config:
+  radarr-downloads:
+`,
+			EnvContent: "RADARR_PORT=7878\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Access the web UI at the configured port. Connect to a download client and indexer after first login.",
+		},
+		{
+			ID:          "sonarr",
+			Name:        "Sonarr",
+			Description: "TV show management and automated downloading.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/sonarr:latest",
+			Tags:        []string{"media", "tv", "automation", "pvr"},
+			ComposeContent: `services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    restart: unless-stopped
+    ports:
+      - "${SONARR_PORT:-8989}:8989"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - sonarr-config:/config
+      - sonarr-downloads:/downloads
+volumes:
+  sonarr-config:
+  sonarr-downloads:
+`,
+			EnvContent: "SONARR_PORT=8989\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Access the web UI at the configured port. Connect to a download client and indexer after first login.",
+		},
+		{
+			ID:          "lidarr",
+			Name:        "Lidarr",
+			Description: "Music collection management and automated downloading.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/lidarr:latest",
+			Tags:        []string{"media", "music", "automation", "pvr"},
+			ComposeContent: `services:
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    restart: unless-stopped
+    ports:
+      - "${LIDARR_PORT:-8686}:8686"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - lidarr-config:/config
+      - lidarr-downloads:/downloads
+volumes:
+  lidarr-config:
+  lidarr-downloads:
+`,
+			EnvContent: "LIDARR_PORT=8686\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Access the web UI at the configured port. Connect to a download client and indexer after first login.",
+		},
+		{
+			ID:          "prowlarr",
+			Name:        "Prowlarr",
+			Description: "Indexer manager and proxy for Sonarr, Radarr, Lidarr, and Readarr.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/prowlarr:latest",
+			Tags:        []string{"media", "indexer", "automation", "pvr"},
+			ComposeContent: `services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    restart: unless-stopped
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - prowlarr-config:/config
+volumes:
+  prowlarr-config:
+`,
+			EnvContent: "PROWLARR_PORT=9696\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Central indexer manager. Add indexers here, then connect Prowlarr to Sonarr/Radarr/Lidarr for unified search.",
+		},
+		{
+			ID:          "bazarr",
+			Name:        "Bazarr",
+			Description: "Subtitle management for Sonarr and Radarr.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/bazarr:latest",
+			Tags:        []string{"media", "subtitles", "automation"},
+			ComposeContent: `services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    restart: unless-stopped
+    ports:
+      - "${BAZARR_PORT:-6767}:6767"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - bazarr-config:/config
+volumes:
+  bazarr-config:
+`,
+			EnvContent: "BAZARR_PORT=6767\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Connect to Sonarr and Radarr after first login to enable automatic subtitle downloads.",
+		},
+		{
+			ID:          "nzbget",
+			Name:        "NZBGet",
+			Description: "Efficient Usenet downloader.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/nzbget:latest",
+			Tags:        []string{"media", "usenet", "downloader"},
+			ComposeContent: `services:
+  nzbget:
+    image: lscr.io/linuxserver/nzbget:latest
+    restart: unless-stopped
+    ports:
+      - "${NZBGET_PORT:-6789}:6789"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - nzbget-config:/config
+      - nzbget-downloads:/downloads
+volumes:
+  nzbget-config:
+  nzbget-downloads:
+`,
+			EnvContent: "NZBGET_PORT=6789\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Default login: nzbget / tegbzn6789. Change the password after first login.",
+		},
+		{
+			ID:          "sabnzbd",
+			Name:        "SABnzbd",
+			Description: "Free and open-source Usenet downloader.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/sabnzbd:latest",
+			Tags:        []string{"media", "usenet", "downloader"},
+			ComposeContent: `services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    restart: unless-stopped
+    ports:
+      - "${SABNZBD_PORT:-8080}:8080"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - sabnzbd-config:/config
+      - sabnzbd-downloads:/downloads
+volumes:
+  sabnzbd-config:
+  sabnzbd-downloads:
+`,
+			EnvContent: "SABNZBD_PORT=8080\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Run the setup wizard on first access to configure Usenet servers.",
+		},
+		{
+			ID:          "qbittorrent",
+			Name:        "qBittorrent",
+			Description: "BitTorrent client with web UI.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/qbittorrent:latest",
+			Tags:        []string{"media", "torrent", "downloader"},
+			ComposeContent: `services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    restart: unless-stopped
+    ports:
+      - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+      - WEBUI_PORT=8080
+    volumes:
+      - qbittorrent-config:/config
+      - qbittorrent-downloads:/downloads
+volumes:
+  qbittorrent-config:
+  qbittorrent-downloads:
+`,
+			EnvContent: "QBITTORRENT_WEBUI_PORT=8080\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Default login: admin / adminadmin. Change password immediately. Port 6881 is the default BitTorrent listen port.",
+		},
+		{
+			ID:          "transmission",
+			Name:        "Transmission",
+			Description: "Lightweight BitTorrent client with web UI.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/transmission:latest",
+			Tags:        []string{"media", "torrent", "downloader"},
+			ComposeContent: `services:
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    restart: unless-stopped
+    ports:
+      - "${TRANSMISSION_PORT:-9091}:9091"
+      - "51413:51413"
+      - "51413:51413/udp"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - transmission-config:/config
+      - transmission-downloads:/downloads
+volumes:
+  transmission-config:
+  transmission-downloads:
+`,
+			EnvContent: "TRANSMISSION_PORT=9091\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Web UI available at the configured port. No default password unless USER and PASS env vars are set.",
+		},
+		{
+			ID:          "overseerr",
+			Name:        "Overseerr",
+			Description: "Media request and discovery management for Plex.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/overseerr:latest",
+			Tags:        []string{"media", "requests", "plex"},
+			ComposeContent: `services:
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    restart: unless-stopped
+    ports:
+      - "${OVERSEERR_PORT:-5055}:5055"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - overseerr-config:/config
+volumes:
+  overseerr-config:
+`,
+			EnvContent: "OVERSEERR_PORT=5055\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Connect to your Plex server during initial setup. Users can request movies and TV shows through the web UI.",
+		},
+		{
+			ID:          "tautulli",
+			Name:        "Tautulli",
+			Description: "Monitoring and tracking for Plex Media Server.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/tautulli:latest",
+			Tags:        []string{"media", "plex", "monitoring", "statistics"},
+			ComposeContent: `services:
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    restart: unless-stopped
+    ports:
+      - "${TAUTULLI_PORT:-8181}:8181"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - tautulli-config:/config
+volumes:
+  tautulli-config:
+`,
+			EnvContent: "TAUTULLI_PORT=8181\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Connect to your Plex server during setup to enable activity monitoring, history, and statistics.",
+		},
+		{
+			ID:          "readarr",
+			Name:        "Readarr",
+			Description: "Book and audiobook management and automation.",
+			Category:    "media",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/readarr:develop",
+			Tags:        []string{"media", "books", "audiobooks", "automation", "pvr"},
+			ComposeContent: `services:
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    restart: unless-stopped
+    ports:
+      - "${READARR_PORT:-8787}:8787"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - readarr-config:/config
+      - readarr-downloads:/downloads
+volumes:
+  readarr-config:
+  readarr-downloads:
+`,
+			EnvContent: "READARR_PORT=8787\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Uses the develop tag because Readarr has not had a stable release yet. Connect to a download client and indexer after first login.",
+		},
+	}
+}
+
+func gamingTemplates() []StackTemplate {
+	return []StackTemplate{
+		{
+			ID:          "emulatorjs",
+			Name:        "EmulatorJS",
+			Description: "In-browser retro game emulation with ROM management.",
+			Category:    "gaming",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/emulatorjs:latest",
+			Tags:        []string{"gaming", "emulation", "retro", "browser"},
+			ComposeContent: `services:
+  emulatorjs:
+    image: lscr.io/linuxserver/emulatorjs:latest
+    restart: unless-stopped
+    ports:
+      - "${EMULATORJS_PORT:-3000}:3000"
+      - "${EMULATORJS_MGMT_PORT:-3001}:3001"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - emulatorjs-config:/config
+      - emulatorjs-data:/data
+volumes:
+  emulatorjs-config:
+  emulatorjs-data:
+`,
+			EnvContent: "EMULATORJS_PORT=3000\nEMULATORJS_MGMT_PORT=3001\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Port 3000 is the player frontend, port 3001 is the ROM management backend. Upload ROMs through the management UI.",
+		},
+		{
+			ID:          "sunshine",
+			Name:        "Sunshine",
+			Description: "Self-hosted game streaming server compatible with Moonlight clients.",
+			Category:    "gaming",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/sunshine:latest",
+			Tags:        []string{"gaming", "streaming", "moonlight", "gpu"},
+			ComposeContent: `services:
+  sunshine:
+    image: lscr.io/linuxserver/sunshine:latest
+    restart: unless-stopped
+    ports:
+      - "${SUNSHINE_PORT:-47990}:47990"
+      - "47984-47989:47984-47989"
+      - "48010:48010"
+      - "47998-48000:47998-48000/udp"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - sunshine-config:/config
+volumes:
+  sunshine-config:
+`,
+			EnvContent: "SUNSHINE_PORT=47990\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Access the web UI on port 47990 to configure. Pair with a Moonlight client on another device to stream games. GPU passthrough recommended for best performance.",
+		},
+	}
+}
+
+func remoteDesktopTemplates() []StackTemplate {
+	return []StackTemplate{
+		{
+			ID:          "webtop",
+			Name:        "Webtop",
+			Description: "Full Linux desktop accessible from the browser (Ubuntu XFCE).",
+			Category:    "remote",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/webtop:ubuntu-xfce",
+			Tags:        []string{"remote", "desktop", "linux", "browser", "vnc"},
+			ComposeContent: `services:
+  webtop:
+    image: lscr.io/linuxserver/webtop:ubuntu-xfce
+    restart: unless-stopped
+    ports:
+      - "${WEBTOP_PORT:-3000}:3000"
+      - "${WEBTOP_HTTPS_PORT:-3001}:3001"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - webtop-config:/config
+    shm_size: "1gb"
+volumes:
+  webtop-config:
+`,
+			EnvContent: "WEBTOP_PORT=3000\nWEBTOP_HTTPS_PORT=3001\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Access the desktop at the configured port. Other desktop variants available: alpine-kde, fedora-xfce, arch-xfce, etc. Change the image tag to switch.",
+		},
+		{
+			ID:          "firefox",
+			Name:        "Firefox Browser",
+			Description: "Firefox web browser running in Docker, accessible from the browser.",
+			Category:    "remote",
+			Source:      "linuxserver",
+			Image:       "lscr.io/linuxserver/firefox:latest",
+			Tags:        []string{"remote", "browser", "firefox", "vnc"},
+			ComposeContent: `services:
+  firefox:
+    image: lscr.io/linuxserver/firefox:latest
+    restart: unless-stopped
+    ports:
+      - "${FIREFOX_PORT:-3000}:3000"
+      - "${FIREFOX_HTTPS_PORT:-3001}:3001"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - firefox-config:/config
+    shm_size: "1gb"
+volumes:
+  firefox-config:
+`,
+			EnvContent: "FIREFOX_PORT=3000\nFIREFOX_HTTPS_PORT=3001\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Isolated browser session in Docker. Useful for secure browsing, testing, or accessing internal services from a remote host.",
+		},
+	}
 }
