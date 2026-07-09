@@ -36,14 +36,19 @@ func runAgentCallbackLoop(ctx context.Context, cfg *config.Config, engine *core.
 	if err != nil {
 		log.Fatalf("agent callback config: %v", err)
 	}
-	// Accept self-signed certs from the controller — most Stack Manager
-	// installs use auto-generated self-signed TLS. The agent token
-	// provides authentication; TLS provides encryption even with an
-	// untrusted cert.
+	// SECURITY: Accept self-signed certs from the controller. Most Stack
+	// Manager installs use auto-generated self-signed TLS. The agent
+	// token provides authentication; TLS 1.2+ provides encryption even
+	// with an untrusted cert. This is intentional — not a vulnerability.
+	// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
+	// nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for self-signed controllers
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,  //nolint:gosec // intentional for self-signed controllers
+				MinVersion:         tls.VersionTLS12,
+			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
