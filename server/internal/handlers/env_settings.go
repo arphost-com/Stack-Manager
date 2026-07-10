@@ -12,33 +12,57 @@ import (
 	"strings"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 )
 
-// EnvSettingsHandler reads and writes select .env values so admins
-// can tune ports, cache TTLs, and API keys from the dashboard without
-// SSH access. Only whitelisted keys are exposed.
+// EnvSettingsHandler reads and writes select settings so admins can tune them
+// from the dashboard without SSH access. Boot-level settings (ports, cache) live
+// in .env because Docker Compose / the store read them before the app runs;
+// runtime settings live in the DB (app_settings) so .env is only initial config.
 type EnvSettingsHandler struct {
 	envFile string
+	store   *storage.Store
 }
 
-func NewEnvSettingsHandler(stateDir string) *EnvSettingsHandler {
+func NewEnvSettingsHandler(stateDir string, store *storage.Store) *EnvSettingsHandler {
 	// The .env file is bind-mounted into the server container at /app/.env.
 	envFile := "/app/.env"
 	if f := os.Getenv("ENV_FILE"); f != "" {
 		envFile = f
 	}
-	return &EnvSettingsHandler{envFile: envFile}
+	return &EnvSettingsHandler{envFile: envFile, store: store}
 }
 
 var editableKeys = map[string]struct{}{
-	"WEB_HTTP_PORT":          {},
-	"WEB_SSL_PORT":           {},
-	"CACHE_TTL_SECONDS":      {},
+	"WEB_HTTP_PORT":           {},
+	"WEB_SSL_PORT":            {},
+	"CACHE_TTL_SECONDS":       {},
 	"METRICS_REFRESH_MINUTES": {},
-	"WARM_CACHE_TTL_MINUTES": {},
-	"HOST_URL":               {},
-	"EXTRA_DOCKER_ROOTS":     {},
-	"TZ":                    {},
+	"WARM_CACHE_TTL_MINUTES":  {},
+	"HOST_URL":                {},
+	"EXTRA_DOCKER_ROOTS":      {},
+	"TZ":                      {},
+}
+
+// dbBackedKeys are runtime settings stored in the DB (app_settings) rather than
+// .env. The rest of editableKeys (ports, cache TTL) stay in .env because they're
+// consumed before the app/store are up. .env still seeds these on first run.
+var dbBackedKeys = map[string]struct{}{
+	"HOST_URL":                {},
+	"TZ":                      {},
+	"EXTRA_DOCKER_ROOTS":      {},
+	"METRICS_REFRESH_MINUTES": {},
+	"WARM_CACHE_TTL_MINUTES":  {},
+}
+
+// settingValueOr returns a setting's effective value: DB (for db-backed keys)
+// falling back to .env, else the .env value, else the default.
+func (h *EnvSettingsHandler) settingValueOr(r *http.Request, envValues map[string]string, key, def string) string {
+	envVal := valueOr(envValues, key, def)
+	if _, db := dbBackedKeys[key]; db && h.store != nil {
+		return h.store.SettingStringOr(r.Context(), key, envVal)
+	}
+	return envVal
 }
 
 type envSettings struct {
@@ -62,11 +86,11 @@ func (h *EnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		WebHTTPPort:       valueOr(values, "WEB_HTTP_PORT", "8193"),
 		WebSSLPort:        valueOr(values, "WEB_SSL_PORT", "8993"),
 		CacheTTLSeconds:   valueOr(values, "CACHE_TTL_SECONDS", "15"),
-		MetricsRefreshMin: valueOr(values, "METRICS_REFRESH_MINUTES", "15"),
-		WarmCacheTTLMin:   valueOr(values, "WARM_CACHE_TTL_MINUTES", "30"),
-		HostURL:           valueOr(values, "HOST_URL", ""),
-		ExtraDockerRoots:  valueOr(values, "EXTRA_DOCKER_ROOTS", ""),
-		Timezone:          valueOr(values, "TZ", "UTC"),
+		MetricsRefreshMin: h.settingValueOr(r, values, "METRICS_REFRESH_MINUTES", "15"),
+		WarmCacheTTLMin:   h.settingValueOr(r, values, "WARM_CACHE_TTL_MINUTES", "30"),
+		HostURL:           h.settingValueOr(r, values, "HOST_URL", ""),
+		ExtraDockerRoots:  h.settingValueOr(r, values, "EXTRA_DOCKER_ROOTS", ""),
+		Timezone:          h.settingValueOr(r, values, "TZ", "UTC"),
 		APIKeySet:         values["API_KEY"] != "",
 	}
 	writeJSON(w, http.StatusOK, settings)
@@ -110,15 +134,40 @@ func (h *EnvSettingsHandler) Save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := updateEnvFile(h.envFile, changed); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	// Route each key: DB-backed runtime settings go to app_settings; boot
+	// settings (ports, cache) stay in .env. .env keeps seeding the DB-backed
+	// ones on a fresh install because settingValueOr falls back to it.
+	envChanged := map[string]string{}
+	var portChanged, dbChanged bool
+	for key, value := range changed {
+		if _, db := dbBackedKeys[key]; db && h.store != nil {
+			if err := h.store.SetSettingString(r.Context(), key, value); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			// Let readers that consult the environment at runtime (HOST_URL, TZ)
+			// pick up the change without a restart.
+			_ = os.Setenv(key, value)
+			dbChanged = true
+			continue
+		}
+		envChanged[key] = value
+		if key == "WEB_HTTP_PORT" || key == "WEB_SSL_PORT" {
+			portChanged = true
+		}
 	}
 
-	for key := range changed {
-		if key == "WEB_HTTP_PORT" || key == "WEB_SSL_PORT" {
-			warnings = append(warnings, "Port changes require a full stack restart: docker compose --env-file .env up -d")
+	if len(envChanged) > 0 {
+		if err := updateEnvFile(h.envFile, envChanged); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
+	}
+	if portChanged {
+		warnings = append(warnings, "Port changes require a full stack restart: docker compose --env-file .env up -d")
+	}
+	if dbChanged {
+		warnings = append(warnings, "Saved to the database. Metrics/cache/roots/timezone changes take full effect on the next restart.")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

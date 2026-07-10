@@ -1353,7 +1353,7 @@ export default function Settings() {
           </div>
 
           <div className="flex gap-2">
-            <button className="btn-primary" onClick={saveGeneralSettings}>Save to .env</button>
+            <button className="btn-primary" onClick={saveGeneralSettings} title="Runtime settings (host URL, timezone, extra roots, metrics/cache intervals) save to the database; ports save to .env and need a restart.">Save settings</button>
             <button className="btn-secondary" onClick={loadGeneralSettings}>Reset</button>
           </div>
 

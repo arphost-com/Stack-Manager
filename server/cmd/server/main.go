@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,42 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
+
+// applyDBSettingOverrides lets DB-stored runtime settings (Settings > General,
+// table app_settings) override the .env-derived config at startup, so .env is
+// only the initial seed. Boot settings (ports, DB/Redis creds, cache TTL that
+// configures the store) stay in .env by necessity.
+func applyDBSettingOverrides(ctx context.Context, store *storage.Store, cfg *config.Config, engine *core.Engine) {
+	if store == nil {
+		return
+	}
+	if v := store.SettingStringOr(ctx, "METRICS_REFRESH_MINUTES", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			cfg.MetricsInterval = time.Duration(n) * time.Minute
+		}
+	}
+	if v := store.SettingStringOr(ctx, "WARM_CACHE_TTL_MINUTES", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			cfg.WarmCacheTTL = time.Duration(n) * time.Minute
+		}
+	}
+	if v := store.SettingStringOr(ctx, "EXTRA_DOCKER_ROOTS", ""); v != "" {
+		roots := []string{}
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				roots = append(roots, p)
+			}
+		}
+		cfg.ExtraRoots = roots
+		engine.ExtraRoots = roots
+	}
+	if v := store.SettingStringOr(ctx, "HOST_URL", ""); v != "" {
+		_ = os.Setenv("HOST_URL", v)
+	}
+	if v := store.SettingStringOr(ctx, "TZ", ""); v != "" {
+		_ = os.Setenv("TZ", v)
+	}
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -59,6 +96,9 @@ func main() {
 	if err := appStore.ImportLegacyFiles(context.Background(), cfg.StateDir); err != nil {
 		log.Fatalf("legacy import: %v", err)
 	}
+	// DB-stored runtime settings (Settings > General) override the .env-derived
+	// config here, before the managers/engine consume it. .env stays the seed.
+	applyDBSettingOverrides(context.Background(), appStore, cfg, engine)
 
 	jobs := core.NewJobManager(appStore)
 	scheduler := core.NewScheduleManager(engine, jobs, appStore)
@@ -115,7 +155,7 @@ func main() {
 	skillHandler := handlers.NewSkillHandler(registry)
 	shellHandler := handlers.NewShellHandler(engine)
 	projectFileHandler := handlers.NewProjectFileHandler(engine)
-	envSettingsHandler := handlers.NewEnvSettingsHandler(cfg.StateDir)
+	envSettingsHandler := handlers.NewEnvSettingsHandler(cfg.StateDir, appStore)
 	agentProxyHandler := handlers.NewAgentProxyHandler(appStore)
 	proxyHandler := handlers.NewProxyHandler(engine, appStore)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
