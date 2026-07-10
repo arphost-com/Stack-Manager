@@ -309,6 +309,8 @@ export const system = {
   osAutoremove: () => request('/system/os/autoremove', { method: 'POST' }),
   osSearch: (q) => request(`/system/os/search?q=${encodeURIComponent(q)}`),
   osInstall: (pkg) => request('/system/os/install', { method: 'POST', body: JSON.stringify({ package: pkg }) }),
+  updateStatus: () => request('/system/update/status'),
+  selfUpdate: () => request('/system/update', { method: 'POST' }),
   info: () => request('/system/info'),
   setName: (name) => request('/system/info', { method: 'PUT', body: JSON.stringify({ server_name: name }) }),
   prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),

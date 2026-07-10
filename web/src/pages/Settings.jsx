@@ -99,6 +99,9 @@ export default function Settings() {
   const [osSearchTerm, setOsSearchTerm] = useState('');
   const [osSearchOut, setOsSearchOut] = useState(null);
   const [osInstallPkg, setOsInstallPkg] = useState('');
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateBusy, setUpdateBusy] = useState('');
+  const [updateResult, setUpdateResult] = useState(null);
   const [serverNameInput, setServerNameInput] = useState(null);
   const [serverNameSaved, setServerNameSaved] = useState(false);
   const [savingServerName, setSavingServerName] = useState(false);
@@ -181,6 +184,7 @@ export default function Settings() {
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
       { key: 'gpu', label: 'GPU', title: 'Detect and test NVIDIA GPU passthrough for AI stacks.' },
       { key: 'os', label: 'OS Updates', title: 'Update the base OS (apt) on this host.' },
+      { key: 'update', label: 'Update', title: 'Update Stack Manager itself to the latest code.' },
       { key: 'ssl', label: 'SSL / TLS', title: 'View, regenerate, or switch the TLS cert (self-signed or Let’s Encrypt).' },
       { key: 'backups', label: 'Backup Endpoints', title: 'Configure local and remote backup destinations.' },
       { key: 'firewall', label: 'Firewall', title: 'ConfigServer Firewall (csf/lfd) install, monitor, and IP management.' },
@@ -304,6 +308,25 @@ export default function Settings() {
       if (typeof loadGeneralSettings === 'function') loadGeneralSettings();
       loadSslInfo();
     } catch (err) { showError(err); }
+  };
+
+  useEffect(() => {
+    if (admin && activeTab === 'update' && !updateInfo) runUpdateCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, activeTab]);
+
+  const runUpdateCheck = async () => {
+    setUpdateBusy('check');
+    try { const r = await system.updateStatus(); setUpdateInfo(r.data); }
+    catch (err) { setUpdateInfo({ error: err.message }); }
+    finally { setUpdateBusy(''); }
+  };
+  const runSelfUpdate = async () => {
+    if (!window.confirm('Update Stack Manager to the latest code now?\n\nThis fetches and hard-resets the deploy tree to the tracked upstream and rebuilds the stack. The dashboard will briefly go down — reconnect in a few minutes. Any uncommitted local changes in the deploy tree on the host are discarded.')) return;
+    setUpdateBusy('update'); setUpdateResult(null);
+    try { const r = await system.selfUpdate(); setUpdateResult(r.data); }
+    catch (err) { setUpdateResult({ error: err.message }); }
+    finally { setUpdateBusy(''); }
   };
 
   useEffect(() => {
@@ -1980,6 +2003,44 @@ export default function Settings() {
               {osResult.output && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{osResult.output}</pre>}
             </div>
           )}
+        </div>
+      )}
+
+      {admin && activeTab === 'update' && (
+        <div className="space-y-4">
+          <div className="section-panel space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-950">Update Stack Manager</h2>
+              <button onClick={runUpdateCheck} disabled={!!updateBusy} className="btn-secondary inline-flex items-center gap-2 text-xs">{updateBusy === 'check' && <span className="spinner" aria-hidden="true"></span>}Check</button>
+            </div>
+            <p className="text-sm text-gray-600">Pull the latest Stack Manager code and rebuild this controller&rsquo;s stack. The rebuild runs detached on the host and survives the restart.</p>
+            {updateInfo && updateInfo.helper_installed === false ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-medium">One-time host setup needed</div>
+                <p className="mt-1">Install the helper on the host once (over SSH), then this panel activates:</p>
+                <pre className="mt-2 overflow-auto rounded bg-gray-950 p-2 text-xs text-gray-100">{updateInfo.helper_hint || 'sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update'}</pre>
+              </div>
+            ) : (
+              <>
+                {updateInfo?.error && <div className="text-sm text-red-700">{updateInfo.error}</div>}
+                {updateInfo && !updateInfo.error && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {updateInfo.branch && <span className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-gray-700">branch={updateInfo.branch}</span>}
+                    {updateInfo.local && <span className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-gray-700">local={updateInfo.local}</span>}
+                    {updateInfo.remote && <span className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-gray-700">remote={updateInfo.remote}</span>}
+                    {updateInfo.behind !== undefined && <span className={`rounded-md px-2 py-0.5 font-mono ${Number(updateInfo.behind) > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>{Number(updateInfo.behind) > 0 ? `${updateInfo.behind} behind` : 'up to date'}</span>}
+                  </div>
+                )}
+                <button onClick={runSelfUpdate} disabled={!!updateBusy} className="btn-primary inline-flex items-center gap-2">{updateBusy === 'update' && <span className="spinner" aria-hidden="true"></span>}Update now</button>
+                <p className="text-xs text-gray-500">Fetches + hard-resets the deploy tree to the tracked upstream, then rebuilds. Uncommitted local changes in the deploy tree are discarded. The dashboard restarts — reconnect in a few minutes.</p>
+              </>
+            )}
+            {updateResult && (
+              <div className={`rounded-md border p-3 text-sm ${updateResult.error ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-900'}`}>
+                {updateResult.error ? updateResult.error : (updateResult.note || 'Update started.')}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

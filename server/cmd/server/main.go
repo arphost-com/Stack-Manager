@@ -102,6 +102,7 @@ func main() {
 	systemInfoHandler := handlers.NewSystemInfoHandler(appStore)
 	gpuSetupHandler := handlers.NewGPUSetupHandler()
 	osUpdateHandler := handlers.NewOSUpdateHandler()
+	selfUpdateHandler := handlers.NewSelfUpdateHandler()
 	agentCheckinHandler := handlers.NewAgentCheckinHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
 	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
@@ -266,6 +267,8 @@ func main() {
 			r.Post("/system/os/autoremove", osUpdateHandler.Autoremove)
 			r.Get("/system/os/search", osUpdateHandler.Search)
 			r.Post("/system/os/install", osUpdateHandler.Install)
+			r.Get("/system/update/status", selfUpdateHandler.Status)
+			r.Post("/system/update", selfUpdateHandler.Update)
 			r.Get("/system/info", systemInfoHandler.Get)
 			r.Put("/system/info", systemInfoHandler.Save)
 
