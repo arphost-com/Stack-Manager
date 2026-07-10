@@ -296,6 +296,16 @@ export default function Settings() {
     finally { setOsBusy(''); }
   };
 
+  const prepareLEPorts = async () => {
+    if (!window.confirm('Set WEB_HTTP_PORT=80 and WEB_SSL_PORT=443 in .env for Let’s Encrypt?\n\nYou must restart the stack afterward (make docker-up, or docker compose --env-file .env up -d) for the ports to change — the dashboard will then move to https://<host>/ on 443, and port 80 must be reachable from the internet for the HTTP-01 challenge.')) return;
+    try {
+      await envSettings.save({ web_http_port: '80', web_ssl_port: '443' });
+      showMessage('Ports set to 80/443 in .env. Restart the stack to apply (make docker-up). The dashboard will then be at https://<host>/.');
+      if (typeof loadGeneralSettings === 'function') loadGeneralSettings();
+      loadSslInfo();
+    } catch (err) { showError(err); }
+  };
+
   useEffect(() => {
     if (admin && activeTab === 'general' && serverNameInput === null) {
       system.info().then(r => setServerNameInput(r.data?.server_name || '')).catch(() => setServerNameInput(''));
@@ -2073,6 +2083,13 @@ export default function Settings() {
                 <p className="text-sm text-gray-600">
                   HTTP-01 challenge via certbot. Requires <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">WEB_HTTP_PORT=80</code>, <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">WEB_SSL_PORT=443</code>, and the domain’s DNS pointed at this host. Use <em>staging</em> first to avoid the production rate limit.
                 </p>
+                {!sslInfo?.letsencrypt_ready && (
+                  <div className="mt-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                    <div className="font-medium">Ports aren’t Let’s Encrypt-ready ({sslInfo?.http_port}/{sslInfo?.ssl_port}).</div>
+                    <p className="mt-1">One click sets them to the standard 80/443 in <code className="rounded bg-white px-1">.env</code>. You then restart the stack to apply.</p>
+                    <button type="button" onClick={prepareLEPorts} className="btn-secondary mt-2">Set ports to 80/443</button>
+                  </div>
+                )}
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="text-sm">
