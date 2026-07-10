@@ -2625,11 +2625,11 @@ volumes:
 			Description: "Automated container image updater.",
 			Category:    "automation",
 			Source:      "official-docs",
-			Image:       "containrrr/watchtower:latest",
+			Image:       "ghcr.io/nicholas-fedor/watchtower:latest",
 			Tags:        []string{"automation", "updates", "docker"},
 			ComposeContent: `services:
   watchtower:
-    image: containrrr/watchtower:latest
+    image: ghcr.io/nicholas-fedor/watchtower:latest
     restart: unless-stopped
     command: ["--schedule", "${WATCHTOWER_SCHEDULE:-0 0 4 * * *}", "--cleanup"]
     volumes:

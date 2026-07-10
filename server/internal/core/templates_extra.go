@@ -1480,36 +1480,28 @@ configs:
 
 		// ---- Non-AI: queue +3 ----
 		{
-			ID: "temporal", Name: "Temporal (dev)", Description: "Temporal workflow engine with the auto-setup bundle.",
+			ID: "temporal", Name: "Temporal (dev)", Description: "Temporal workflow engine dev server with built-in UI.",
 			Category: "queue",
-			Source:   "docker-hub", Image: "temporalio/auto-setup:latest",
+			Source:   "docker-hub", Image: "temporalio/temporal:latest",
 			Tags: []string{"queue", "workflows"},
 			ComposeContent: `services:
+  # Single-container dev Temporal (server + Web UI, built-in storage). The old
+  # auto-setup image needs an external Postgres/MySQL and does not support
+  # DB=sqlite; server start-dev is the supported lightweight option.
   temporal:
-    image: temporalio/auto-setup:latest
-    environment:
-      DB: sqlite
-      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig/development.yaml
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--ui-ip", "0.0.0.0", "--ui-port", "8233"]
     ports:
       - "${TEMPORAL_PORT:-7233}:7233"
+      - "${TEMPORAL_UI_PORT:-8233}:8233"
     volumes:
-      - temporal-data:/etc/temporal
-    restart: unless-stopped
-  ui:
-    image: temporalio/ui:latest
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: "*"
-    ports:
-      - "${TEMPORAL_UI_PORT:-8233}:8080"
-    depends_on:
-      - temporal
+      - temporal-data:/home/temporal/.config
     restart: unless-stopped
 volumes:
   temporal-data:
 `,
 			EnvContent: "TEMPORAL_PORT=7233\nTEMPORAL_UI_PORT=8233\n",
-			Notes:      "Switch DB to postgresql12 or mysql8 for production.",
+			Notes:      "Dev server on TEMPORAL_PORT (gRPC) with the Web UI on TEMPORAL_UI_PORT. Uses built-in storage — for production run the temporalio/auto-setup image against Postgres or MySQL instead.",
 		},
 		{
 			ID: "faktory", Name: "Faktory", Description: "Language-agnostic background job server.",
