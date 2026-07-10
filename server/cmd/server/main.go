@@ -112,7 +112,7 @@ func main() {
 	projectFileHandler := handlers.NewProjectFileHandler(engine)
 	envSettingsHandler := handlers.NewEnvSettingsHandler(cfg.StateDir)
 	agentProxyHandler := handlers.NewAgentProxyHandler(appStore)
-	proxyHandler := handlers.NewProxyHandler(engine)
+	proxyHandler := handlers.NewProxyHandler(engine, appStore)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
 	authHandler.IPAllower = firewallSkill
 

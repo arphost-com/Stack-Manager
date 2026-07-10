@@ -112,6 +112,11 @@ func (s *Store) Migrate(ctx context.Context) error {
 			INDEX idx_jobs_started_at (started_at),
 			INDEX idx_jobs_project_started_at (project, started_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			setting_key VARCHAR(128) PRIMARY KEY,
+			value_json JSON NOT NULL,
+			updated_at DATETIME(6) NOT NULL
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS project_settings (
 			project_name VARCHAR(255) PRIMARY KEY,
 			update_policy VARCHAR(32) NOT NULL DEFAULT 'auto',
@@ -1107,6 +1112,30 @@ func normalizeAgentMode(mode, baseURL string) string {
 		return "callback"
 	}
 	return "inbound"
+}
+
+// SetSetting upserts a JSON-encoded value under key in app_settings. Use it for
+// small pieces of controller configuration that must survive restarts (e.g. the
+// reverse-proxy connection). value must already be valid JSON.
+func (s *Store) SetSetting(ctx context.Context, key string, value string) error {
+	_, err := s.DB.ExecContext(ctx,
+		`INSERT INTO app_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?)
+		 ON DUPLICATE KEY UPDATE value_json=VALUES(value_json), updated_at=VALUES(updated_at)`,
+		key, value, time.Now().UTC())
+	return err
+}
+
+// GetSetting returns the JSON value stored under key, or ErrNotFound if absent.
+func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.DB.QueryRowContext(ctx, `SELECT value_json FROM app_settings WHERE setting_key=?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func scanSchedule(scanner jobScanner) (*core.UpdateSchedule, error) {

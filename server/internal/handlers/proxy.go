@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,16 @@ import (
 
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
+	"github.com/arphost-com/Stack-Manager/server/internal/storage"
 )
+
+const npmSettingKey = "npm_connection"
+
+type npmPersisted struct {
+	URL      string `json:"url"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 
 // ProxyHandler manages communication with a Nginx Proxy Manager
 // instance. It stores the NPM base URL and credentials in memory
@@ -21,6 +31,7 @@ import (
 // NPM's admin panel directly.
 type ProxyHandler struct {
 	engine *core.Engine
+	store  *storage.Store
 
 	mu       sync.RWMutex
 	npmURL   string
@@ -30,8 +41,42 @@ type ProxyHandler struct {
 	npmPass  string
 }
 
-func NewProxyHandler(engine *core.Engine) *ProxyHandler {
-	return &ProxyHandler{engine: engine}
+func NewProxyHandler(engine *core.Engine, store *storage.Store) *ProxyHandler {
+	h := &ProxyHandler{engine: engine, store: store}
+	h.loadPersisted()
+	return h
+}
+
+// loadPersisted restores the NPM connection (URL + credentials) saved by a
+// previous Configure call so the reverse-proxy connection survives restarts.
+// The bearer token is not persisted; ensureToken re-authenticates lazily.
+func (h *ProxyHandler) loadPersisted() {
+	if h.store == nil {
+		return
+	}
+	raw, err := h.store.GetSetting(context.Background(), npmSettingKey)
+	if err != nil || raw == "" {
+		return
+	}
+	var p npmPersisted
+	if json.Unmarshal([]byte(raw), &p) != nil || p.URL == "" {
+		return
+	}
+	h.mu.Lock()
+	h.npmURL = p.URL
+	h.npmUser = p.Email
+	h.npmPass = p.Password
+	h.mu.Unlock()
+}
+
+func (h *ProxyHandler) persist(url, email, password string) {
+	if h.store == nil {
+		return
+	}
+	b, err := json.Marshal(npmPersisted{URL: url, Email: email, Password: password})
+	if err == nil {
+		_ = h.store.SetSetting(context.Background(), npmSettingKey, string(b))
+	}
 }
 
 type npmConfig struct {
@@ -70,6 +115,9 @@ func (h *ProxyHandler) Configure(w http.ResponseWriter, r *http.Request) {
 	h.npmPass = cfg.Password
 	h.mu.Unlock()
 
+	// Persist so the connection survives a controller restart/redeploy.
+	h.persist(cfg.URL, cfg.Email, cfg.Password)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"connected": true,
 		"url":       cfg.URL,
@@ -88,9 +136,21 @@ func (h *ProxyHandler) Status(w http.ResponseWriter, r *http.Request) {
 	exp := h.npmExp
 	h.mu.RUnlock()
 
+	connected := hasToken && time.Now().Before(exp)
+	// If we have a persisted URL + credentials but no live token (e.g. right
+	// after a restart), re-authenticate so the tab reconnects automatically.
+	if url != "" && !connected {
+		if _, _, err := h.ensureToken(); err == nil {
+			connected = true
+			h.mu.RLock()
+			exp = h.npmExp
+			h.mu.RUnlock()
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"configured": url != "",
-		"connected":  hasToken && time.Now().Before(exp),
+		"connected":  connected,
 		"url":        url,
 		"expires":    exp.Format(time.RFC3339),
 	})
