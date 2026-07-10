@@ -428,6 +428,21 @@ export default function Settings() {
     showMessage('Filled the form to proxy this Stack Manager UI — enter the domain you want, then Create Proxy Host.');
   };
 
+  // Put NPM's own admin UI behind HTTPS via a subdomain, so you stop using the
+  // insecure http://host:81. NPM proxies to its own admin (127.0.0.1:81 inside
+  // the NPM container).
+  const secureNpmAdmin = () => {
+    setNpmHostForm({
+      domain: '',
+      forward_host: '127.0.0.1',
+      forward_port: '81',
+      forward_scheme: 'http',
+      letsencrypt: true,
+      letsencrypt_email: npmHostForm.letsencrypt_email || '',
+    });
+    showMessage('Filled the form to put NPM’s admin UI on HTTPS. Enter a domain (e.g. npm.yourdomain), add your email, and Create Proxy Host — then open NPM at https://<that domain> instead of :81.');
+  };
+
   const createProxyHost = async () => {
     const domain = npmHostForm.domain.trim();
     if (!domain || !npmHostForm.forward_host || !npmHostForm.forward_port) {
@@ -2306,6 +2321,7 @@ export default function Settings() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-gray-700">Quick targets:</span>
                     <button className="rounded bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 hover:bg-violet-200" onClick={proxyThisUI} title="Fill the form to proxy this Stack Manager dashboard (forwards to this host over HTTPS). Enter your domain, then Create.">Stack Manager UI</button>
+                    <button className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 hover:bg-emerald-200" onClick={secureNpmAdmin} title="Fill the form to put NPM's own admin UI on HTTPS via a subdomain + Let's Encrypt, so you stop using the insecure :81.">NPM admin (SSL)</button>
                     {npmSuggestions.map(s => (
                       <button key={s.name} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-100" onClick={() => {
                         const portMatch = s.ports.match(/(\d+)->(\d+)/);
