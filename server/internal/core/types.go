@@ -371,6 +371,51 @@ type AgentProjectCheckin struct {
 	Projects []Project `json:"projects"`
 }
 
+// AgentCommand is a queued compose action for a callback (outbound-only) agent.
+// The controller enqueues it; the agent picks it up on its next check-in, runs
+// it locally, and reports the result back. This is how push-only agents get
+// managed without the controller being able to reach them inbound.
+type AgentCommand struct {
+	ID        int64     `json:"id"`
+	AgentID   int64     `json:"agent_id"`
+	Project   string    `json:"project"`
+	Action    string    `json:"action"` // up | down | pull | update | restart
+	Params    string    `json:"params,omitempty"`
+	Status    string    `json:"status"` // pending | dispatched | done | error
+	Success   bool      `json:"success"`
+	Output    string    `json:"output,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// AgentCommandDispatch is the minimal command handed to an agent on check-in.
+type AgentCommandDispatch struct {
+	ID      int64  `json:"id"`
+	Project string `json:"project"`
+	Action  string `json:"action"`
+	Params  string `json:"params,omitempty"`
+}
+
+// AgentCommandResult is one command outcome the agent reports after running it.
+type AgentCommandResult struct {
+	ID      int64  `json:"id"`
+	Success bool   `json:"success"`
+	Output  string `json:"output"`
+}
+
+// AgentCommandResults is the agent's POST body reporting a batch of results.
+type AgentCommandResults struct {
+	Name    string               `json:"name"`
+	Results []AgentCommandResult `json:"results"`
+}
+
+// AgentCommandRequest enqueues a command from the controller UI/API.
+type AgentCommandRequest struct {
+	Project string `json:"project"`
+	Action  string `json:"action"`
+	Params  string `json:"params,omitempty"`
+}
+
 // UpdateSchedule runs compose actions automatically for a local project or agent project.
 type UpdateSchedule struct {
 	ID              int64      `json:"id"`

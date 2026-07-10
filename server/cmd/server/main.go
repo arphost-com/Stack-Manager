@@ -158,6 +158,7 @@ func main() {
 		r.Post("/auth/login", authHandler.Login)
 		r.Post("/auth/totp/login", authHandler.TOTPLogin)
 		r.Post("/agent-checkin/projects", agentCheckinHandler.Projects)
+		r.Post("/agent-checkin/results", agentCheckinHandler.Results)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireAuth(cfg.APIKey, sessionManager))
@@ -225,6 +226,8 @@ func main() {
 			r.Get("/agents", agentHandler.List)
 			r.Post("/agents", agentHandler.Save)
 			r.Get("/agents/{agentID}/projects", agentHandler.Projects)
+			r.Post("/agents/{agentID}/commands", agentHandler.EnqueueCommand)
+			r.Get("/agents/{agentID}/commands", agentHandler.ListCommands)
 			r.Delete("/agents/{agentID}", agentHandler.Delete)
 			r.Get("/schedules", scheduleHandler.List)
 			r.Post("/schedules", scheduleHandler.Save)

@@ -160,6 +160,20 @@ func (s *Store) Migrate(ctx context.Context) error {
 			received_at DATETIME(6) NOT NULL,
 			CONSTRAINT fk_compose_agent_project_snapshots_agent FOREIGN KEY (agent_id) REFERENCES compose_agents(id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS agent_commands (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			agent_id BIGINT NOT NULL,
+			project VARCHAR(255) NOT NULL,
+			action VARCHAR(64) NOT NULL,
+			params TEXT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'pending',
+			success BOOLEAN NOT NULL DEFAULT FALSE,
+			output MEDIUMTEXT NULL,
+			created_at DATETIME(6) NOT NULL,
+			updated_at DATETIME(6) NOT NULL,
+			INDEX idx_agent_commands_pending (agent_id, status),
+			CONSTRAINT fk_agent_commands_agent FOREIGN KEY (agent_id) REFERENCES compose_agents(id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS update_schedules (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			agent_id BIGINT NULL,
@@ -752,6 +766,109 @@ func (s *Store) GetAgentProjectSnapshot(ctx context.Context, agentID int64) (*co
 		return nil, err
 	}
 	return &core.AgentProjectSnapshot{AgentID: agentID, Projects: projects, ReceivedAt: receivedAt}, nil
+}
+
+// EnqueueAgentCommand queues a compose action for a callback agent to run on
+// its next check-in.
+func (s *Store) EnqueueAgentCommand(ctx context.Context, agentID int64, req core.AgentCommandRequest) (*core.AgentCommand, error) {
+	now := time.Now().UTC()
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO agent_commands
+		(agent_id, project, action, params, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+		agentID, req.Project, req.Action, nullableString(req.Params), now, now)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &core.AgentCommand{
+		ID: id, AgentID: agentID, Project: req.Project, Action: req.Action,
+		Params: req.Params, Status: "pending", CreatedAt: now, UpdatedAt: now,
+	}, nil
+}
+
+// ClaimPendingCommands returns an agent's pending commands and atomically marks
+// them dispatched so they are handed out exactly once.
+func (s *Store) ClaimPendingCommands(ctx context.Context, agentID int64) ([]core.AgentCommandDispatch, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `SELECT id, project, action, COALESCE(params,'')
+		FROM agent_commands WHERE agent_id=? AND status='pending' ORDER BY id LIMIT 100 FOR UPDATE`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	var out []core.AgentCommandDispatch
+	var ids []interface{}
+	for rows.Next() {
+		var d core.AgentCommandDispatch
+		if err := rows.Scan(&d.ID, &d.Project, &d.Action, &d.Params); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, d)
+		ids = append(ids, d.ID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+		args := append([]interface{}{time.Now().UTC()}, ids...)
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_commands SET status='dispatched', updated_at=? WHERE id IN (`+placeholders+`)`, args...); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SaveAgentCommandResult records the outcome of a dispatched command.
+func (s *Store) SaveAgentCommandResult(ctx context.Context, agentID, id int64, success bool, output string) error {
+	status := "done"
+	if !success {
+		status = "error"
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE agent_commands
+		SET status=?, success=?, output=?, updated_at=?
+		WHERE id=? AND agent_id=?`,
+		status, success, output, time.Now().UTC(), id, agentID)
+	return err
+}
+
+// ListAgentCommands returns recent commands for an agent, newest first,
+// optionally filtered to one project.
+func (s *Store) ListAgentCommands(ctx context.Context, agentID int64, project string, limit int) ([]core.AgentCommand, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	query := `SELECT id, agent_id, project, action, COALESCE(params,''), status, success, COALESCE(output,''), created_at, updated_at
+		FROM agent_commands WHERE agent_id=?`
+	args := []interface{}{agentID}
+	if project != "" {
+		query += ` AND project=?`
+		args = append(args, project)
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []core.AgentCommand{}
+	for rows.Next() {
+		var c core.AgentCommand
+		if err := rows.Scan(&c.ID, &c.AgentID, &c.Project, &c.Action, &c.Params, &c.Status, &c.Success, &c.Output, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) DeleteAgent(ctx context.Context, id int64) error {

@@ -187,6 +187,10 @@ export const agents = {
   save: (body) => request('/agents', { method: 'POST', body: JSON.stringify(body) }),
   projects: (id) => request(`/agents/${id}/projects`),
   delete: (id) => request(`/agents/${id}`, { method: 'DELETE' }),
+  // Callback (outbound-only) agents can't be called directly; queue a command
+  // for them to run on their next check-in, and read the queue's status.
+  enqueueCommand: (id, body) => request(`/agents/${id}/commands`, { method: 'POST', body: JSON.stringify(body) }),
+  commands: (id, project) => request(`/agents/${id}/commands${project ? '?project=' + encodeURIComponent(project) : ''}`),
 };
 
 export const schedules = {

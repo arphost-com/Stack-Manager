@@ -79,8 +79,13 @@ export default function ProjectDetail() {
   // (logs/stats/shell) or use skills (security/backups/databases) aren't proxied
   // yet, so they show a notice for remote projects.
   const papiRef = useRef(projects);
-  const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '' });
+  const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '', callback: false });
+  const [agentCommands, setAgentCommands] = useState([]);
   const isRemote = !!sourceInfo.agentId;
+  // Callback agents are push-only: we can't call them live, so their project is
+  // read from the last check-in snapshot and actions are queued for the agent to
+  // run on its next check-in.
+  const isCallback = sourceInfo.callback;
   const REMOTE_ONLY_LOCAL_TABS = ['logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes', 'watch'];
   // Tracks the last location.search we applied a tab from, so the URL effect
   // fires only on real URL changes — not every time activeTab changes (which
@@ -95,41 +100,76 @@ export default function ProjectDetail() {
     const sourceName = params.get('source') || '';
     if (sourceName && sourceName !== 'local') {
       const list = await agentsApi.list().catch(() => null);
-      const agent = list?.data?.find(a => a.name === sourceName && a.base_url);
-      if (agent) return { api: projectsForSource(agent.id), agentId: agent.id, name: agent.name };
+      const agent = list?.data?.find(a => a.name === sourceName);
+      if (agent) return agentTarget(agent);
     }
-    return { api: projects, agentId: null, name: '' };
+    return { api: projects, agentId: null, name: '', callback: false };
+  };
+
+  // agentTarget decides how to talk to a project's owning agent: peers and
+  // inbound/both agents are called live through the proxy; callback agents are
+  // push-only, so their project comes from the check-in snapshot and actions are
+  // queued.
+  const agentTarget = (agent) => {
+    const live = !!agent.base_url && agent.mode !== 'callback';
+    return {
+      api: live ? projectsForSource(agent.id) : projects,
+      agentId: agent.id,
+      name: agent.name,
+      callback: !live,
+    };
+  };
+
+  const loadAgentCommands = async (agentId) => {
+    const res = await agentsApi.commands(agentId, name).catch(() => ({ data: [] }));
+    setAgentCommands(res.data || []);
   };
 
   const fetchProject = async () => {
     try {
-      let { api, agentId, name: srcName } = await resolveProjectApi();
+      let { api, agentId, name: srcName, callback } = await resolveProjectApi();
       papiRef.current = api;
       let res;
-      try {
-        res = await api.get(name);
-      } catch (err) {
-        // Bare-URL fallback: a local miss might mean the project lives on a peer.
-        if (!agentId && err.status === 404) {
-          const [all, agentList] = await Promise.all([
-            projects.list({ source: 'all', include_inactive: 'true' }).catch(() => null),
-            agentsApi.list().catch(() => null),
-          ]);
-          const owner = all?.data?.find(p => p.name === name && p.source_host && p.source_host !== 'local');
-          const agent = owner && agentList?.data?.find(a => a.name === owner.source_host && a.base_url);
-          if (agent) {
-            api = projectsForSource(agent.id); agentId = agent.id; srcName = agent.name;
-            papiRef.current = api;
-            res = await api.get(name);
+      if (callback) {
+        // Read the project from the agent's last check-in snapshot.
+        const snap = await agentsApi.projects(agentId).catch(() => ({ data: [] }));
+        const found = (snap.data || []).find(p => p.name === name);
+        if (!found) throw new Error(`"${name}" isn't in ${srcName}'s last check-in yet.`);
+        res = { data: found };
+      } else {
+        try {
+          res = await api.get(name);
+        } catch (err) {
+          // Bare-URL fallback: a local miss means the project lives on a peer/agent.
+          if (!agentId && err.status === 404) {
+            const [all, agentList] = await Promise.all([
+              projects.list({ source: 'all', include_inactive: 'true' }).catch(() => null),
+              agentsApi.list().catch(() => null),
+            ]);
+            const owner = all?.data?.find(p => p.name === name && p.source_host && p.source_host !== 'local');
+            const agent = owner && agentList?.data?.find(a => a.name === owner.source_host);
+            if (agent) {
+              ({ api, agentId, name: srcName, callback } = agentTarget(agent));
+              papiRef.current = api;
+              if (callback) {
+                const snap = await agentsApi.projects(agentId).catch(() => ({ data: [] }));
+                const found = (snap.data || []).find(p => p.name === name);
+                if (!found) throw err;
+                res = { data: found };
+              } else {
+                res = await api.get(name);
+              }
+            } else {
+              throw err;
+            }
           } else {
             throw err;
           }
-        } else {
-          throw err;
         }
       }
-      setSourceInfo({ resolved: true, agentId, name: srcName });
+      setSourceInfo({ resolved: true, agentId, name: srcName, callback });
       setProject(res.data);
+      if (callback && agentId) loadAgentCommands(agentId);
       const destinationRes = await backup.destinations().catch(() => ({ data: [] }));
       setBackupDestinations(destinationRes.data || []);
       setPolicyForm({
@@ -181,6 +221,12 @@ export default function ProjectDetail() {
     setActiveTab(tab);
     setTabData(null);
     if (tab === 'overview') return;
+    // Callback agents expose only the snapshot: everything else needs a live
+    // connection we don't have. Actions are queued from the overview instead.
+    if (isCallback) {
+      setTabData({ error: `${sourceInfo.name} is a check-in (callback) agent. Only the overview and queued actions are available here — run logs, shell, and scans on ${sourceInfo.name} directly.` });
+      return;
+    }
     // Streaming and skill tabs aren't proxied to peers yet — show a clear
     // message (via the standard error panel) instead of a confusing local
     // failure when viewing a remote project.
@@ -227,7 +273,31 @@ export default function ProjectDetail() {
     navigate(`${location.pathname}${search}`, { replace: true });
   };
 
+  // pollAgentCommands refreshes the queued-command list for a while so the
+  // pending -> dispatched -> done transition is visible without a manual reload.
+  const pollAgentCommands = () => {
+    let n = 0;
+    const id = window.setInterval(() => {
+      n += 1;
+      loadAgentCommands(sourceInfo.agentId);
+      if (n >= 20) window.clearInterval(id);
+    }, 5000);
+  };
+
   const runAction = async (action) => {
+    if (isCallback) {
+      // Callback agents can't be driven live; queue the action for the agent to
+      // run on its next check-in.
+      try {
+        await agentsApi.enqueueCommand(sourceInfo.agentId, { project: name, action, params: JSON.stringify({ timeout }) });
+        setActionResult({ status: 'done', label: `queued ${action}`, result: { output: `Queued "${action}" for ${sourceInfo.name}. It runs on the agent's next check-in (usually within a minute).` } });
+        loadAgentCommands(sourceInfo.agentId);
+        pollAgentCommands();
+      } catch (err) {
+        setActionResult({ status: 'error', label: `queue ${action}`, error: err.message });
+      }
+      return;
+    }
     try {
       const res = await papiRef.current.startJob(name, action, timeout);
       setActionResult({ status: 'running', label: action, job: res.data });
@@ -392,9 +462,11 @@ export default function ProjectDetail() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold text-gray-950">{project.name}</h1>
             {isRemote && (
-              <span title={`This project runs on the peer controller "${sourceInfo.name}". Lifecycle actions, config, files, sources, and docs are proxied to it. Logs, shell, scans, and backups aren't proxied yet — open it on ${sourceInfo.name} directly.`}
+              <span title={isCallback
+                ? `This project runs on "${sourceInfo.name}", a check-in (callback) agent. It's shown from the agent's last check-in; actions are queued and run on the agent's next check-in.`
+                : `This project runs on the peer/agent "${sourceInfo.name}". Lifecycle actions, config, files, sources, and docs are proxied to it. Logs, shell, scans, and backups aren't proxied yet — open it on ${sourceInfo.name} directly.`}
                 className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">
-                on {sourceInfo.name}
+                on {sourceInfo.name}{isCallback ? ' · check-in' : ''}
               </span>
             )}
             <Badge tone={project.running ? 'green' : 'gray'}>{project.running ? 'running' : 'stopped'}</Badge>
@@ -477,6 +549,9 @@ export default function ProjectDetail() {
 
         <div className="pt-4">
           {activeTab === 'overview' && <Overview project={project} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
+          {activeTab === 'overview' && isCallback && (
+            <QueuedCommands commands={agentCommands} agentName={sourceInfo.name} onRefresh={() => loadAgentCommands(sourceInfo.agentId)} />
+          )}
           {activeTab === 'config' && <ConfigEditor projectName={name} sourceAgentId={sourceInfo.agentId} />}
 
           {activeTab === 'docs' && <ProjectDocs docs={tabData || project.documentation || []} projectName={name} sourceAgentId={sourceInfo.agentId} />}
@@ -677,6 +752,46 @@ function ContainerPorts({ ports, state }) {
           {port}<span className="font-sans text-[9px] uppercase tracking-wide text-gray-300">{proto}</span>
         </span>
       ))}
+    </div>
+  );
+}
+
+// QueuedCommands shows the command queue for a callback-agent project: actions
+// the controller has queued, and their status/output once the agent runs them.
+function QueuedCommands({ commands, agentName, onRefresh }) {
+  const tone = (c) => {
+    if (c.status === 'done') return c.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+    if (c.status === 'error') return 'bg-red-100 text-red-800';
+    if (c.status === 'dispatched') return 'bg-amber-100 text-amber-800';
+    return 'bg-gray-100 text-gray-600';
+  };
+  const label = (c) => (c.status === 'done' ? (c.success ? 'done' : 'failed') : c.status);
+  return (
+    <div className="section-panel mt-6">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-gray-950">Queued commands</h2>
+        <button onClick={onRefresh} className="btn-secondary text-sm">Refresh</button>
+      </div>
+      <p className="mb-3 text-sm text-gray-500">Actions run on {agentName}&rsquo;s next check-in (usually within a minute); results appear here.</p>
+      {(!commands || commands.length === 0) && (
+        <div className="py-4 text-sm text-gray-500">No commands queued yet — use the action buttons above to queue one.</div>
+      )}
+      {commands && commands.length > 0 && (
+        <div className="space-y-2">
+          {commands.map((c) => (
+            <div key={c.id} className="rounded-md border border-gray-200 p-3">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-semibold text-gray-900">{c.action}</span>
+                <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone(c)}`}>{label(c)}</span>
+                <span className="ml-auto text-xs text-gray-400">{c.updated_at ? new Date(c.updated_at).toLocaleString() : ''}</span>
+              </div>
+              {c.output && (c.status === 'done' || c.status === 'error') && (
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{c.output}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

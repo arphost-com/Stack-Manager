@@ -192,6 +192,66 @@ func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": true})
 }
 
+// EnqueueCommand queues a compose action for a callback agent's project. The
+// agent picks it up on its next check-in, runs it, and reports the result.
+func (h *AgentHandler) EnqueueCommand(w http.ResponseWriter, r *http.Request) {
+	id, err := parseInt64Param(r, "agentID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	agent, err := h.Store.GetAgent(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var req core.AgentCommandRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Project = strings.TrimSpace(req.Project)
+	req.Action = strings.TrimSpace(req.Action)
+	if req.Project == "" {
+		writeError(w, http.StatusBadRequest, "project is required")
+		return
+	}
+	switch req.Action {
+	case "up", "down", "pull", "update", "restart":
+	default:
+		writeError(w, http.StatusBadRequest, "action must be up, down, pull, update, or restart")
+		return
+	}
+	cmd, err := h.Store.EnqueueAgentCommand(r.Context(), agent.ID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, cmd)
+}
+
+// ListCommands returns recent queued commands for an agent (optionally one
+// project) with their status and output.
+func (h *AgentHandler) ListCommands(w http.ResponseWriter, r *http.Request) {
+	id, err := parseInt64Param(r, "agentID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	project := r.URL.Query().Get("project")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	cmds, err := h.Store.ListAgentCommands(r.Context(), id, project, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cmds)
+}
+
 func (h *AgentHandler) Projects(w http.ResponseWriter, r *http.Request) {
 	id, err := parseInt64Param(r, "agentID")
 	if err != nil {
