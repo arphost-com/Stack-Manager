@@ -93,6 +93,12 @@ export default function Settings() {
   const [gpuSetup, setGpuSetup] = useState(null);
   const [gpuBusy, setGpuBusy] = useState('');
   const [gpuSetupResult, setGpuSetupResult] = useState(null);
+  const [osStatus, setOsStatus] = useState(null);
+  const [osBusy, setOsBusy] = useState('');
+  const [osResult, setOsResult] = useState(null);
+  const [osSearchTerm, setOsSearchTerm] = useState('');
+  const [osSearchOut, setOsSearchOut] = useState(null);
+  const [osInstallPkg, setOsInstallPkg] = useState('');
   const [serverNameInput, setServerNameInput] = useState(null);
   const [serverNameSaved, setServerNameSaved] = useState(false);
   const [savingServerName, setSavingServerName] = useState(false);
@@ -174,6 +180,7 @@ export default function Settings() {
       { key: 'registries', label: 'Registry Logins', title: 'Docker Hub account and private registry logins.' },
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
       { key: 'gpu', label: 'GPU', title: 'Detect and test NVIDIA GPU passthrough for AI stacks.' },
+      { key: 'os', label: 'OS Updates', title: 'Update the base OS (apt) on this host.' },
       { key: 'ssl', label: 'SSL / TLS', title: 'View, regenerate, or switch the TLS cert (self-signed or Let’s Encrypt).' },
       { key: 'backups', label: 'Backup Endpoints', title: 'Configure local and remote backup destinations.' },
       { key: 'firewall', label: 'Firewall', title: 'ConfigServer Firewall (csf/lfd) install, monitor, and IP management.' },
@@ -247,6 +254,46 @@ export default function Settings() {
     try { const r = await system.gpuSetupUninstall(); setGpuSetupResult(r.data); refreshGpuSetup(); }
     catch (err) { setGpuSetupResult({ success: false, error: err.message }); }
     finally { setGpuBusy(''); }
+  };
+
+  useEffect(() => {
+    if (admin && activeTab === 'os' && !osStatus) runOsCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, activeTab]);
+
+  const runOsCheck = async () => {
+    setOsBusy('check'); setOsResult(null);
+    try { const r = await system.osStatus(); setOsStatus(r.data); }
+    catch (err) { setOsResult({ success: false, error: err.message }); }
+    finally { setOsBusy(''); }
+  };
+  const runOsUpgrade = async () => {
+    if (!window.confirm('Run a full base-OS upgrade (apt update + dist-upgrade + autoremove) on this host? This can take a while.')) return;
+    setOsBusy('upgrade'); setOsResult(null);
+    try { const r = await system.osUpgrade(); setOsResult(r.data); runOsCheck(); }
+    catch (err) { setOsResult({ success: false, error: err.message }); }
+    finally { setOsBusy(''); }
+  };
+  const runOsAutoremove = async () => {
+    setOsBusy('autoremove'); setOsResult(null);
+    try { const r = await system.osAutoremove(); setOsResult(r.data); }
+    catch (err) { setOsResult({ success: false, error: err.message }); }
+    finally { setOsBusy(''); }
+  };
+  const runOsSearch = async () => {
+    if (!osSearchTerm.trim()) return;
+    setOsBusy('search'); setOsSearchOut(null);
+    try { const r = await system.osSearch(osSearchTerm.trim()); setOsSearchOut(r.data); }
+    catch (err) { setOsSearchOut({ success: false, error: err.message }); }
+    finally { setOsBusy(''); }
+  };
+  const runOsInstall = async () => {
+    if (!osInstallPkg.trim()) return;
+    if (!window.confirm(`Install package "${osInstallPkg.trim()}" on this host via apt?`)) return;
+    setOsBusy('install'); setOsResult(null);
+    try { const r = await system.osInstall(osInstallPkg.trim()); setOsResult(r.data); }
+    catch (err) { setOsResult({ success: false, error: err.message }); }
+    finally { setOsBusy(''); }
   };
 
   useEffect(() => {
@@ -1864,6 +1911,60 @@ export default function Settings() {
               <code className="mx-1 rounded bg-gray-100 px-1">deploy.resources.reservations.devices</code> block for you. Toggle it off to run CPU-only.
             </p>
           </div>
+        </div>
+      )}
+
+      {admin && activeTab === 'os' && (
+        <div className="space-y-4">
+          <div className="section-panel space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-950">Base OS updates</h2>
+              <button onClick={runOsCheck} disabled={!!osBusy} className="btn-secondary inline-flex items-center gap-2 text-xs">{osBusy === 'check' && <span className="spinner" aria-hidden="true"></span>}Check</button>
+            </div>
+            <p className="text-sm text-gray-600">Manage this host&rsquo;s base OS packages (apt) on Debian &amp; Ubuntu. Admin only. These run as root on the host.</p>
+            {osStatus && osStatus.helper_installed === false ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-medium">One-time host setup needed</div>
+                <p className="mt-1">Install the helper on the host once (over SSH), then this panel activates:</p>
+                <pre className="mt-2 overflow-auto rounded bg-gray-950 p-2 text-xs text-gray-100">{osStatus.helper_hint || 'sudo install -m 750 scripts/stack-manager-os.sh /usr/local/sbin/stack-manager-os'}</pre>
+              </div>
+            ) : (
+              <>
+                {osStatus?.output && (
+                  <div>
+                    <div className="mb-1 text-sm font-medium text-gray-700">Upgradable packages</div>
+                    <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{osStatus.output}</pre>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={runOsUpgrade} disabled={!!osBusy} className="btn-primary inline-flex items-center gap-2">{osBusy === 'upgrade' && <span className="spinner" aria-hidden="true"></span>}Run full upgrade</button>
+                  <button onClick={runOsAutoremove} disabled={!!osBusy} className="btn-secondary inline-flex items-center gap-2">{osBusy === 'autoremove' && <span className="spinner" aria-hidden="true"></span>}Autoremove</button>
+                </div>
+                {osBusy === 'upgrade' && <p className="text-xs text-gray-500">Upgrading — apt dist-upgrade can take several minutes.</p>}
+              </>
+            )}
+          </div>
+          {osStatus?.helper_installed !== false && (
+            <div className="section-panel space-y-3">
+              <h3 className="text-sm font-semibold text-gray-950">Search &amp; install a package</h3>
+              <div className="flex flex-wrap items-end gap-2">
+                <input className="input min-w-[200px] flex-1" value={osSearchTerm} onChange={e => setOsSearchTerm(e.target.value)} placeholder="search term, e.g. htop" onKeyDown={e => e.key === 'Enter' && runOsSearch()} />
+                <button onClick={runOsSearch} disabled={!!osBusy} className="btn-secondary inline-flex items-center gap-2">{osBusy === 'search' && <span className="spinner" aria-hidden="true"></span>}Search</button>
+              </div>
+              {osSearchOut?.output && <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{osSearchOut.output}</pre>}
+              {osSearchOut?.error && <div className="text-sm text-red-700">{osSearchOut.error}</div>}
+              <div className="flex flex-wrap items-end gap-2">
+                <input className="input min-w-[200px] flex-1" value={osInstallPkg} onChange={e => setOsInstallPkg(e.target.value)} placeholder="package name, e.g. htop" />
+                <button onClick={runOsInstall} disabled={!!osBusy} className="btn-primary inline-flex items-center gap-2">{osBusy === 'install' && <span className="spinner" aria-hidden="true"></span>}Install</button>
+              </div>
+            </div>
+          )}
+          {osResult && (
+            <div className="section-panel">
+              <div className={`mb-1 text-sm font-medium ${osResult.success ? 'text-green-700' : 'text-red-700'}`}>{osResult.success ? 'Done' : 'Failed'}{osResult.error ? `: ${osResult.error}` : ''}</div>
+              {osResult.output && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{osResult.output}</pre>}
+            </div>
+          )}
         </div>
       )}
 
