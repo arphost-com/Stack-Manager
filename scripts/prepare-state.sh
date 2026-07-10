@@ -236,6 +236,31 @@ else
   ensure_setting DOCKER_GID "$(detect_docker_gid)"
   ensure_setting SERVER_USER "$(id -u):$(id -g)"
 fi
+
+# Stamp the current commit into .env so the UI footer shows v<version>+<sha>,
+# and install a git post-merge hook so it re-stamps on every `git pull` — that
+# way a plain `docker compose --env-file .env up -d --build` picks up the new
+# SHA without needing make or a manual build arg.
+if git -C "${project_root}" rev-parse --short HEAD >/dev/null 2>&1; then
+  set_env_value VITE_GIT_SHA "$(git -C "${project_root}" rev-parse --short HEAD)"
+  hook_dir="$(git -C "${project_root}" rev-parse --git-path hooks 2>/dev/null)"
+  if [ -n "${hook_dir}" ] && [ -d "${hook_dir}" ]; then
+    cat > "${hook_dir}/post-merge" <<'HOOK'
+#!/bin/sh
+# Installed by prepare-state.sh: keep VITE_GIT_SHA in .env current after pulls.
+sha="$(git rev-parse --short HEAD 2>/dev/null)" || exit 0
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+env="${top}/.env"
+[ -f "${env}" ] || exit 0
+if grep -q '^VITE_GIT_SHA=' "${env}"; then
+  sed -i "s/^VITE_GIT_SHA=.*/VITE_GIT_SHA=${sha}/" "${env}"
+else
+  printf 'VITE_GIT_SHA=%s\n' "${sha}" >> "${env}"
+fi
+HOOK
+    chmod +x "${hook_dir}/post-merge" 2>/dev/null || true
+  fi
+fi
 if [ "${agent_mode}" -eq 1 ]; then
   # Agent mode: HOST_URL is the inbound listener address for the
   # controller to reach this agent. Uses the primary NIC IP so the
