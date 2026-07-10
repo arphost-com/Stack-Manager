@@ -108,6 +108,7 @@ services:
       context: ./web
       args:
         BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-}
+        VITE_GIT_SHA: ${VITE_GIT_SHA:-}
     environment:
       HOST_URL: "${HOST_URL:-}"
       SSL_CN: "${SSL_CN:-}"

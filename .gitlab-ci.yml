@@ -222,6 +222,7 @@ deploy:docker02:
         STACK_MANAGER_DB_PASSWORD="${STACK_MANAGER_DB_PASSWORD:-}" \
         STACK_MANAGER_DB_ROOT_PASSWORD="${STACK_MANAGER_DB_ROOT_PASSWORD:-}" \
         STACK_MANAGER_REDIS_PASSWORD="${STACK_MANAGER_REDIS_PASSWORD:-}" \
+        VITE_GIT_SHA="${CI_COMMIT_SHORT_SHA:-}" \
         sh <<'SH'
       set -eu
       env_file="${DEPLOY_PATH}/.env"
@@ -288,6 +289,7 @@ deploy:docker02:
         "SSL_CN=${ssl_cn}" \
         "SSL_EXTRA_SANS=${ssl_extra_sans}" \
         "BASE_IMAGE_PREFIX=${base_image_prefix}" \
+        "VITE_GIT_SHA=${VITE_GIT_SHA:-}" \
         > "${tmp}"
       install -m 600 "${tmp}" "${env_file}"
       rm -f "${tmp}"

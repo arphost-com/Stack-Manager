@@ -4,6 +4,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 COPY . .
+# VITE_GIT_SHA lets the build stamp the exact commit into the UI version
+# (the Docker build context has no .git). CI passes --build-arg VITE_GIT_SHA.
+ARG VITE_GIT_SHA=
+ENV VITE_GIT_SHA=${VITE_GIT_SHA}
 RUN npm run build
 
 ARG BASE_IMAGE_PREFIX=
