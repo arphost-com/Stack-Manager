@@ -2220,13 +2220,29 @@ volumes:
     ports:
       - "${MOSQUITTO_PORT:-1883}:1883"
       - "${MOSQUITTO_WS_PORT:-9001}:9001"
+    configs:
+      - source: mosquitto_config
+        target: /mosquitto/config/mosquitto.conf
     volumes:
-      - ./config:/mosquitto/config
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
 volumes:
   mosquitto-data:
   mosquitto-log:
+configs:
+  # Mosquitto v2 refuses connections without an explicit listener config, so
+  # ship a starter that opens MQTT (1883) and WebSocket (9001) with anonymous
+  # access. Lock this down (add a password_file) via the Config tab for prod.
+  mosquitto_config:
+    content: |
+      listener 1883
+      protocol mqtt
+      listener 9001
+      protocol websockets
+      allow_anonymous true
+      persistence true
+      persistence_location /mosquitto/data/
+      log_dest stdout
 `,
 			EnvContent: "MOSQUITTO_PORT=1883\nMOSQUITTO_WS_PORT=9001\n",
 			Notes:      "Create config/mosquitto.conf before starting. Avoid anonymous listeners on untrusted networks.",
