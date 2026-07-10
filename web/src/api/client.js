@@ -245,6 +245,7 @@ export const dockerSettings = {
 
 export const proxy = {
   status: () => request('/proxy/status'),
+  deploy: () => request('/proxy/deploy', { method: 'POST' }),
   configure: (url, email, password) => request('/proxy/configure', { method: 'POST', body: JSON.stringify({ url, email, password }) }),
   listHosts: () => request('/proxy/hosts'),
   createHost: (body) => request('/proxy/hosts', { method: 'POST', body: JSON.stringify(body) }),

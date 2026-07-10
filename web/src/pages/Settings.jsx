@@ -237,6 +237,32 @@ export default function Settings() {
     } catch (err) { showError(err); }
   };
 
+  const [deployingNpm, setDeployingNpm] = useState(false);
+  const deployNpm = async () => {
+    setDeployingNpm(true);
+    try {
+      const res = await proxyApi.deploy();
+      showMessage(`Nginx Proxy Manager deployed. Admin UI on port 81 — connect with ${res.data?.default_login || 'admin@example.com'} / ${res.data?.default_password || 'changeme'}.`);
+      // Prefill the connection form with the NPM admin URL + defaults so the
+      // next click is just Connect. NPM's admin listens on host port 81.
+      setNpmForm({ url: `http://${window.location.hostname}:81`, email: 'admin@example.com', password: 'changeme' });
+      loadProxyStatus();
+    } catch (err) { showError(err); }
+    finally { setDeployingNpm(false); }
+  };
+
+  // One-click: proxy the Stack Manager dashboard itself. Forwards to the host
+  // and HTTPS port this browser is on (the web container terminates TLS).
+  const proxyThisUI = () => {
+    setNpmHostForm({
+      domain: '',
+      forward_host: window.location.hostname,
+      forward_port: window.location.port || '8993',
+      forward_scheme: 'https',
+    });
+    showMessage('Filled the form to proxy this Stack Manager UI — enter the domain you want, then Create Proxy Host.');
+  };
+
   const createProxyHost = async () => {
     const domain = npmHostForm.domain.trim();
     if (!domain || !npmHostForm.forward_host || !npmHostForm.forward_port) {
@@ -248,6 +274,7 @@ export default function Settings() {
         forward_scheme: npmHostForm.forward_scheme || 'http',
         forward_host: npmHostForm.forward_host.trim(),
         forward_port: Number(npmHostForm.forward_port),
+        enabled: true,
         block_exploits: true,
         allow_websocket_upgrade: true,
         access_list_id: 0,
@@ -1782,8 +1809,18 @@ export default function Settings() {
 
           {!npmStatus?.connected && (
             <>
+              <div className="section-panel space-y-3 border-blue-200 bg-blue-50">
+                <h3 className="text-base font-semibold text-blue-950">One-click deploy</h3>
+                <p className="text-sm text-blue-900">Deploy Nginx Proxy Manager from the built-in template and prefill the connection form below. It binds host ports 80 (HTTP), 443 (HTTPS), and 81 (admin).</p>
+                <button className="btn-primary inline-flex items-center gap-2" onClick={deployNpm} disabled={deployingNpm} title="Create and start the nginx-proxy-manager project, then prefill the connection form with its admin URL and default login.">
+                  {deployingNpm && <span className="spinner" aria-hidden="true"></span>}
+                  {deployingNpm ? 'Deploying…' : 'Deploy Nginx Proxy Manager'}
+                </button>
+                <p className="text-xs text-blue-800">After it deploys, log into NPM admin once to change the default password, then click Connect below.</p>
+              </div>
+
               <div className="section-panel space-y-3">
-                <h3 className="text-base font-semibold text-gray-950">Setup Guide</h3>
+                <h3 className="text-base font-semibold text-gray-950">Manual setup (alternative)</h3>
                 <ol className="list-decimal space-y-3 pl-5 text-sm text-gray-700">
                   <li>
                     <span className="font-medium">Deploy NPM from the Stack Catalog.</span> Go to <Link to="/catalog" className="underline text-blue-700">Stack Catalog</Link>, search for <code className="rounded bg-gray-100 px-1">nginx-proxy-manager</code>, and click <span className="font-medium">Spin it Up</span>. It binds ports 80 (HTTP), 443 (HTTPS), and 81 (admin).
@@ -1860,19 +1897,19 @@ export default function Settings() {
 
               <div className="section-panel space-y-3">
                 <h3 className="text-base font-semibold text-gray-950">Add Proxy Host</h3>
-                {npmSuggestions.length > 0 && (
-                  <div className="text-sm text-gray-600">
-                    Running projects with exposed ports:
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {npmSuggestions.map(s => (
-                        <button key={s.name} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-100" onClick={() => {
-                          const portMatch = s.ports.match(/(\d+)->(\d+)/);
-                          setNpmHostForm({ ...npmHostForm, forward_host: window.location.hostname, forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
-                        }} title={s.ports}>{s.name}</button>
-                      ))}
-                    </div>
+                <div className="text-sm text-gray-600">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-gray-700">Quick targets:</span>
+                    <button className="rounded bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 hover:bg-violet-200" onClick={proxyThisUI} title="Fill the form to proxy this Stack Manager dashboard (forwards to this host over HTTPS). Enter your domain, then Create.">Stack Manager UI</button>
+                    {npmSuggestions.map(s => (
+                      <button key={s.name} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-100" onClick={() => {
+                        const portMatch = s.ports.match(/(\d+)->(\d+)/);
+                        setNpmHostForm({ forward_scheme: 'http', forward_host: window.location.hostname, forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
+                      }} title={s.ports}>{s.name}</button>
+                    ))}
                   </div>
-                )}
+                  {npmSuggestions.length === 0 && <p className="mt-1 text-xs text-gray-500">No running projects with exposed ports detected — use the Stack Manager UI target or fill the form manually.</p>}
+                </div>
                 <div className="grid gap-2 sm:grid-cols-4">
                   <Field label="Domain">
                     <input className="input" value={npmHostForm.domain} onChange={e => setNpmHostForm({ ...npmHostForm, domain: e.target.value })} placeholder="app.example.com" />

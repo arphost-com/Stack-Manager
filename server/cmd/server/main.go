@@ -240,6 +240,7 @@ func main() {
 
 			// Reverse proxy (NPM)
 			r.Get("/proxy/status", proxyHandler.Status)
+			r.Post("/proxy/deploy", proxyHandler.DeployNPM)
 			r.Post("/proxy/configure", proxyHandler.Configure)
 			r.Get("/proxy/hosts", proxyHandler.ListHosts)
 			r.Post("/proxy/hosts", proxyHandler.CreateHost)

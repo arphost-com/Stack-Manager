@@ -96,6 +96,63 @@ func (h *ProxyHandler) Status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// DeployNPM creates and starts a Nginx Proxy Manager project from the built-in
+// template, so the operator can stand NPM up with one click before connecting.
+// If the project already exists it is just brought up. NPM's first-run default
+// login is admin@example.com / changeme — the caller connects with those, then
+// NPM forces a password change on first UI login.
+func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	const projectName = "nginx-proxy-manager"
+
+	var tmpl *core.StackTemplate
+	for i := range core.BuiltinStackTemplates() {
+		t := core.BuiltinStackTemplates()[i]
+		if t.ID == projectName {
+			tmpl = &t
+			break
+		}
+	}
+	if tmpl == nil {
+		writeError(w, http.StatusInternalServerError, "nginx-proxy-manager template not found")
+		return
+	}
+
+	project, err := h.engine.GetProject(projectName)
+	if err != nil {
+		// Not present yet — create it from the template.
+		project, err = h.engine.CreateProject(core.CreateProjectRequest{
+			Name:           projectName,
+			ComposeContent: tmpl.ComposeContent,
+			EnvContent:     tmpl.EnvContent,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "failed to create NPM project: "+err.Error())
+			return
+		}
+	}
+
+	result := h.engine.Up(project)
+	if result != nil && !result.Success {
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
+			"status":  "error",
+			"project": projectName,
+			"error":   "docker compose up failed",
+			"output":  result.Output,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"deployed":         true,
+		"project":          projectName,
+		"default_login":    "admin@example.com",
+		"default_password": "changeme",
+		"note":             "NPM admin UI is on the mapped 81 port. Connect with the default login, then change the password when NPM prompts.",
+	})
+}
+
 // ListHosts returns proxy hosts from NPM.
 func (h *ProxyHandler) ListHosts(w http.ResponseWriter, r *http.Request) {
 	if !middleware.RequireAdmin(w, r) {
