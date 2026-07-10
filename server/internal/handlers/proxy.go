@@ -211,10 +211,14 @@ func (h *ProxyHandler) ensureToken() (string, string, error) {
 }
 
 func (h *ProxyHandler) authenticate(baseURL, email, password string) (string, time.Time, error) {
+	// NPM's POST /api/tokens schema is additionalProperties:false and accepts
+	// only identity + secret. Sending anything else (e.g. an "expiry" field)
+	// fails with HTTP 400 "data must NOT have additional properties". NPM issues
+	// the token with a default expiry which we read from the response and
+	// refresh before it lapses (see ensureToken).
 	body, _ := json.Marshal(map[string]string{
 		"identity": email,
 		"secret":   password,
-		"expiry":   "1y",
 	})
 	resp, err := http.Post(baseURL+"/api/tokens", "application/json", bytes.NewReader(body))
 	if err != nil {
