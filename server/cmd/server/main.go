@@ -99,6 +99,7 @@ func main() {
 	projectHandler.PortSyncer = firewallSkill
 	agentHandler := handlers.NewAgentHandler(appStore)
 	systemInfoHandler := handlers.NewSystemInfoHandler(appStore)
+	gpuSetupHandler := handlers.NewGPUSetupHandler()
 	agentCheckinHandler := handlers.NewAgentCheckinHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
 	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
@@ -254,6 +255,10 @@ func main() {
 			// System info
 			r.Get("/system/gpu", handlers.GPUDetect)
 			r.Post("/system/gpu/test", handlers.GPUTest)
+			r.Get("/system/gpu/setup", gpuSetupHandler.Status)
+			r.Post("/system/gpu/setup/install", gpuSetupHandler.Install)
+			r.Post("/system/gpu/setup/uninstall", gpuSetupHandler.Uninstall)
+			r.Post("/system/gpu/setup/reboot", gpuSetupHandler.Reboot)
 			r.Get("/system/info", systemInfoHandler.Get)
 			r.Put("/system/info", systemInfoHandler.Save)
 

@@ -90,6 +90,9 @@ export default function Settings() {
   const [gpuInfo, setGpuInfo] = useState(null);
   const [gpuTest, setGpuTest] = useState(null);
   const [gpuTesting, setGpuTesting] = useState(false);
+  const [gpuSetup, setGpuSetup] = useState(null);
+  const [gpuBusy, setGpuBusy] = useState('');
+  const [gpuSetupResult, setGpuSetupResult] = useState(null);
   const [serverNameInput, setServerNameInput] = useState(null);
   const [serverNameSaved, setServerNameSaved] = useState(false);
   const [savingServerName, setSavingServerName] = useState(false);
@@ -212,10 +215,39 @@ export default function Settings() {
   }, [admin, activeTab]);
 
   useEffect(() => {
-    if (admin && activeTab === 'gpu' && !gpuInfo) {
-      system.gpu().then(r => setGpuInfo(r.data)).catch(() => setGpuInfo({ available: false }));
+    if (admin && activeTab === 'gpu') {
+      if (!gpuInfo) system.gpu().then(r => setGpuInfo(r.data)).catch(() => setGpuInfo({ available: false }));
+      if (!gpuSetup) system.gpuSetupStatus().then(r => setGpuSetup(r.data)).catch(() => setGpuSetup({ helper_installed: false }));
     }
   }, [admin, activeTab]);
+
+  const refreshGpuSetup = () => system.gpuSetupStatus().then(r => setGpuSetup(r.data)).catch(() => {});
+
+  const runGpuInstall = async () => {
+    setGpuBusy('install'); setGpuSetupResult(null);
+    try {
+      const r = await system.gpuSetupInstall();
+      setGpuSetupResult(r.data);
+      refreshGpuSetup();
+    } catch (err) { setGpuSetupResult({ success: false, error: err.message }); }
+    finally { setGpuBusy(''); }
+  };
+
+  const runGpuReboot = async () => {
+    if (!window.confirm('Reboot this host now? The dashboard will be briefly unavailable while it restarts.')) return;
+    setGpuBusy('reboot');
+    try { await system.gpuSetupReboot(); setGpuSetupResult({ success: true, output: 'Reboot initiated — reconnect in a minute.' }); }
+    catch (err) { setGpuSetupResult({ success: false, error: err.message }); }
+    finally { setGpuBusy(''); }
+  };
+
+  const runGpuUninstall = async () => {
+    if (!window.confirm('Remove the NVIDIA driver and container toolkit from this host? (For re-testing the install.)')) return;
+    setGpuBusy('uninstall'); setGpuSetupResult(null);
+    try { const r = await system.gpuSetupUninstall(); setGpuSetupResult(r.data); refreshGpuSetup(); }
+    catch (err) { setGpuSetupResult({ success: false, error: err.message }); }
+    finally { setGpuBusy(''); }
+  };
 
   useEffect(() => {
     if (admin && activeTab === 'general' && serverNameInput === null) {
@@ -1774,6 +1806,56 @@ export default function Settings() {
               </div>
             )}
           </div>
+          <div className="section-panel space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-950">Install GPU support (host)</h3>
+              <button onClick={refreshGpuSetup} className="btn-secondary text-xs">Refresh</button>
+            </div>
+            <p className="text-sm text-gray-600">One-click install of the NVIDIA driver + container toolkit on this host (Debian &amp; Ubuntu) and configure Docker&rsquo;s GPU runtime. A reboot is required afterward to load the driver.</p>
+            {gpuSetup && gpuSetup.helper_installed === false ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-medium">One-time host setup needed</div>
+                <p className="mt-1">Install the helper on the host once (over SSH), then this panel activates:</p>
+                <pre className="mt-2 overflow-auto rounded bg-gray-950 p-2 text-xs text-gray-100">{gpuSetup.helper_hint || 'sudo install -m 750 scripts/stack-manager-gpu.sh /usr/local/sbin/stack-manager-gpu'}</pre>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {gpuSetup && ['os', 'driver', 'toolkit', 'runtime', 'secureboot', 'module'].map(k => gpuSetup[k] && (
+                    <span key={k} className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-gray-700">{k}={String(gpuSetup[k])}</span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={runGpuInstall} disabled={!!gpuBusy} className="btn-primary inline-flex items-center gap-2">
+                    {gpuBusy === 'install' && <span className="spinner" aria-hidden="true"></span>}
+                    Install GPU support
+                  </button>
+                  <button onClick={runGpuReboot} disabled={!!gpuBusy} className="btn-secondary inline-flex items-center gap-2">
+                    {gpuBusy === 'reboot' && <span className="spinner" aria-hidden="true"></span>}
+                    Reboot host
+                  </button>
+                  <button onClick={runGpuUninstall} disabled={!!gpuBusy} className="btn-danger inline-flex items-center gap-2">
+                    {gpuBusy === 'uninstall' && <span className="spinner" aria-hidden="true"></span>}
+                    Uninstall
+                  </button>
+                </div>
+                {gpuSetup?.secureboot === 'enabled' && gpuSetup?.module !== 'loaded' && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <div className="font-medium">Secure Boot is on — one console step required</div>
+                    <p className="mt-1">The NVIDIA module is signed with a machine-owner key that must be enrolled at the <span className="font-medium">host/VM console</span> (Secure Boot won&rsquo;t let this happen over the network). Reboot, then at the blue &ldquo;Perform MOK Management&rdquo; screen press a key to stop the countdown, choose <span className="font-medium">Enroll MOK → Continue → Yes</span>, and enter the password <code className="rounded bg-white px-1">nvidia</code>.{gpuSetup?.mok === 'pending-enroll' && <span className="font-medium"> An enrollment is already staged.</span>}</p>
+                  </div>
+                )}
+                {gpuBusy === 'install' && <p className="text-xs text-gray-500">Installing — this pulls large packages and can take several minutes.</p>}
+                {gpuSetupResult && (
+                  <div>
+                    <div className={`mb-1 text-sm font-medium ${gpuSetupResult.success ? 'text-green-700' : 'text-red-700'}`}>{gpuSetupResult.success ? 'Done' : 'Failed'}{gpuSetupResult.error ? `: ${gpuSetupResult.error}` : ''}</div>
+                    {gpuSetupResult.output && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{gpuSetupResult.output}</pre>}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="section-panel">
             <h3 className="text-sm font-semibold text-gray-950">Using the GPU in stacks</h3>
             <p className="mt-1 text-sm text-gray-600">

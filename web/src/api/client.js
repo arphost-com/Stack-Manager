@@ -300,6 +300,10 @@ export function systemForSource(agentId) {
 export const system = {
   gpu: () => request('/system/gpu'),
   gpuTest: () => request('/system/gpu/test', { method: 'POST' }),
+  gpuSetupStatus: () => request('/system/gpu/setup'),
+  gpuSetupInstall: () => request('/system/gpu/setup/install', { method: 'POST' }),
+  gpuSetupUninstall: () => request('/system/gpu/setup/uninstall', { method: 'POST' }),
+  gpuSetupReboot: () => request('/system/gpu/setup/reboot', { method: 'POST' }),
   info: () => request('/system/info'),
   setName: (name) => request('/system/info', { method: 'PUT', body: JSON.stringify({ server_name: name }) }),
   prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
