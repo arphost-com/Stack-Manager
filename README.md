@@ -10,7 +10,8 @@ Manage all your Docker Compose stacks from one dashboard. Discover, deploy, upda
 
 - **200+ one-click stack templates** — AI, databases, CMS, monitoring, proxies, dev tools, media, and more. Pick a template, review the compose and env, and spin it up.
 - **In-browser config editor** — edit compose.yml, .env, Caddyfile, and other project files directly from the dashboard with automatic .bak backups.
-- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view shows every connected host; schedule and act across all of them from one controller.
+- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view shows every connected host; open and manage their projects, and act across all of them from one controller. Behind-NAT **callback agents** are managed through a command queue that runs on their next check-in. All cross-server traffic uses TLS 1.3.
+- **GPU for AI stacks** — Settings > GPU detects the host GPU and runs a real `--gpus all` test container (nvidia-smi) to prove passthrough works; AI stack templates get a one-click "Add GPU passthrough" checkbox.
 - **Scheduled updates** — daily at 03:00, weekly on Saturday, monthly on the 15th, or every N minutes. Per-project update policies prevent accidental breakage.
 - **Backup to anywhere** — local paths, CIFS, NFS, FTP, SFTP (with in-browser SSH key generation), and S3. Automatic local archive + remote copy.
 - **Live in-browser shell** — xterm.js terminal with real PTY support that opens an interactive session inside any running container via WebSocket + docker exec. Tab completion, arrow keys, colors, and resize — as fast as SSH.
@@ -18,7 +19,7 @@ Manage all your Docker Compose stacks from one dashboard. Discover, deploy, upda
 - **Reverse proxy integration** — one-click **deploy** Nginx Proxy Manager, then add proxied domains from the dashboard: per-project **Add to Proxy**, a one-click **proxy the Stack Manager UI** target, and auto-filled forwards for running projects. Let's Encrypt stays separate for non-proxy installs.
 - **Two-factor authentication** — TOTP (Google Authenticator / Authy) with QR enrollment, backup codes, and per-user enable/disable.
 - **Self-signed TLS out of the box** — HTTPS on first boot with zero config. Optional Let's Encrypt or Nginx Proxy Manager for real domains.
-- **General settings in the browser** — change ports, cache TTLs, host URL, and roll the API key from Settings > General without touching .env or SSH.
+- **General settings in the browser** — change ports, cache TTLs, host URL, a friendly **server display name** (shown in the server selector instead of the IP), and roll the API key from Settings > General without touching .env or SSH.
 - **Multiple Docker roots** — discover projects across more than one host directory via `EXTRA_DOCKER_ROOTS`.
 - **Docker daemon settings** — edit `daemon.json` from the browser with tooltips, backups, and teardown guidance for network changes.
 - **Security scans** — image vulnerability scanning and compose audit from the project detail page.
@@ -132,14 +133,16 @@ SFTP endpoints support in-browser Ed25519 key generation: click **Generate**, sa
 
 Manage Docker hosts across your network from one controller. The dashboard's **Server** selector shows **All Servers** — the local host plus every connected server — and you can filter to any single one. Add servers in Settings > Agents:
 
-| Mode | How it works | Needs inbound port? | Has its own UI? |
-|------|-------------|---------------------|-----------------|
-| **Outbound check-in** (agent) | Agent phones home to the controller. Best behind NAT. | No | No |
-| **Inbound listener** (agent) | Controller reaches out to the agent. | Yes | No |
-| **Both** (agent) | Combined — works whether the host is reachable or not. | Yes | No |
-| **Peer controller** | Another full Stack Manager. You add it by its URL + API key; the controller live-fetches its projects into the "All Servers" view. | Reachable over HTTPS | Yes |
+| Mode | How it works | Needs inbound port? | Manage projects? |
+|------|-------------|---------------------|------------------|
+| **Outbound check-in** (agent) | Agent phones home to the controller. Best behind NAT. | No | Yes, via queued commands |
+| **Inbound listener** (agent) | Controller reaches out to the agent. | Yes | Yes, live |
+| **Both** (agent) | Combined — works whether the host is reachable or not. | Yes | Yes, live |
+| **Peer controller** | Another full Stack Manager. You add it by its URL + API key; the controller live-fetches its projects into the "All Servers" view. | Reachable over HTTPS | Yes, live |
 
-Agents are a lightweight runtime (no database, Redis, or UI) installed with `./scripts/prepare-state.sh --agent --mode <callback\|inbound\|both>` — which auto-generates the `.env` (including `AGENT_TOKEN`) and prints the values to register. **Peer controllers** are two full installs that each add the other as a peer, so both dashboards see and (via the agent proxy) act on both hosts over direct HTTPS. The Settings > Agents page has setup commands with Copy buttons, a controller URL field, and a mode selector that updates the samples live.
+Agents are a lightweight runtime (no database, Redis, or UI) installed with `./scripts/prepare-state.sh --agent --mode <callback\|inbound\|both> --controller https://<controller>:8993` — which auto-generates the `.env` (including `AGENT_TOKEN`), fills the controller URL (no `change-me` left behind), and prints the exact name/token to register. **Peer controllers** are two full installs that each add the other as a peer, so both dashboards see and (via the agent proxy) act on both hosts over direct HTTPS. All server-to-server traffic uses TLS 1.3.
+
+Open any project in the "All Servers" view — including ones on a peer or agent. Peer/inbound projects are managed live. **Callback agents** can't be reached inbound, so opening their project shows a **Queued commands** panel: your up/down/pull/update/restart actions are queued and run on the agent's next check-in, with the output reported back. When a specific server is selected in the dropdown, bulk actions, Create Project, and Prune target *that* server.
 
 ### Interactive Shell
 

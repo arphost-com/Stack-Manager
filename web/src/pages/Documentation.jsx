@@ -456,9 +456,13 @@ export default function Documentation() {
           <div className="rounded-md border border-gray-200 p-3">
             <div className="text-sm font-semibold text-gray-950">Manage multiple servers</div>
             <p className="mt-1 text-sm leading-6 text-gray-600">
-              The <span className="font-medium">Server</span> selector on the dashboard shows <span className="font-medium">All Servers</span> — the local controller plus every connected server. Add servers in <Link to="/settings" className="text-blue-700 underline">Settings &gt; Agents</Link>:
-              <span className="font-medium"> agents</span> (a lightweight runtime you install on the other host and register with a token) or a <span className="font-medium">peer controller</span> (another full Stack Manager you add by its URL + API key). Register each side as a peer of the other so both dashboards see both hosts.
+              The <span className="font-medium">Server</span> selector on the dashboard shows <span className="font-medium">All Servers</span> — the local controller plus every connected server. Add servers in <Link to="/settings" className="text-blue-700 underline">Settings &gt; Agents</Link>. Choose the mode that fits the network:
             </p>
+            <ul className="mt-2 space-y-1 text-sm leading-6 text-gray-600">
+              <li><span className="font-medium">Peer controller</span> — another full Stack Manager, added by URL + API key. Register each side as a peer of the other so both dashboards see and manage both hosts live.</li>
+              <li><span className="font-medium">Inbound / both agent</span> — the controller reaches the agent directly; its projects are managed live through the controller.</li>
+              <li><span className="font-medium">Callback (check-in) agent</span> — for hosts the controller can&rsquo;t reach inbound (behind NAT). The agent pushes its inventory on a timer, and actions you take are queued for it to run on its next check-in (see below).</li>
+            </ul>
           </div>
           <div className="rounded-md border border-gray-200 p-3">
             <div className="text-sm font-semibold text-gray-950">Reverse proxy (Nginx Proxy Manager)</div>
@@ -476,6 +480,30 @@ export default function Documentation() {
             <div className="text-sm font-semibold text-gray-950">Templates boot with editable defaults</div>
             <p className="mt-1 text-sm leading-6 text-gray-600">
               Catalog templates that need a config file now ship a working starter config embedded in the compose, so they run out of the box. Edit it any time from a project&rsquo;s <span className="font-medium">Config</span> tab. Voice, agent, and AI stacks are pre-wired end to end.
+            </p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-3">
+            <div className="text-sm font-semibold text-gray-950">Open &amp; manage remote projects</div>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              Click any project in the <span className="font-medium">All Servers</span> view to open it — even ones on a peer or agent. Peer/inbound projects are managed live (lifecycle, sources, config, files). Callback-agent projects open from the last check-in and show a <span className="font-medium">Queued commands</span> panel: actions you take run on the agent&rsquo;s next check-in and the output appears there.
+            </p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-3">
+            <div className="text-sm font-semibold text-gray-950">Commands follow the selected server</div>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              Pick a specific server in the dashboard selector and bulk actions, <span className="font-medium">Create Project</span>, and <span className="font-medium">Prune</span> target that server instead of the local host. Confirmations and results name the target so it&rsquo;s always clear where a command lands.
+            </p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-3">
+            <div className="text-sm font-semibold text-gray-950">GPU for AI stacks</div>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              <Link to="/settings" className="text-blue-700 underline">Settings &gt; GPU</Link> detects the host GPU and <span className="font-medium">Run GPU test</span> launches a real <code className="rounded bg-gray-100 px-1">--gpus all</code> container to prove passthrough works end to end. When you open an AI stack template with a GPU present, an <span className="font-medium">Add GPU passthrough</span> checkbox injects the compose device block for you.
+            </p>
+          </div>
+          <div className="rounded-md border border-gray-200 p-3">
+            <div className="text-sm font-semibold text-gray-950">Name this server &amp; clickable ports</div>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              Set a friendly name in <Link to="/settings" className="text-blue-700 underline">Settings &gt; General</Link> so the selector shows it instead of the IP (blank uses the hostname). On a project&rsquo;s <span className="font-medium">Overview</span>, published ports are clickable links that open the service in a new tab; internal ports show a lock and stay non-clickable.
             </p>
           </div>
         </div>

@@ -88,6 +88,16 @@ GET    /api/v1/stack-templates/{templateID}
 GET    /api/v1/agents
 POST   /api/v1/agents
 DELETE /api/v1/agents/{agentID}
+GET    /api/v1/agents/{agentID}/projects
+POST   /api/v1/agents/{agentID}/commands   # queue a command for a callback agent
+GET    /api/v1/agents/{agentID}/commands
+ALL    /api/v1/agent-proxy/{agentID}/*      # forward to a peer /api/v1 or inbound agent /agent/v1
+POST   /api/v1/agent-checkin/projects       # public: callback agent pushes inventory, gets queued commands
+POST   /api/v1/agent-checkin/results        # public: callback agent reports command outcomes
+GET    /api/v1/system/gpu                    # detect NVIDIA runtime/GPU
+POST   /api/v1/system/gpu/test               # run a --gpus all nvidia-smi container
+GET    /api/v1/system/info                   # server display name (setting > SERVER_DISPLAY_NAME > hostname)
+PUT    /api/v1/system/info
 GET    /api/v1/schedules
 POST   /api/v1/schedules
 DELETE /api/v1/schedules/{scheduleID}
@@ -100,6 +110,18 @@ POST   /api/v1/registries/login
 Project directory deletion must require the project to be inactive first, require exact-name confirmation, run only against a discovered project, and refuse to delete the configured root or paths outside `ROOT`.
 
 `APP_MODE=agent` runs the same server binary without MariaDB/Redis and exposes `/agent/v1` with bearer-token auth via `AGENT_TOKEN`. Keep controller routes under `/api/v1`; keep agent runtime routes under `/agent/v1`.
+
+### Cross-server (peers, agents, command queue)
+
+The dashboard's "All Servers" view aggregates the local controller plus every registered server. A server is one of:
+
+- **Peer controller** (`mode=peer`) — another full controller, added by URL + API key. `handlers/peer.go` live-fetches its projects over its `/api/v1` (pinned to `source=local` to avoid mutual-peer recursion). Keep-alive is disabled and a 5-minute last-good snapshot is cached so a single failed poll doesn't blank the peer.
+- **Inbound/both agent** — the controller reaches it directly; `handlers/agent_proxy.go` forwards project operations to its `/agent/v1`.
+- **Callback agent** (`APP_MODE=agent-callback`) — push-only. It POSTs inventory to `/api/v1/agent-checkin/projects` and receives queued commands in the reply; it runs them via its engine and POSTs outcomes to `/api/v1/agent-checkin/results`. Commands live in the `agent_commands` table (`Enqueue/ClaimPending/SaveResult/List` in `storage/store.go`). Check-in auth matches the agent name to its stored token.
+
+`agent_proxy.go` (`/api/v1/agent-proxy/{id}/*`) is the single forward path used by the web client's `projectsForSource`/`systemForSource`/`jobsForSource` helpers, so opening a peer/agent project routes to the owning host. All server-to-server clients (peer, agent-proxy, callback check-in) require **TLS 1.3** and skip cert verification (self-signed controllers).
+
+The UI footer version comes from `web/package.json` + a git short SHA injected at build via `VITE_GIT_SHA` (Dockerfile build arg, set by CI) — never hand-edit it. `GET /api/v1/system/info` resolves the server display name from the stored setting, then `SERVER_DISPLAY_NAME`, then the OS hostname.
 
 Response envelope:
 

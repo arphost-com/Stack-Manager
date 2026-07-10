@@ -8,6 +8,8 @@ Stack Manager writes each stack as a normal Docker Compose project. Compose defi
 
 GPU access is configured per service in Compose with `deploy.resources.reservations.devices` and `capabilities: [gpu]`. Docker requires `capabilities` for GPU reservations, and `count` or `device_ids` can target a specific GPU. Official GPU docs: https://docs.docker.com/compose/how-tos/gpu-support/
 
+You don't have to write that block by hand: **Settings > GPU** detects the host GPU and **Run GPU test** launches a throwaway `--gpus all` container running `nvidia-smi` to confirm the full passthrough chain (driver + nvidia-container-toolkit + runtime) works. When you open an AI stack template from the catalog with a GPU present, the **Add GPU passthrough** checkbox injects (or removes) the device block for you.
+
 On a one-GPU server, do not run multiple heavy AI projects at the same time if they each expect GPU inference. Ollama, vLLM, image generation, voice models, Onyx model services, and similar workloads will compete for the same VRAM. Start one GPU-heavy stack, verify it, shut it down, then start the next unless the GPU has enough memory and the templates are explicitly pinned to separate devices.
 
 ## Vetted AI Additions
