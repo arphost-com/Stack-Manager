@@ -1448,13 +1448,34 @@ volumes:
     image: prom/blackbox-exporter:latest
     ports:
       - "${BLACKBOX_PORT:-9115}:9115"
-    volumes:
-      - ./blackbox.yml:/config/blackbox.yml:ro
     command: ["--config.file=/config/blackbox.yml"]
+    configs:
+      - source: blackbox_config
+        target: /config/blackbox.yml
     restart: unless-stopped
+configs:
+  # Working default probe modules so the exporter boots out of the box. Edit
+  # this inline config (Config tab) to add or change probes.
+  blackbox_config:
+    content: |
+      modules:
+        http_2xx:
+          prober: http
+          timeout: 5s
+          http:
+            method: GET
+        tcp_connect:
+          prober: tcp
+        icmp:
+          prober: icmp
+        dns_udp:
+          prober: dns
+          dns:
+            query_name: example.com
+            query_type: A
 `,
 			EnvContent: "BLACKBOX_PORT=9115\n",
-			Notes:      "Provide blackbox.yml with your probe modules beside compose.yml.",
+			Notes:      "Ships with default http/tcp/icmp/dns probe modules so it boots immediately. Edit the inline blackbox config (Config tab) to customize probes.",
 		},
 
 		// ---- Non-AI: queue +3 ----
@@ -1675,12 +1696,37 @@ volumes:
     ports:
       - "${HAPROXY_PORT:-8083}:80"
       - "${HAPROXY_STATS:-8404}:8404"
-    volumes:
-      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    configs:
+      - source: haproxy_config
+        target: /usr/local/etc/haproxy/haproxy.cfg
     restart: unless-stopped
+configs:
+  # Working starter config: a stats page on 8404 and an empty backend on 80.
+  # Add real servers to the "servers" backend (Config tab) to load-balance.
+  haproxy_config:
+    content: |
+      global
+        log stdout format raw local0
+      defaults
+        mode http
+        log global
+        timeout connect 5s
+        timeout client 30s
+        timeout server 30s
+      frontend stats
+        bind *:8404
+        stats enable
+        stats uri /
+        stats refresh 10s
+      frontend http_in
+        bind *:80
+        default_backend servers
+      backend servers
+        balance roundrobin
+        # server app1 10.0.0.10:8080 check
 `,
 			EnvContent: "HAPROXY_PORT=8083\nHAPROXY_STATS=8404\n",
-			Notes:      "Provide a haproxy.cfg beside compose.yml; enable the stats socket for runtime tuning.",
+			Notes:      "Boots with a stats page (HAPROXY_STATS port) and an empty backend. Add real servers to the 'servers' backend in the inline config (Config tab).",
 		},
 		{
 			ID: "squid", Name: "Squid Proxy", Description: "Caching HTTP forward proxy.",
@@ -1692,15 +1738,35 @@ volumes:
     image: ubuntu/squid:latest
     ports:
       - "${SQUID_PORT:-3128}:3128"
+    configs:
+      - source: squid_config
+        target: /etc/squid/squid.conf
     volumes:
-      - ./squid.conf:/etc/squid/squid.conf:ro
       - squid-cache:/var/spool/squid
     restart: unless-stopped
 volumes:
   squid-cache:
+configs:
+  # Starter config that allows private (RFC1918) networks only and denies the
+  # rest, so it is not an open proxy. Edit the ACLs in the Config tab.
+  squid_config:
+    content: |
+      http_port 3128
+      acl localnet src 10.0.0.0/8
+      acl localnet src 172.16.0.0/12
+      acl localnet src 192.168.0.0/16
+      acl SSL_ports port 443
+      acl Safe_ports port 80 443 21 70 210 1025-65535
+      acl CONNECT method CONNECT
+      http_access deny !Safe_ports
+      http_access deny CONNECT !SSL_ports
+      http_access allow localhost
+      http_access allow localnet
+      http_access deny all
+      coredump_dir /var/spool/squid
 `,
 			EnvContent: "SQUID_PORT=3128\n",
-			Notes:      "Bring your own squid.conf; the default one has no ACLs.",
+			Notes:      "Boots with a safe starter config that allows only private networks (not an open proxy). Edit the ACLs in the inline config (Config tab).",
 		},
 		{
 			ID: "envoy", Name: "Envoy Proxy", Description: "Cloud-native L4/L7 proxy for service meshes and edge.",
@@ -1713,12 +1779,46 @@ volumes:
     ports:
       - "${ENVOY_PORT:-10000}:10000"
       - "${ENVOY_ADMIN:-9901}:9901"
-    volumes:
-      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    configs:
+      - source: envoy_config
+        target: /etc/envoy/envoy.yaml
     restart: unless-stopped
+configs:
+  # Minimal working config: admin on 9901 and a listener on 10000 that returns
+  # 200. Replace the direct_response route with real clusters/routes.
+  envoy_config:
+    content: |
+      admin:
+        address:
+          socket_address: { address: 0.0.0.0, port_value: 9901 }
+      static_resources:
+        listeners:
+        - name: listener_0
+          address:
+            socket_address: { address: 0.0.0.0, port_value: 10000 }
+          filter_chains:
+          - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                http_filters:
+                - name: envoy.filters.http.router
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                  - name: local_service
+                    domains: ["*"]
+                    routes:
+                    - match: { prefix: "/" }
+                      direct_response:
+                        status: 200
+                        body: { inline_string: "Envoy is running. Edit envoy.yaml to add clusters and routes.\n" }
 `,
 			EnvContent: "ENVOY_PORT=10000\nENVOY_ADMIN=9901\n",
-			Notes:      "Envoy needs a listener + cluster config in envoy.yaml before it will accept traffic.",
+			Notes:      "Boots with admin on ENVOY_ADMIN and a listener on ENVOY_PORT that returns 200. Replace the direct_response route with real clusters/routes in the inline config (Config tab).",
 		},
 		{
 			ID: "swag", Name: "SWAG (LinuxServer.io)", Description: "Reverse proxy with automatic Let's Encrypt certs and fail2ban.",
@@ -1779,12 +1879,30 @@ volumes:
     image: pomerium/pomerium:latest
     ports:
       - "${POMERIUM_HTTPS:-443}:443"
-    volumes:
-      - ./config.yaml:/pomerium/config.yaml:ro
+    configs:
+      - source: pomerium_config
+        target: /pomerium/config.yaml
     restart: unless-stopped
+configs:
+  # Starter config so Pomerium boots. It is NON-FUNCTIONAL until you set a real
+  # identity provider and REGENERATE the secrets below:
+  #   head -c32 /dev/urandom | base64
+  pomerium_config:
+    content: |
+      authenticate_service_url: https://authenticate.localhost.pomerium.io
+      # PLACEHOLDER secrets — REGENERATE both before exposing this proxy.
+      shared_secret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      cookie_secret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      insecure_server: true
+      address: ":443"
+      routes:
+        - from: https://verify.localhost.pomerium.io
+          to: https://verify.pomerium.com
+          allow_public_unauthenticated_access: true
+          preserve_host_header: true
 `,
 			EnvContent: "POMERIUM_HTTPS=443\n",
-			Notes:      "Provide config.yaml with your IdP settings, routes, and shared_secret.",
+			Notes:      "Boots with a placeholder starter config. It does NOTHING useful until you configure a real identity provider and REGENERATE shared_secret + cookie_secret (head -c32 /dev/urandom | base64) and your routes in the inline config (Config tab).",
 		},
 	}
 }

@@ -1640,11 +1640,29 @@ volumes:
     restart: unless-stopped
     ports:
       - "${DASHY_PORT:-8080}:8080"
-    volumes:
-      - ./conf.yml:/app/user-data/conf.yml
+    configs:
+      - source: dashy_config
+        target: /app/user-data/conf.yml
+configs:
+  # Starter dashboard so it boots. Edit this inline config (Config tab) to add
+  # your own sections and items, or manage it from Dashy's built-in editor.
+  dashy_config:
+    content: |
+      pageInfo:
+        title: My Dashboard
+      sections:
+        - name: Getting Started
+          items:
+            - title: Dashy Docs
+              icon: fas fa-book
+              url: https://dashy.to/docs
+            - title: Edit This Config
+              icon: fas fa-edit
+              description: Edit the inline config in Stack Manager, or use Dashy's editor
+              url: https://dashy.to/docs/configuring
 `,
 			EnvContent: "DASHY_PORT=8080\n",
-			Notes:      "Create conf.yml beside compose.yml before starting, or remove the bind mount for the image defaults.",
+			Notes:      "Boots with a starter dashboard config. Edit the inline conf.yml (Config tab) or use Dashy's built-in config editor to add your services.",
 		},
 		{
 			ID:          "diun",
