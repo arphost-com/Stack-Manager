@@ -32,11 +32,9 @@ func (h *SystemInfoHandler) serverName(r *http.Request) string {
 	if s := strings.TrimSpace(os.Getenv("SERVER_DISPLAY_NAME")); s != "" {
 		return s
 	}
-	if hn, err := os.Hostname(); err == nil {
-		if s := strings.TrimSpace(hn); s != "" {
-			return s
-		}
-	}
+	// Deliberately no os.Hostname() fallback: inside a container that's the
+	// random container ID, which is useless. Returning empty lets the UI fall
+	// back to the address-bar host (the real IP/FQDN the operator uses).
 	return ""
 }
 

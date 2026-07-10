@@ -145,6 +145,9 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 						// dashboard; its containers just won't appear this load.
 						continue
 					}
+					// Peers don't push, so stamp last_seen on a successful live
+					// fetch — otherwise a healthy peer looks like it never checks in.
+					_ = h.Store.TouchAgent(r.Context(), agent.ID)
 					projects = append(projects, peerProjects...)
 					continue
 				}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
@@ -662,9 +662,13 @@ export default function Settings() {
     }
   };
 
+  const messageTimer = useRef(null);
   const showMessage = (text) => {
     setError('');
     setMessage(text);
+    // Auto-dismiss the "saved" confirmation so it behaves like a toast.
+    if (messageTimer.current) window.clearTimeout(messageTimer.current);
+    messageTimer.current = window.setTimeout(() => setMessage(''), 4000);
   };
 
   const showError = (err) => {
