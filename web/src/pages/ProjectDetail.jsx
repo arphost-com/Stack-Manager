@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import { projects, projectsForSource, agents as agentsApi, jobs, jobsForSource, debug as debugApi, security, backup, dbadmin, watch as watchApi, firewall as firewallApi, proxy as proxyApi } from '../api/client';
+import { projects, projectsForSource, agents as agentsApi, jobs, jobsForSource, debug as debugApi, security, backup, dbadmin, watch as watchApi, firewall as firewallApi, proxy as proxyApi, system } from '../api/client';
 
 // parsePublishedPorts pulls unique host-published TCP ports from a project's
 // containers (Docker port strings like "0.0.0.0:8080->80/tcp").
@@ -81,6 +81,7 @@ export default function ProjectDetail() {
   const papiRef = useRef(projects);
   const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '', callback: false });
   const [agentCommands, setAgentCommands] = useState([]);
+  const [hostGpu, setHostGpu] = useState(null);
   const isRemote = !!sourceInfo.agentId;
   // Callback agents are push-only: we can't call them live, so their project is
   // read from the last check-in snapshot and actions are queued for the agent to
@@ -353,6 +354,41 @@ export default function ProjectDetail() {
     }
   };
 
+  useEffect(() => { system.gpu().then(r => setHostGpu(r.data)).catch(() => {}); }, []);
+
+  // Enable GPU passthrough on an already-deployed stack: inject the compose
+  // device block into compose.yml and restart. Host GPU setup is separate
+  // (Settings > GPU). Shown only for local projects when a GPU is detected.
+  const GPU_COMPOSE_SNIPPET = '    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n';
+  const enableGpu = async () => {
+    try {
+      const filesRes = await papiRef.current.files(name);
+      const files = filesRes.data || [];
+      const compose = files.find(f => f.name === 'compose.yml' || f.name === 'docker-compose.yml');
+      if (!compose) {
+        setActionResult({ status: 'error', label: 'enable GPU', error: 'No compose.yml / docker-compose.yml found for this project.' });
+        return;
+      }
+      const contentRes = await papiRef.current.fileContent(name, compose.name);
+      const content = contentRes.data?.content || '';
+      if (content.includes('capabilities: [gpu]')) {
+        setActionResult({ status: 'done', label: 'enable GPU', result: { output: 'GPU passthrough is already enabled in this project’s compose.' } });
+        return;
+      }
+      if (!/restart:\s*unless-stopped\n/.test(content)) {
+        setActionResult({ status: 'error', label: 'enable GPU', error: 'Could not find a "restart: unless-stopped" line to anchor the GPU block. Add the deploy.resources block manually in the Config tab.' });
+        return;
+      }
+      if (!window.confirm(`Add GPU passthrough to ${name}'s ${compose.name} and restart the stack? (Requires the host GPU stack — see Settings > GPU.)`)) return;
+      const updated = content.replace(/(restart:\s*unless-stopped\n)/, '$1' + GPU_COMPOSE_SNIPPET);
+      await papiRef.current.saveFile(name, compose.name, updated);
+      setActionResult({ status: 'done', label: 'enable GPU', result: { output: `Added GPU passthrough to ${compose.name}. Restarting…` } });
+      runAction('up');
+    } catch (err) {
+      setActionResult({ status: 'error', label: 'enable GPU', error: err.message });
+    }
+  };
+
   const pollJob = (jobId, label) => {
     const japi = jobsForSource(sourceInfo.agentId);
     const tick = async () => {
@@ -514,6 +550,7 @@ export default function ProjectDetail() {
           {!isRemote && <button title="Dump supported database containers in this project." onClick={dumpDatabases} className="btn-secondary">DB Dump</button>}
           {!isRemote && <button title="Open this project's published TCP ports inbound in the host CSF firewall." onClick={openFirewallPorts} className="btn-secondary">Open Ports (CSF)</button>}
           {!isRemote && <button title="Create an Nginx Proxy Manager proxy host for this project (requires NPM connected in Settings). Domain and SSL are editable in NPM after." onClick={addToProxy} className="btn-secondary">Add to Proxy (NPM)</button>}
+          {!isRemote && hostGpu?.available && <button title="Add NVIDIA GPU passthrough (deploy.resources.reservations.devices) to this project's compose and restart it. Requires the host GPU stack (Settings > GPU)." onClick={enableGpu} className="btn-secondary">Enable GPU</button>}
           {project.is_git && (
             <button
               title="Run git pull --ff-only in the project directory. Only applies for projects that are a git checkout."
