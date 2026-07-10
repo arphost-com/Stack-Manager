@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import { projects, jobs, debug as debugApi, security, backup, dbadmin, watch as watchApi, firewall as firewallApi, proxy as proxyApi } from '../api/client';
+import { projects, projectsForSource, agents as agentsApi, jobs, jobsForSource, debug as debugApi, security, backup, dbadmin, watch as watchApi, firewall as firewallApi, proxy as proxyApi } from '../api/client';
 
 // parsePublishedPorts pulls unique host-published TCP ports from a project's
 // containers (Docker port strings like "0.0.0.0:8080->80/tcp").
@@ -73,28 +73,78 @@ export default function ProjectDetail() {
   const [shellForm, setShellForm] = useState({ command: 'ps', tail: 200, timeout: 300 });
   const [shellResult, setShellResult] = useState(null);
   const startupJobRef = useRef('');
+  // A project may live on a peer controller. When it does, every project-level
+  // call is routed through the local controller's agent-proxy to that peer
+  // (papiRef). sourceInfo.agentId is null for local projects. Tabs that stream
+  // (logs/stats/shell) or use skills (security/backups/databases) aren't proxied
+  // yet, so they show a notice for remote projects.
+  const papiRef = useRef(projects);
+  const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '' });
+  const isRemote = !!sourceInfo.agentId;
+  const REMOTE_ONLY_LOCAL_TABS = ['logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes', 'watch'];
   // Tracks the last location.search we applied a tab from, so the URL effect
   // fires only on real URL changes — not every time activeTab changes (which
   // used to snap the user back to the URL's ?tab= value on any tab click).
   const appliedSearchRef = useRef(null);
 
+  // Resolve which controller owns this project and return a project API scoped
+  // to it. Prefers the ?source=<agentName> hint from the dashboard link; falls
+  // back to searching all servers when the page is opened by a bare URL.
+  const resolveProjectApi = async () => {
+    const params = new URLSearchParams(location.search);
+    const sourceName = params.get('source') || '';
+    if (sourceName && sourceName !== 'local') {
+      const list = await agentsApi.list().catch(() => null);
+      const agent = list?.data?.find(a => a.name === sourceName && a.base_url);
+      if (agent) return { api: projectsForSource(agent.id), agentId: agent.id, name: agent.name };
+    }
+    return { api: projects, agentId: null, name: '' };
+  };
+
   const fetchProject = async () => {
     try {
-      const [res, destinationRes] = await Promise.all([projects.get(name), backup.destinations()]);
+      let { api, agentId, name: srcName } = await resolveProjectApi();
+      papiRef.current = api;
+      let res;
+      try {
+        res = await api.get(name);
+      } catch (err) {
+        // Bare-URL fallback: a local miss might mean the project lives on a peer.
+        if (!agentId && err.status === 404) {
+          const [all, agentList] = await Promise.all([
+            projects.list({ source: 'all', include_inactive: 'true' }).catch(() => null),
+            agentsApi.list().catch(() => null),
+          ]);
+          const owner = all?.data?.find(p => p.name === name && p.source_host && p.source_host !== 'local');
+          const agent = owner && agentList?.data?.find(a => a.name === owner.source_host && a.base_url);
+          if (agent) {
+            api = projectsForSource(agent.id); agentId = agent.id; srcName = agent.name;
+            papiRef.current = api;
+            res = await api.get(name);
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
+      setSourceInfo({ resolved: true, agentId, name: srcName });
       setProject(res.data);
+      const destinationRes = await backup.destinations().catch(() => ({ data: [] }));
       setBackupDestinations(destinationRes.data || []);
       setPolicyForm({
         mode: res.data.update_policy?.mode || 'auto',
         notes: res.data.update_policy?.notes || '',
       });
     } catch (err) {
+      setSourceInfo(s => ({ ...s, resolved: true }));
       setActionResult({ status: 'error', label: 'load project', error: err.message });
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchProject(); }, [name]);
+  useEffect(() => { fetchProject(); }, [name, location.search]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -131,12 +181,19 @@ export default function ProjectDetail() {
     setActiveTab(tab);
     setTabData(null);
     if (tab === 'overview') return;
+    // Streaming and skill tabs aren't proxied to peers yet — show a clear
+    // message (via the standard error panel) instead of a confusing local
+    // failure when viewing a remote project.
+    if (isRemote && REMOTE_ONLY_LOCAL_TABS.includes(tab)) {
+      setTabData({ error: `The ${tab} view isn't proxied to remote servers yet. Open ${name} on ${sourceInfo.name || 'the peer'} directly for logs, shell, scans, and backups.` });
+      return;
+    }
     setTabLoading(true);
     try {
       let res;
       switch (tab) {
-        case 'docs': res = await projects.docs(name); break;
-        case 'sources': res = await projects.images(name); break;
+        case 'docs': res = await papiRef.current.docs(name); break;
+        case 'sources': res = await papiRef.current.images(name); break;
         case 'sessions': res = await jobs.list(); break;
         case 'watch': res = await watchApi.list(name); break;
         case 'logs': res = await debugApi.logs(name, logOptions.tail, logOptions.container || undefined); break;
@@ -172,7 +229,7 @@ export default function ProjectDetail() {
 
   const runAction = async (action) => {
     try {
-      const res = await projects.startJob(name, action, timeout);
+      const res = await papiRef.current.startJob(name, action, timeout);
       setActionResult({ status: 'running', label: action, job: res.data });
       pollJob(res.data.id, action);
     } catch (err) {
@@ -227,9 +284,10 @@ export default function ProjectDetail() {
   };
 
   const pollJob = (jobId, label) => {
+    const japi = jobsForSource(sourceInfo.agentId);
     const tick = async () => {
       try {
-        const res = await jobs.get(jobId);
+        const res = await japi.get(jobId);
         const job = res.data;
         setActionResult({ status: job.status === 'running' ? 'running' : job.success ? 'done' : 'error', label, job });
         if (job.status === 'running') {
@@ -249,7 +307,7 @@ export default function ProjectDetail() {
     try {
       const next = !project.inactive;
       setActionResult({ status: 'running', label: next ? 'mark inactive' : 'mark active' });
-      await projects.setInactive(name, next);
+      await papiRef.current.setInactive(name, next);
       setActionResult({ status: 'done', label: next ? 'mark inactive' : 'mark active' });
       fetchProject();
     } catch (err) {
@@ -265,7 +323,7 @@ export default function ProjectDetail() {
     }
     try {
       setActionResult({ status: 'running', label: `delete ${name}` });
-      await projects.delete(name, { confirm_name: confirmName, stop_first: true });
+      await papiRef.current.delete(name, { confirm_name: confirmName, stop_first: true });
       // Navigate back to the Dashboard; the current page 404s once the
       // directory is gone.
       navigate('/');
@@ -279,7 +337,7 @@ export default function ProjectDetail() {
     event.preventDefault();
     try {
       setActionResult({ status: 'running', label: 'update policy' });
-      const res = await projects.setUpdatePolicy(name, policyForm);
+      const res = await papiRef.current.setUpdatePolicy(name, policyForm);
       setProject({ ...project, update_policy: res.data });
       setActionResult({ status: 'done', label: 'update policy', result: res.data });
     } catch (err) {
@@ -333,6 +391,12 @@ export default function ProjectDetail() {
           <Link to="/" className="text-sm text-blue-700 hover:underline">Back to dashboard</Link>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold text-gray-950">{project.name}</h1>
+            {isRemote && (
+              <span title={`This project runs on the peer controller "${sourceInfo.name}". Lifecycle actions, config, files, sources, and docs are proxied to it. Logs, shell, scans, and backups aren't proxied yet — open it on ${sourceInfo.name} directly.`}
+                className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">
+                on {sourceInfo.name}
+              </span>
+            )}
             <Badge tone={project.running ? 'green' : 'gray'}>{project.running ? 'running' : 'stopped'}</Badge>
             {project.inactive && <Badge tone="amber">inactive</Badge>}
             {project.has_hook?.update && <Badge tone="cyan">update hook</Badge>}
@@ -371,10 +435,13 @@ export default function ProjectDetail() {
             <option value="">Local only</option>
             {backupDestinations.filter(d => d.enabled).map(d => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
           </select>
-          <button title="Create a tar.gz backup of the project directory. Choose a destination to also copy it to configured storage." onClick={createBackup} className="btn-secondary">Backup</button>
-          <button title="Dump supported database containers in this project." onClick={dumpDatabases} className="btn-secondary">DB Dump</button>
-          <button title="Open this project's published TCP ports inbound in the host CSF firewall." onClick={openFirewallPorts} className="btn-secondary">Open Ports (CSF)</button>
-          <button title="Create an Nginx Proxy Manager proxy host for this project (requires NPM connected in Settings). Domain and SSL are editable in NPM after." onClick={addToProxy} className="btn-secondary">Add to Proxy (NPM)</button>
+          {/* Backup, DB dump, firewall and proxy act on the controller's own
+              host, so they're hidden for projects that live on a peer — run
+              them from that peer's dashboard instead. */}
+          {!isRemote && <button title="Create a tar.gz backup of the project directory. Choose a destination to also copy it to configured storage." onClick={createBackup} className="btn-secondary">Backup</button>}
+          {!isRemote && <button title="Dump supported database containers in this project." onClick={dumpDatabases} className="btn-secondary">DB Dump</button>}
+          {!isRemote && <button title="Open this project's published TCP ports inbound in the host CSF firewall." onClick={openFirewallPorts} className="btn-secondary">Open Ports (CSF)</button>}
+          {!isRemote && <button title="Create an Nginx Proxy Manager proxy host for this project (requires NPM connected in Settings). Domain and SSL are editable in NPM after." onClick={addToProxy} className="btn-secondary">Add to Proxy (NPM)</button>}
           {project.is_git && (
             <button
               title="Run git pull --ff-only in the project directory. Only applies for projects that are a git checkout."
@@ -410,9 +477,9 @@ export default function ProjectDetail() {
 
         <div className="pt-4">
           {activeTab === 'overview' && <Overview project={project} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
-          {activeTab === 'config' && <ConfigEditor projectName={name} />}
+          {activeTab === 'config' && <ConfigEditor projectName={name} sourceAgentId={sourceInfo.agentId} />}
 
-          {activeTab === 'docs' && <ProjectDocs docs={tabData || project.documentation || []} projectName={name} />}
+          {activeTab === 'docs' && <ProjectDocs docs={tabData || project.documentation || []} projectName={name} sourceAgentId={sourceInfo.agentId} />}
 
           {activeTab === 'logs' && (
             <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -433,7 +500,7 @@ export default function ProjectDetail() {
             </div>
           )}
 
-          {activeTab === 'shell' && (
+          {activeTab === 'shell' && !isRemote && (
             <div className="space-y-4">
               <ShellPanel form={shellForm} setForm={setShellForm} result={shellResult || tabData} runShell={runShell} />
               <InteractiveShell projectName={name} />
@@ -508,7 +575,7 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
         <h2 className="mb-2 text-lg font-semibold text-gray-950">Containers</h2>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>Image</th><th>State</th><th>Ports</th></tr></thead>
+            <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Name</th><th>Image</th><th>State</th><th title="Published host ports are clickable links that open the service in a new tab. Locked/grey ports are internal to the Docker network and not reachable from a browser.">Ports</th></tr></thead>
             <tbody>
               {project.containers?.map(c => (
                 <tr key={c.name} className="border-b border-gray-100">
@@ -527,34 +594,95 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
   );
 }
 
+const HTTPS_HOST_PORTS = new Set(['443', '8443', '8993', '9443']);
+
+// ExternalLinkIcon / LockIcon are tiny inline glyphs so a port chip reads at a
+// glance as either "opens in a new tab" or "internal, not reachable".
+const ExternalLinkIcon = ({ className = 'h-3 w-3' }) => (
+  <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+  </svg>
+);
+const LockIcon = ({ className = 'h-3 w-3' }) => (
+  <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="11" width="16" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+
+// ContainerPorts renders a container's port mappings as clear, self-describing
+// chips: published host ports become blue "open in a new tab" links (external
+// link glyph); ports that are only exposed on the internal Docker network get a
+// muted lock chip that explains why they aren't clickable. Deduplicates the
+// IPv4/IPv6 pair Docker prints for the same host port.
 function ContainerPorts({ ports, state }) {
   if (!ports) return <span className="text-gray-400">—</span>;
-  // Parse port mappings like "0.0.0.0:8080->80/tcp, [::]:8080->80/tcp"
-  // and generate clickable links for host-mapped ports.
-  const seen = new Set();
-  const links = [];
-  for (const part of ports.split(',')) {
-    const match = part.trim().match(/(\d+\.\d+\.\d+\.\d+):(\d+)->(\d+)\/(tcp|udp)/);
-    if (match) {
-      const hostPort = match[2];
-      if (seen.has(hostPort)) continue;
-      seen.add(hostPort);
-      // Common HTTPS ports or high ports likely use HTTPS if the dashboard does.
-      const proto = ['443', '8443', '8993', '9443'].includes(hostPort) ? 'https' : 'http';
-      const url = `${proto}://${window.location.hostname}:${hostPort}`;
-      links.push(
-        <a key={hostPort} href={url} target="_blank" rel="noreferrer"
-          className={`inline-block rounded px-1.5 py-0.5 font-mono ${state === 'running' ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-gray-100 text-gray-500'}`}
-          title={`Open ${url} in a new tab`}
-        >{hostPort}</a>
-      );
+  const publishedSeen = new Set();
+  const internalSeen = new Set();
+  const published = [];
+  const internal = [];
+  for (const raw of ports.split(',')) {
+    const part = raw.trim();
+    // Published: "0.0.0.0:8080->80/tcp" or "[::]:8080->80/tcp"
+    const pub = part.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]):(\d+)->\d+\/(tcp|udp)/);
+    if (pub) {
+      const [, hostPort, proto] = pub;
+      if (publishedSeen.has(hostPort)) continue;
+      publishedSeen.add(hostPort);
+      published.push({ hostPort, proto });
+      continue;
+    }
+    // Exposed only: "5432/tcp" (reachable on the Docker network, not the host)
+    const exp = part.match(/^(\d+)\/(tcp|udp)$/);
+    if (exp) {
+      const key = `${exp[1]}/${exp[2]}`;
+      if (internalSeen.has(key)) continue;
+      internalSeen.add(key);
+      internal.push({ port: exp[1], proto: exp[2] });
     }
   }
-  if (links.length === 0) return <span className="text-gray-500">{ports}</span>;
-  return <div className="flex flex-wrap gap-1">{links}</div>;
+  if (published.length === 0 && internal.length === 0) {
+    return <span className="font-mono text-xs text-gray-500">{ports}</span>;
+  }
+  const live = state === 'running';
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {published.map(({ hostPort, proto }) => {
+        if (proto === 'udp') {
+          return (
+            <span key={`u${hostPort}`} title={`UDP port ${hostPort} is published on the host but UDP services don't open in a browser.`}
+              className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-600 ring-1 ring-gray-200">
+              {hostPort}<span className="font-sans text-[9px] uppercase tracking-wide text-gray-400">udp</span>
+            </span>
+          );
+        }
+        const scheme = HTTPS_HOST_PORTS.has(hostPort) ? 'https' : 'http';
+        const url = `${scheme}://${window.location.hostname}:${hostPort}`;
+        return (
+          <a key={hostPort} href={live ? url : undefined} target="_blank" rel="noreferrer"
+            aria-disabled={!live}
+            title={live ? `Open ${url} in a new tab` : `${url} — container isn't running`}
+            className={`group inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-xs ring-1 transition-colors ${live
+              ? 'bg-blue-50 text-blue-700 ring-blue-200 hover:bg-blue-100 hover:ring-blue-300'
+              : 'pointer-events-none bg-gray-100 text-gray-400 ring-gray-200'}`}>
+            {hostPort}
+            <ExternalLinkIcon className="h-3 w-3 opacity-50 transition-opacity group-hover:opacity-100" />
+          </a>
+        );
+      })}
+      {internal.map(({ port, proto }) => (
+        <span key={`i${port}${proto}`}
+          title={`Container port ${port}/${proto} is exposed on the internal Docker network only — it isn't published to the host, so there's no browser link. Add a ports: mapping in compose.yml to expose it.`}
+          className="inline-flex items-center gap-1 rounded-md bg-gray-50 px-2 py-0.5 font-mono text-xs text-gray-400 ring-1 ring-gray-200">
+          <LockIcon className="h-3 w-3 opacity-70" />
+          {port}<span className="font-sans text-[9px] uppercase tracking-wide text-gray-300">{proto}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
-function ProjectDocs({ docs, projectName }) {
+function ProjectDocs({ docs, projectName, sourceAgentId }) {
+  const api = projectsForSource(sourceAgentId);
   const availableDocs = Array.isArray(docs) ? docs : [];
   const [selectedPath, setSelectedPath] = useState('');
   const [docContent, setDocContent] = useState(null);
@@ -577,7 +705,7 @@ function ProjectDocs({ docs, projectName }) {
     let cancelled = false;
     setLoading(true);
     setError('');
-    projects.docContent(projectName, selectedPath)
+    api.docContent(projectName, selectedPath)
       .then(res => {
         if (!cancelled) setDocContent(res.data);
       })
@@ -637,7 +765,8 @@ function ProjectDocs({ docs, projectName }) {
   );
 }
 
-function ConfigEditor({ projectName }) {
+function ConfigEditor({ projectName, sourceAgentId }) {
+  const api = projectsForSource(sourceAgentId);
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState('');
   const [content, setContent] = useState('');
@@ -648,7 +777,7 @@ function ConfigEditor({ projectName }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await projects.files(projectName);
+        const res = await api.files(projectName);
         const all = (res.data || []).filter(f => f.editable);
         setFiles(all);
         if (all.length > 0 && !selectedFile) {
@@ -664,7 +793,7 @@ function ConfigEditor({ projectName }) {
     if (!selectedFile) return;
     const load = async () => {
       try {
-        const res = await projects.fileContent(projectName, selectedFile);
+        const res = await api.fileContent(projectName, selectedFile);
         setContent(res.data?.content || '');
         setDirty(false);
         setMessage('');
@@ -680,7 +809,7 @@ function ConfigEditor({ projectName }) {
     setSaving(true);
     setMessage('');
     try {
-      const res = await projects.saveFile(projectName, selectedFile, content);
+      const res = await api.saveFile(projectName, selectedFile, content);
       setDirty(false);
       setMessage(res.data?.hint || 'Saved.');
     } catch (err) {

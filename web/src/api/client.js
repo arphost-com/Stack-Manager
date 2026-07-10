@@ -113,32 +113,49 @@ export const users = {
   delete: (username) => request(`/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
 };
 
-export const projects = {
-  list: (params = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    return request(`/projects${qs ? '?' + qs : ''}`);
-  },
-  create: (body) => request('/projects', { method: 'POST', body: JSON.stringify(body) }),
-  delete: (name, body) => request(`/projects/${encodeURIComponent(name)}`, { method: 'DELETE', body: JSON.stringify(body) }),
-  get: (name) => request(`/projects/${encodeURIComponent(name)}`),
-  docs: (name) => request(`/projects/${encodeURIComponent(name)}/docs`),
-  docContent: (name, path) => request(`/projects/${encodeURIComponent(name)}/docs/content?path=${encodeURIComponent(path)}`),
-  images: (name) => request(`/projects/${encodeURIComponent(name)}/images`),
-  status: (name) => request(`/projects/${encodeURIComponent(name)}/status`),
-  pull: (name, timeout) => request(`/projects/${encodeURIComponent(name)}/pull${timeout ? '?timeout=' + timeout : ''}`, { method: 'POST' }),
-  up: (name) => request(`/projects/${encodeURIComponent(name)}/up`, { method: 'POST' }),
-  down: (name) => request(`/projects/${encodeURIComponent(name)}/down`, { method: 'POST' }),
-  update: (name, timeout) => request(`/projects/${encodeURIComponent(name)}/update${timeout ? '?timeout=' + timeout : ''}`, { method: 'POST' }),
-  restart: (name) => request(`/projects/${encodeURIComponent(name)}/restart`, { method: 'POST' }),
-  startJob: (name, action, timeout) => request(`/projects/${encodeURIComponent(name)}/jobs/${encodeURIComponent(action)}${timeout ? '?timeout=' + timeout : ''}`, { method: 'POST' }),
-  updatePolicy: (name) => request(`/projects/${encodeURIComponent(name)}/update-policy`),
-  setUpdatePolicy: (name, body) => request(`/projects/${encodeURIComponent(name)}/update-policy`, { method: 'PUT', body: JSON.stringify(body) }),
-  setInactive: (name, inactive) => request(`/projects/${encodeURIComponent(name)}/inactive`, { method: 'PUT', body: JSON.stringify({ inactive }) }),
-  bulk: (action, body) => request(`/projects/bulk/${action}`, { method: 'POST', body: JSON.stringify(body) }),
-  files: (name) => request(`/projects/${encodeURIComponent(name)}/files`),
-  fileContent: (name, path) => request(`/projects/${encodeURIComponent(name)}/files/content?path=${encodeURIComponent(path)}`),
-  saveFile: (name, path, content) => request(`/projects/${encodeURIComponent(name)}/files/content`, { method: 'PUT', body: JSON.stringify({ path, content }) }),
-};
+// makeProjects builds the project API against a path prefix. The default
+// prefix ('') targets the local controller. A peer-scoped prefix
+// ('/agent-proxy/<agentId>') routes every call through the controller's
+// agent-proxy, which forwards to the peer's /api/v1 with the peer's API key —
+// so a peer's projects are viewable and manageable from this dashboard.
+function makeProjects(prefix = '') {
+  const p = (path) => `${prefix}${path}`;
+  return {
+    list: (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return request(p(`/projects${qs ? '?' + qs : ''}`));
+    },
+    create: (body) => request(p('/projects'), { method: 'POST', body: JSON.stringify(body) }),
+    delete: (name, body) => request(p(`/projects/${encodeURIComponent(name)}`), { method: 'DELETE', body: JSON.stringify(body) }),
+    get: (name) => request(p(`/projects/${encodeURIComponent(name)}`)),
+    docs: (name) => request(p(`/projects/${encodeURIComponent(name)}/docs`)),
+    docContent: (name, path) => request(p(`/projects/${encodeURIComponent(name)}/docs/content?path=${encodeURIComponent(path)}`)),
+    images: (name) => request(p(`/projects/${encodeURIComponent(name)}/images`)),
+    status: (name) => request(p(`/projects/${encodeURIComponent(name)}/status`)),
+    pull: (name, timeout) => request(p(`/projects/${encodeURIComponent(name)}/pull${timeout ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
+    up: (name) => request(p(`/projects/${encodeURIComponent(name)}/up`), { method: 'POST' }),
+    down: (name) => request(p(`/projects/${encodeURIComponent(name)}/down`), { method: 'POST' }),
+    update: (name, timeout) => request(p(`/projects/${encodeURIComponent(name)}/update${timeout ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
+    restart: (name) => request(p(`/projects/${encodeURIComponent(name)}/restart`), { method: 'POST' }),
+    startJob: (name, action, timeout) => request(p(`/projects/${encodeURIComponent(name)}/jobs/${encodeURIComponent(action)}${timeout ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
+    updatePolicy: (name) => request(p(`/projects/${encodeURIComponent(name)}/update-policy`)),
+    setUpdatePolicy: (name, body) => request(p(`/projects/${encodeURIComponent(name)}/update-policy`), { method: 'PUT', body: JSON.stringify(body) }),
+    setInactive: (name, inactive) => request(p(`/projects/${encodeURIComponent(name)}/inactive`), { method: 'PUT', body: JSON.stringify({ inactive }) }),
+    bulk: (action, body) => request(p(`/projects/bulk/${action}`), { method: 'POST', body: JSON.stringify(body) }),
+    files: (name) => request(p(`/projects/${encodeURIComponent(name)}/files`)),
+    fileContent: (name, path) => request(p(`/projects/${encodeURIComponent(name)}/files/content?path=${encodeURIComponent(path)}`)),
+    saveFile: (name, path, content) => request(p(`/projects/${encodeURIComponent(name)}/files/content`), { method: 'PUT', body: JSON.stringify({ path, content }) }),
+  };
+}
+
+export const projects = makeProjects('');
+
+// projectsForSource returns a project API scoped to a peer/agent by numeric id.
+// Pass a falsy id (or 'local') to get the local controller API unchanged.
+export function projectsForSource(agentId) {
+  if (!agentId) return projects;
+  return makeProjects(`/agent-proxy/${agentId}`);
+}
 
 export const updates = {
   check: () => request('/updates/check', { method: 'POST' }),
@@ -148,6 +165,17 @@ export const jobs = {
   list: () => request('/jobs'),
   get: (id) => request(`/jobs/${id}`),
 };
+
+// jobsForSource scopes job polling to a peer/agent so actions started on a peer
+// (which return that peer's job id) can be tracked to completion.
+export function jobsForSource(agentId) {
+  if (!agentId) return jobs;
+  const p = (path) => `/agent-proxy/${agentId}${path}`;
+  return {
+    list: () => request(p('/jobs')),
+    get: (id) => request(p(`/jobs/${id}`)),
+  };
+}
 
 export const stackTemplates = {
   list: () => request('/stack-templates'),
@@ -252,6 +280,18 @@ export const proxy = {
   deleteHost: (id) => request(`/proxy/hosts?id=${id}`, { method: 'DELETE' }),
   suggestions: () => request('/proxy/suggestions'),
 };
+
+// systemForSource scopes host-level system commands (prune, gpu) to a peer/agent
+// by id, routing through the controller's agent-proxy. Pass a falsy id for the
+// local controller.
+export function systemForSource(agentId) {
+  if (!agentId) return system;
+  const p = (path) => `/agent-proxy/${agentId}${path}`;
+  return {
+    gpu: () => request(p('/system/gpu')),
+    prune: (mode = 'safe') => request(p('/prune'), { method: 'POST', body: JSON.stringify({ mode }) }),
+  };
+}
 
 export const system = {
   gpu: () => request('/system/gpu'),

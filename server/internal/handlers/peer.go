@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
@@ -17,14 +18,53 @@ import (
 // A peer is another full controller (not an agent): base_url is its HTTPS URL
 // and token is its API key, sent as X-API-Key. TLS verification is skipped
 // because controllers commonly run self-signed certs, matching agent_proxy.go.
+//
+// DisableKeepAlives is intentional: reusing a pooled keep-alive connection to a
+// peer proved flaky in practice (a whole burst of dashboard polls would fail
+// once the idle connection went stale, blanking the peer), while a fresh TCP
+// connection per request is 100% reliable. A dashboard poll is infrequent, so
+// the extra handshake cost is negligible and the stability win is large.
 var peerClient = &http.Client{
 	Timeout: 20 * time.Second,
 	Transport: &http.Transport{
+		DisableKeepAlives: true,
 		TLSClientConfig: &tls.Config{ // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 			InsecureSkipVerify: true,
 			MinVersion:         tls.VersionTLS12,
 		},
 	},
+}
+
+// peerSnapshotCache remembers the last successful project list per peer so a
+// single failed poll does not make the peer's containers vanish from the
+// dashboard. Entries are served as a fallback (within peerSnapshotTTL) only
+// when a live fetch fails.
+var (
+	peerSnapshotMu    sync.Mutex
+	peerSnapshotCache = map[string]peerSnapshot{}
+)
+
+const peerSnapshotTTL = 5 * time.Minute
+
+type peerSnapshot struct {
+	projects []core.Project
+	at       time.Time
+}
+
+func storePeerSnapshot(name string, projects []core.Project) {
+	peerSnapshotMu.Lock()
+	defer peerSnapshotMu.Unlock()
+	peerSnapshotCache[name] = peerSnapshot{projects: projects, at: time.Now()}
+}
+
+func lastPeerSnapshot(name string) ([]core.Project, bool) {
+	peerSnapshotMu.Lock()
+	defer peerSnapshotMu.Unlock()
+	snap, ok := peerSnapshotCache[name]
+	if !ok || time.Since(snap.at) > peerSnapshotTTL {
+		return nil, false
+	}
+	return snap.projects, true
 }
 
 // peerAPIBase returns the peer's /api/v1 base, tolerating a base_url that
@@ -42,6 +82,26 @@ func peerAPIBase(baseURL string) string {
 // view. Errors are returned so the caller can skip the peer without failing the
 // whole dashboard.
 func fetchPeerProjects(ctx context.Context, agent *core.ComposeAgent, rawQuery string) ([]core.Project, error) {
+	// Try live, retry once on a transient error (a fresh connection is opened
+	// each attempt because keep-alive is disabled). On success, remember the
+	// result; on total failure, fall back to the last good snapshot so the
+	// peer's containers don't blink out of the dashboard on one bad poll.
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		projects, err := fetchPeerProjectsOnce(ctx, agent, rawQuery)
+		if err == nil {
+			storePeerSnapshot(agent.Name, projects)
+			return projects, nil
+		}
+		lastErr = err
+	}
+	if cached, ok := lastPeerSnapshot(agent.Name); ok {
+		return cached, nil
+	}
+	return nil, lastErr
+}
+
+func fetchPeerProjectsOnce(ctx context.Context, agent *core.ComposeAgent, rawQuery string) ([]core.Project, error) {
 	if strings.TrimSpace(agent.BaseURL) == "" {
 		return nil, fmt.Errorf("peer %s has no base URL", agent.Name)
 	}

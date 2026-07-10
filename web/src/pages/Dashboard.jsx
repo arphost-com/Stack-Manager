@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, jobs, skills as skillsApi, system, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi } from '../api/client';
+import { projects, projectsForSource, jobs, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 
 // Client-side snapshot cache so the Dashboard paints the last-known state
@@ -108,9 +108,10 @@ function ServerSelector({ value, onChange, agents = [], projects = [] }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
+  const selfName = (typeof window !== 'undefined' && window.location?.hostname) || 'localhost';
   const options = [
     { key: 'all', kind: 'all', label: 'All Servers', sub: 'Controller and every agent' },
-    { key: 'local', kind: 'local', label: 'This Server', sub: 'Local controller host' },
+    { key: 'local', kind: 'local', label: selfName, self: true, sub: 'Local controller host' },
     ...agents.map(a => ({
       key: a.name,
       kind: 'agent',
@@ -139,7 +140,10 @@ function ServerSelector({ value, onChange, agents = [], projects = [] }) {
         </span>
         <span className="flex flex-col items-start leading-tight">
           <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">Server</span>
-          <span className="max-w-[160px] truncate text-sm font-semibold text-gray-900">{active.label}</span>
+          <span className="flex items-baseline gap-1">
+            <span className="max-w-[160px] truncate text-sm font-semibold text-gray-900">{active.label}</span>
+            {active.self && <span className="text-[10px] font-normal text-gray-400">(This Server)</span>}
+          </span>
         </span>
         <span className="ml-1 inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">{projects.length}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
@@ -148,7 +152,7 @@ function ServerSelector({ value, onChange, agents = [], projects = [] }) {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl" role="listbox">
+        <div className="absolute left-0 top-full z-[60] mt-2 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5 shadow-xl" role="listbox">
           <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Filter by server</div>
           {options.map((o, i) => {
             const isActive = o.key === value;
@@ -173,6 +177,7 @@ function ServerSelector({ value, onChange, agents = [], projects = [] }) {
                   <span className="flex min-w-0 flex-col leading-tight">
                     <span className="flex items-center gap-1.5">
                       <span className={`truncate text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-900'}`}>{o.label}</span>
+                      {o.self && <span className="flex-shrink-0 text-[10px] font-normal text-gray-400">(This Server)</span>}
                       {o.kind === 'agent' && (
                         <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${o.enabled ? 'bg-green-500' : 'bg-gray-300'}`} title={o.enabled ? 'Enabled' : 'Disabled'} />
                       )}
@@ -225,6 +230,16 @@ export default function Dashboard() {
     return next;
   });
   const isPending = (key) => pendingActions.has(key);
+
+  // When a specific remote server (peer/inbound agent) is selected in the
+  // dropdown, dashboard commands target THAT server: bulk actions, create, and
+  // prune are routed through its agent-proxy. 'all' and 'local' stay local.
+  const commandAgent = (serverSource && serverSource !== 'all' && serverSource !== 'local')
+    ? agentList.find(a => a.name === serverSource && a.base_url)
+    : null;
+  const cmdProjects = commandAgent ? projectsForSource(commandAgent.id) : projects;
+  const cmdSystem = commandAgent ? systemForSource(commandAgent.id) : system;
+  const cmdTargetLabel = commandAgent ? ` on ${commandAgent.name}` : '';
   const [error, setError] = useState(null);
   const [actionResult, setActionResult] = useState(null);
   const [selected, setSelected] = useState([]);
@@ -447,9 +462,9 @@ export default function Dashboard() {
     }
     markPending(key, true);
     try {
-      setActionResult({ label: `${action} ${targets.length} project${targets.length === 1 ? '' : 's'}`, status: 'running' });
-      const res = await projects.bulk(action, { projects: targets, timeout });
-      setActionResult({ label: `bulk ${action}`, status: 'done', result: res.data });
+      setActionResult({ label: `${action} ${targets.length} project${targets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
+      const res = await cmdProjects.bulk(action, { projects: targets, timeout });
+      setActionResult({ label: `bulk ${action}${cmdTargetLabel}`, status: 'done', result: res.data });
       setSelected([]);
       fetchData();
     } catch (err) {
@@ -498,9 +513,9 @@ export default function Dashboard() {
   const createProject = async (event) => {
     event.preventDefault();
     try {
-      setActionResult({ label: `create ${createForm.name}`, status: 'running' });
-      await projects.create(createForm);
-      setActionResult({ label: `create ${createForm.name}`, status: 'done' });
+      setActionResult({ label: `create ${createForm.name}${cmdTargetLabel}`, status: 'running' });
+      await cmdProjects.create(createForm);
+      setActionResult({ label: `create ${createForm.name}${cmdTargetLabel}`, status: 'done' });
       setShowCreate(false);
       setCreateForm({ ...createForm, name: '', env_content: '' });
       fetchData();
@@ -619,18 +634,19 @@ export default function Dashboard() {
     if (overrideMode) setPruneMode(overrideMode);
     const mode = PRUNE_MODES.find(m => m.key === modeKey);
     const touchesVolumes = ['safe', 'system-all', 'volumes'].includes(modeKey);
-    const msg = `Run "${mode?.label || modeKey}" on this host?\n\n`
+    const hostLabel = commandAgent ? commandAgent.name : 'this host';
+    const msg = `Run "${mode?.label || modeKey}" on ${hostLabel}?\n\n`
       + (touchesVolumes
         ? 'This removes unused Docker volumes — any project that is currently stopped will lose its named-volume data. This cannot be undone.'
         : 'This permanently removes the selected unused Docker resources and cannot be undone.');
     setShowPruneMenu(false);
     if (!window.confirm(msg)) return;
-    setActionResult({ label: `prune: ${mode?.label || modeKey}`, status: 'running' });
+    setActionResult({ label: `prune: ${mode?.label || modeKey}${cmdTargetLabel}`, status: 'running' });
     try {
-      const res = await system.prune(modeKey);
-      setActionResult({ label: `prune: ${mode?.label || modeKey}`, status: 'done', result: res.data });
+      const res = await cmdSystem.prune(modeKey);
+      setActionResult({ label: `prune: ${mode?.label || modeKey}${cmdTargetLabel}`, status: 'done', result: res.data });
     } catch (err) {
-      setActionResult({ label: `prune: ${mode?.label || modeKey}`, status: 'error', error: err.message });
+      setActionResult({ label: `prune: ${mode?.label || modeKey}${cmdTargetLabel}`, status: 'error', error: err.message });
     }
   };
 
@@ -1516,11 +1532,15 @@ function SourceSummary({ sources }) {
 function ProjectLinks({ project }) {
   const encodedName = encodeURIComponent(project.name);
   const docCount = project.documentation?.length || 0;
+  // Carry the owning server so the detail page can proxy to the right peer.
+  const remote = project.source_host && project.source_host !== 'local';
+  const sourceQ = remote ? `?source=${encodeURIComponent(project.source_host)}` : '';
+  const sourceQAmp = remote ? `${sourceQ}&` : '?';
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Link to={`/projects/${encodedName}`} className="font-medium text-blue-700 hover:underline">{project.name}</Link>
+      <Link to={`/projects/${encodedName}${sourceQ}`} className="font-medium text-blue-700 hover:underline">{project.name}</Link>
       <Link
-        to={`/projects/${encodedName}?tab=docs`}
+        to={`/projects/${encodedName}${sourceQAmp}tab=docs`}
         className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-800 hover:bg-blue-100"
         title="Open project-local documentation."
       >
