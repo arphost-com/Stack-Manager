@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // embed the tz database so LoadLocation works in the container (scheduler timezone)
 
 	cmauth "github.com/arphost-com/Stack-Manager/server/internal/auth"
 	"github.com/arphost-com/Stack-Manager/server/internal/config"

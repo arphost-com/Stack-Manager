@@ -8,10 +8,24 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// schedulerLocation returns the server's configured timezone (TZ env, set from
+// the TZ setting) so time-of-day schedules fire in local time rather than UTC.
+// Falls back to UTC on an empty or unknown zone. The tz database is embedded in
+// the binary (see the time/tzdata import in main) so this works in any container.
+func schedulerLocation() *time.Location {
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
 
 type ScheduleStore interface {
 	ListDueSchedules(context.Context, time.Time) ([]UpdateSchedule, error)
@@ -194,13 +208,14 @@ func NextScheduleRunExported(schedule UpdateSchedule, after time.Time) time.Time
 }
 
 func nextScheduleRun(schedule UpdateSchedule, after time.Time) time.Time {
+	loc := schedulerLocation()
 	switch schedule.Cadence {
 	case "daily":
-		return nextDaily(schedule.TimeOfDay, after)
+		return nextDaily(schedule.TimeOfDay, after, loc)
 	case "weekly":
-		return nextWeekly(schedule.DayOfWeek, schedule.TimeOfDay, after)
+		return nextWeekly(schedule.DayOfWeek, schedule.TimeOfDay, after, loc)
 	case "monthly":
-		return nextMonthly(schedule.DayOfMonth, schedule.TimeOfDay, after)
+		return nextMonthly(schedule.DayOfMonth, schedule.TimeOfDay, after, loc)
 	default:
 		return nextInterval(schedule.IntervalMinutes, schedule.NextRunAt, after)
 	}
@@ -237,18 +252,20 @@ func parseTimeOfDay(tod string) (int, int) {
 	return h, m
 }
 
-func nextDaily(timeOfDay string, after time.Time) time.Time {
+func nextDaily(timeOfDay string, after time.Time, loc *time.Location) time.Time {
 	h, m := parseTimeOfDay(timeOfDay)
-	candidate := time.Date(after.Year(), after.Month(), after.Day(), h, m, 0, 0, time.UTC)
+	a := after.In(loc)
+	candidate := time.Date(a.Year(), a.Month(), a.Day(), h, m, 0, 0, loc)
 	if !candidate.After(after) {
 		candidate = candidate.AddDate(0, 0, 1)
 	}
-	return candidate
+	return candidate.UTC()
 }
 
-func nextWeekly(dayOfWeek int, timeOfDay string, after time.Time) time.Time {
+func nextWeekly(dayOfWeek int, timeOfDay string, after time.Time, loc *time.Location) time.Time {
 	h, m := parseTimeOfDay(timeOfDay)
-	candidate := time.Date(after.Year(), after.Month(), after.Day(), h, m, 0, 0, time.UTC)
+	a := after.In(loc)
+	candidate := time.Date(a.Year(), a.Month(), a.Day(), h, m, 0, 0, loc)
 	target := time.Weekday(dayOfWeek)
 	daysAhead := int(target - candidate.Weekday())
 	if daysAhead < 0 {
@@ -258,33 +275,34 @@ func nextWeekly(dayOfWeek int, timeOfDay string, after time.Time) time.Time {
 	if !candidate.After(after) {
 		candidate = candidate.AddDate(0, 0, 7)
 	}
-	return candidate
+	return candidate.UTC()
 }
 
-func nextMonthly(dayOfMonth int, timeOfDay string, after time.Time) time.Time {
+func nextMonthly(dayOfMonth int, timeOfDay string, after time.Time, loc *time.Location) time.Time {
 	h, m := parseTimeOfDay(timeOfDay)
 	if dayOfMonth < 1 {
 		dayOfMonth = 1
 	}
-	candidate := clampMonthDay(after.Year(), after.Month(), dayOfMonth, h, m)
+	a := after.In(loc)
+	candidate := clampMonthDay(a.Year(), a.Month(), dayOfMonth, h, m, loc)
 	if !candidate.After(after) {
-		nextMonth := after.Month() + 1
-		nextYear := after.Year()
+		nextMonth := a.Month() + 1
+		nextYear := a.Year()
 		if nextMonth > 12 {
 			nextMonth = 1
 			nextYear++
 		}
-		candidate = clampMonthDay(nextYear, nextMonth, dayOfMonth, h, m)
+		candidate = clampMonthDay(nextYear, nextMonth, dayOfMonth, h, m, loc)
 	}
-	return candidate
+	return candidate.UTC()
 }
 
-func clampMonthDay(year int, month time.Month, day, hour, min int) time.Time {
+func clampMonthDay(year int, month time.Month, day, hour, min int, loc *time.Location) time.Time {
 	last := daysInMonth(year, month)
 	if day > last {
 		day = last
 	}
-	return time.Date(year, month, day, hour, min, 0, 0, time.UTC)
+	return time.Date(year, month, day, hour, min, 0, 0, loc)
 }
 
 func daysInMonth(year int, month time.Month) int {

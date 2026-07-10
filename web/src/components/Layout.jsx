@@ -35,7 +35,7 @@ export default function Layout() {
         <div className="flex items-center gap-6">
           <Link to="/" className="flex items-center gap-2 brand-wordmark text-2xl text-blue-800" title="Open the Stack Manager dashboard.">
             <img src="/logo.svg" alt="" className="h-8 w-8" />
-            ARPHost Stack Manager
+            Stack Manager
           </Link>
           <Link to="/" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/')}`}>Dashboard</Link>
           <Link to="/catalog" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/catalog')}`}>Stack Catalog</Link>

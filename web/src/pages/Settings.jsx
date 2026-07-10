@@ -1294,9 +1294,10 @@ export default function Settings() {
 
           <div className="section-panel space-y-3">
             <h2 className="text-lg font-semibold text-gray-950">Host URL</h2>
-            <Field label="HOST_URL" title="The public URL printed in setup output and used in agent setup commands." hint="e.g. https://docker02:8993">
-              <input className="input" value={generalForm.host_url || ''} onChange={e => setGeneralForm({ ...generalForm, host_url: e.target.value })} placeholder="https://your-host:8993" />
+            <Field label="HOST_URL" title="The public URL printed in setup output and used in agent setup commands." hint="Use the host's IP or FQDN — e.g. https://10.0.0.5:8993 or https://stacks.example.com:8993">
+              <input className="input" value={generalForm.host_url || ''} onChange={e => setGeneralForm({ ...generalForm, host_url: e.target.value })} placeholder="https://10.0.0.5:8993 or https://stacks.example.com:8993" />
             </Field>
+            <p className="text-xs text-gray-500">Should be an IP address or hostname/FQDN that other machines can reach (agents phone home to this). Include the scheme and port.</p>
           </div>
 
           <div className="section-panel space-y-3">
@@ -1304,6 +1305,10 @@ export default function Settings() {
             <Field label="TZ" title="IANA timezone for the server. Affects schedule times, audit log timestamps, and backup filenames." hint="e.g. America/New_York, Europe/London, Asia/Tokyo, UTC">
               <input className="input" value={generalForm.tz || ''} onChange={e => setGeneralForm({ ...generalForm, tz: e.target.value })} placeholder="UTC" />
             </Field>
+            <p className="text-xs text-gray-500">
+              Use an IANA name like America/New_York, Europe/London, Asia/Tokyo, or UTC —{' '}
+              <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank" rel="noreferrer" className="text-blue-700 underline">see the full list</a>.
+            </p>
           </div>
 
           <div className="section-panel space-y-3">
@@ -1536,7 +1541,7 @@ export default function Settings() {
               </select>
             </Field>
             {scheduleForm.cadence !== 'interval' && (
-              <Field label="Time (UTC)" title="Hour and minute in UTC when the action fires.">
+              <Field label="Time (server timezone)" title="Hour and minute, in the server's configured timezone (Settings > General > Timezone), when the action fires.">
                 <input type="time" value={scheduleForm.time_of_day} onChange={e => setScheduleForm({ ...scheduleForm, time_of_day: e.target.value })} className="input" />
               </Field>
             )}
