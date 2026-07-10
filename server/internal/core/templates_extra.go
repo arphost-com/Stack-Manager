@@ -352,13 +352,75 @@ volumes:
 		},
 
 		{
+			ID: "voice-assistant", Name: "Voice Assistant (Ollama + Open WebUI + Kokoro TTS)",
+			Description: "Talk to a local LLM by voice. Open WebUI is pre-wired to Kokoro for text-to-speech and its built-in Whisper for speech-to-text — voice works on first login, no manual audio setup.",
+			Category:    "ai", Subcategory: "voice-speech",
+			Source: "arphost", Image: "ghcr.io/open-webui/open-webui:main",
+			Tags: []string{"ai", "voice", "tts", "stt", "ollama", "open-webui", "kokoro"},
+			ComposeContent: `services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - voice
+
+  # OpenAI-compatible TTS with the voice model bundled in the image (no manual
+  # weight download). Open WebUI calls it at /v1/audio/speech.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    ports:
+      - "${KOKORO_PORT:-8880}:8880"
+    networks:
+      - voice
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: "true"
+      # Fully-integrated voice, applied at startup (no Admin > Audio setup):
+      #  - TTS  -> local Kokoro (OpenAI-compatible)
+      #  - STT  -> Open WebUI's built-in local Whisper (default engine)
+      AUDIO_TTS_ENGINE: openai
+      AUDIO_TTS_OPENAI_API_BASE_URL: http://kokoro:8880/v1
+      AUDIO_TTS_OPENAI_API_KEY: ${TTS_API_KEY:-sk-local-no-auth}
+      AUDIO_TTS_MODEL: kokoro
+      AUDIO_TTS_VOICE: ${TTS_VOICE:-af_sky}
+    volumes:
+      - openwebui-data:/app/backend/data
+    depends_on:
+      - ollama
+      - kokoro
+    networks:
+      - voice
+
+volumes:
+  ollama-data:
+  openwebui-data:
+
+networks:
+  voice:
+`,
+			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nKOKORO_PORT=8880\nTTS_VOICE=af_sky\nTTS_API_KEY=sk-local-no-auth\n",
+			Notes:      "Deploy-verified: all 3 services boot clean, Kokoro synthesizes speech, and Open WebUI reaches it. After boot: create the admin account on first visit, then pull a model (docker exec <ollama-container> ollama pull llama3.1). Click the headphone/call icon in a chat to talk. TTS is already set to Kokoro; change the voice via TTS_VOICE (af_sky, af_bella, am_adam, bf_emma, ...). STT uses Open WebUI's built-in Whisper (downloads a small model on first mic use). Everything stays editable in Admin > Settings > Audio.",
+		},
+
+		{
 			ID: "rhasspy", Name: "Rhasspy Voice Assistant", Description: "Fully offline private voice assistant with web UI, wake word, speech-to-text, intent recognition, and text-to-speech.",
 			Category: "ai", Subcategory: "voice-speech",
 			Source: "docker-hub", Image: "rhasspy/rhasspy:latest",
-			Tags: []string{"ai", "voice", "assistant", "offline", "stt", "tts"},
+			Tags:           []string{"ai", "voice", "assistant", "offline", "stt", "tts"},
 			ComposeContent: "services:\n  rhasspy:\n    image: rhasspy/rhasspy:latest\n    restart: unless-stopped\n    ports:\n      - \"${RHASSPY_PORT:-12101}:12101\"\n    volumes:\n      - rhasspy-profiles:/profiles\n    devices:\n      - /dev/snd:/dev/snd\n    command: [\"--user-profiles\", \"/profiles\", \"--profile\", \"en\"]\nvolumes:\n  rhasspy-profiles:\n",
-			EnvContent: "RHASSPY_PORT=12101\n",
-			Notes: "Web UI at port 12101. The /dev/snd device mount is for microphone access — remove it if running headless (HTTP API only). Change --profile to your language (en, de, fr, etc.).",
+			EnvContent:     "RHASSPY_PORT=12101\n",
+			Notes:          "Web UI at port 12101. The /dev/snd device mount is for microphone access — remove it if running headless (HTTP API only). Change --profile to your language (en, de, fr, etc.).",
 		},
 
 		// ---- AI: vector-db (need +6) ----
@@ -776,7 +838,7 @@ volumes:
 		{
 			ID: "huginn", Name: "Huginn", Description: "Self-hosted scenario builder for scraping and automation.",
 			Category: "automation",
-			Source: "docker-hub", Image: "huginn/huginn",
+			Source:   "docker-hub", Image: "huginn/huginn",
 			Tags: []string{"automation", "scraping"},
 			ComposeContent: `services:
   huginn:
@@ -797,7 +859,7 @@ volumes:
 		{
 			ID: "gotify", Name: "Gotify", Description: "Self-hosted push notifications server.",
 			Category: "automation",
-			Source: "docker-hub", Image: "gotify/server:latest",
+			Source:   "docker-hub", Image: "gotify/server:latest",
 			Tags: []string{"automation", "notifications"},
 			ComposeContent: `services:
   gotify:
@@ -816,7 +878,7 @@ volumes:
 		{
 			ID: "cronicle", Name: "Cronicle", Description: "Multi-server cron scheduler with a web UI.",
 			Category: "automation",
-			Source: "docker-hub", Image: "ghcr.io/cronicle-edge/cronicle-edge:latest",
+			Source:   "docker-hub", Image: "ghcr.io/cronicle-edge/cronicle-edge:latest",
 			Tags: []string{"automation", "cron"},
 			ComposeContent: `services:
   cronicle:
@@ -841,7 +903,7 @@ volumes:
 		{
 			ID: "strapi", Name: "Strapi Headless CMS", Description: "Open-source headless CMS with an admin panel.",
 			Category: "cms",
-			Source: "docker-hub", Image: "node:24-bookworm-slim",
+			Source:   "docker-hub", Image: "node:24-bookworm-slim",
 			Tags: []string{"cms", "headless"},
 			ComposeContent: `services:
   strapi:
@@ -863,7 +925,7 @@ volumes:
 		{
 			ID: "prestashop", Name: "PrestaShop", Description: "Open-source e-commerce platform.",
 			Category: "cms",
-			Source: "docker-hub", Image: "prestashop/prestashop:latest",
+			Source:   "docker-hub", Image: "prestashop/prestashop:latest",
 			Tags: []string{"cms", "ecommerce"},
 			ComposeContent: `services:
   prestashop:
@@ -898,7 +960,7 @@ volumes:
 		{
 			ID: "mariadb", Name: "MariaDB", Description: "MariaDB 11.4 with persistent volume.",
 			Category: "database",
-			Source: "docker-hub-official", Image: "mariadb:11.4",
+			Source:   "docker-hub-official", Image: "mariadb:11.4",
 			Tags: []string{"database", "sql", "mysql"},
 			ComposeContent: `services:
   mariadb:
@@ -922,7 +984,7 @@ volumes:
 		{
 			ID: "cockroachdb", Name: "CockroachDB (single-node)", Description: "Distributed SQL database in single-node insecure mode.",
 			Category: "database",
-			Source: "docker-hub-official", Image: "cockroachdb/cockroach:latest",
+			Source:   "docker-hub-official", Image: "cockroachdb/cockroach:latest",
 			Tags: []string{"database", "sql", "distributed"},
 			ComposeContent: `services:
   cockroach:
@@ -943,7 +1005,7 @@ volumes:
 		{
 			ID: "neo4j", Name: "Neo4j Community", Description: "Graph database with the Neo4j Browser UI.",
 			Category: "database",
-			Source: "docker-hub-official", Image: "neo4j:5",
+			Source:   "docker-hub-official", Image: "neo4j:5",
 			Tags: []string{"database", "graph"},
 			ComposeContent: `services:
   neo4j:
@@ -967,7 +1029,7 @@ volumes:
 		{
 			ID: "drawio", Name: "draw.io (diagrams.net)", Description: "Self-hosted diagram editor.",
 			Category: "devtools",
-			Source: "docker-hub", Image: "jgraph/drawio:latest",
+			Source:   "docker-hub", Image: "jgraph/drawio:latest",
 			Tags: []string{"devtools", "diagrams"},
 			ComposeContent: `services:
   drawio:
@@ -982,7 +1044,7 @@ volumes:
 		{
 			ID: "woodpecker", Name: "Woodpecker CI Server", Description: "Lightweight open-source CI/CD server.",
 			Category: "devtools",
-			Source: "docker-hub", Image: "woodpeckerci/woodpecker-server:latest",
+			Source:   "docker-hub", Image: "woodpeckerci/woodpecker-server:latest",
 			Tags: []string{"devtools", "ci"},
 			ComposeContent: `services:
   woodpecker:
@@ -1009,7 +1071,7 @@ volumes:
 		{
 			ID: "drone", Name: "Drone CI Server", Description: "Container-native CI/CD platform.",
 			Category: "devtools",
-			Source: "docker-hub", Image: "drone/drone:2",
+			Source:   "docker-hub", Image: "drone/drone:2",
 			Tags: []string{"devtools", "ci"},
 			ComposeContent: `services:
   drone:
@@ -1037,7 +1099,7 @@ volumes:
 		{
 			ID: "outline", Name: "Outline Wiki", Description: "Team knowledge base with markdown editor.",
 			Category: "docs",
-			Source: "docker-hub", Image: "outlinewiki/outline:latest",
+			Source:   "docker-hub", Image: "outlinewiki/outline:latest",
 			Tags: []string{"docs", "wiki"},
 			ComposeContent: `services:
   outline:
@@ -1060,7 +1122,7 @@ volumes:
 		{
 			ID: "docmost", Name: "Docmost", Description: "Open-source collaborative wiki and documentation platform.",
 			Category: "docs",
-			Source: "docker-hub", Image: "docmost/docmost:latest",
+			Source:   "docker-hub", Image: "docmost/docmost:latest",
 			Tags: []string{"docs", "wiki"},
 			ComposeContent: `services:
   docmost:
@@ -1090,7 +1152,7 @@ volumes:
 		{
 			ID: "mkdocs-material", Name: "MkDocs Material", Description: "Static site generator for technical documentation.",
 			Category: "docs",
-			Source: "docker-hub", Image: "squidfunk/mkdocs-material:latest",
+			Source:   "docker-hub", Image: "squidfunk/mkdocs-material:latest",
 			Tags: []string{"docs", "static"},
 			ComposeContent: `services:
   mkdocs:
@@ -1110,7 +1172,7 @@ volumes:
 		{
 			ID: "seafile", Name: "Seafile", Description: "Self-hosted file sync + sharing (community edition).",
 			Category: "files",
-			Source: "docker-hub", Image: "seafileltd/seafile-mc:latest",
+			Source:   "docker-hub", Image: "seafileltd/seafile-mc:latest",
 			Tags: []string{"files", "sync"},
 			ComposeContent: `services:
   seafile:
@@ -1144,7 +1206,7 @@ volumes:
 		{
 			ID: "owncloud", Name: "ownCloud", Description: "Enterprise-flavored file collaboration server.",
 			Category: "files",
-			Source: "docker-hub", Image: "owncloud/server:latest",
+			Source:   "docker-hub", Image: "owncloud/server:latest",
 			Tags: []string{"files", "sync"},
 			ComposeContent: `services:
   owncloud:
@@ -1168,7 +1230,7 @@ volumes:
 		{
 			ID: "pydio-cells", Name: "Pydio Cells", Description: "Modern file sharing and collaboration platform.",
 			Category: "files",
-			Source: "docker-hub", Image: "pydio/cells:latest",
+			Source:   "docker-hub", Image: "pydio/cells:latest",
 			Tags: []string{"files", "sync"},
 			ComposeContent: `services:
   cells:
@@ -1192,7 +1254,7 @@ volumes:
 		{
 			ID: "yacht", Name: "Yacht", Description: "Web UI for managing Docker containers with app templates.",
 			Category: "management",
-			Source: "docker-hub", Image: "selfhostedpro/yacht:latest",
+			Source:   "docker-hub", Image: "selfhostedpro/yacht:latest",
 			Tags: []string{"management", "docker"},
 			ComposeContent: `services:
   yacht:
@@ -1212,7 +1274,7 @@ volumes:
 		{
 			ID: "rundeck", Name: "Rundeck", Description: "Job scheduler and runbook automation.",
 			Category: "management",
-			Source: "docker-hub", Image: "rundeck/rundeck:6.0.0",
+			Source:   "docker-hub", Image: "rundeck/rundeck:6.0.0",
 			Tags: []string{"management", "automation"},
 			ComposeContent: `services:
   rundeck:
@@ -1233,7 +1295,7 @@ volumes:
 		{
 			ID: "semaphore-ui", Name: "Semaphore UI", Description: "Web UI for running Ansible playbooks, Terraform, and shell scripts.",
 			Category: "management",
-			Source: "docker-hub", Image: "semaphoreui/semaphore:latest",
+			Source:   "docker-hub", Image: "semaphoreui/semaphore:latest",
 			Tags: []string{"management", "ansible"},
 			ComposeContent: `services:
   semaphore:
@@ -1260,7 +1322,7 @@ volumes:
 		{
 			ID: "sonarr", Name: "Sonarr", Description: "TV series library and download automation.",
 			Category: "media",
-			Source: "docker-hub", Image: "linuxserver/sonarr:latest",
+			Source:   "docker-hub", Image: "linuxserver/sonarr:latest",
 			Tags: []string{"media", "arr"},
 			ComposeContent: `services:
   sonarr:
@@ -1283,7 +1345,7 @@ volumes:
 		{
 			ID: "radarr", Name: "Radarr", Description: "Movie library and download automation.",
 			Category: "media",
-			Source: "docker-hub", Image: "linuxserver/radarr:latest",
+			Source:   "docker-hub", Image: "linuxserver/radarr:latest",
 			Tags: []string{"media", "arr"},
 			ComposeContent: `services:
   radarr:
@@ -1306,7 +1368,7 @@ volumes:
 		{
 			ID: "overseerr", Name: "Overseerr", Description: "Request management for Plex / Jellyfin users.",
 			Category: "media",
-			Source: "docker-hub", Image: "sctx/overseerr:latest",
+			Source:   "docker-hub", Image: "sctx/overseerr:latest",
 			Tags: []string{"media", "requests"},
 			ComposeContent: `services:
   overseerr:
@@ -1329,7 +1391,7 @@ volumes:
 		{
 			ID: "cadvisor", Name: "cAdvisor", Description: "Container resource usage and performance metrics.",
 			Category: "monitoring",
-			Source: "docker-hub", Image: "gcr.io/cadvisor/cadvisor:latest",
+			Source:   "docker-hub", Image: "gcr.io/cadvisor/cadvisor:latest",
 			Tags: []string{"monitoring", "containers"},
 			ComposeContent: `services:
   cadvisor:
@@ -1351,7 +1413,7 @@ volumes:
 		{
 			ID: "node-exporter", Name: "Prometheus Node Exporter", Description: "Host-level metrics exporter for Prometheus.",
 			Category: "monitoring",
-			Source: "docker-hub-official", Image: "prom/node-exporter:latest",
+			Source:   "docker-hub-official", Image: "prom/node-exporter:latest",
 			Tags: []string{"monitoring", "prometheus"},
 			ComposeContent: `services:
   node-exporter:
@@ -1370,7 +1432,7 @@ volumes:
 		{
 			ID: "blackbox-exporter", Name: "Prometheus Blackbox Exporter", Description: "Probes HTTP, TCP, DNS, and ICMP endpoints for Prometheus.",
 			Category: "monitoring",
-			Source: "docker-hub-official", Image: "prom/blackbox-exporter:latest",
+			Source:   "docker-hub-official", Image: "prom/blackbox-exporter:latest",
 			Tags: []string{"monitoring", "prometheus"},
 			ComposeContent: `services:
   blackbox:
@@ -1390,7 +1452,7 @@ volumes:
 		{
 			ID: "temporal", Name: "Temporal (dev)", Description: "Temporal workflow engine with the auto-setup bundle.",
 			Category: "queue",
-			Source: "docker-hub", Image: "temporalio/auto-setup:latest",
+			Source:   "docker-hub", Image: "temporalio/auto-setup:latest",
 			Tags: []string{"queue", "workflows"},
 			ComposeContent: `services:
   temporal:
@@ -1422,7 +1484,7 @@ volumes:
 		{
 			ID: "faktory", Name: "Faktory", Description: "Language-agnostic background job server.",
 			Category: "queue",
-			Source: "docker-hub", Image: "contribsys/faktory:latest",
+			Source:   "docker-hub", Image: "contribsys/faktory:latest",
 			Tags: []string{"queue", "jobs"},
 			ComposeContent: `services:
   faktory:
@@ -1445,7 +1507,7 @@ volumes:
 		{
 			ID: "activemq", Name: "Apache ActiveMQ Classic", Description: "Popular JMS broker with STOMP, AMQP, and MQTT support.",
 			Category: "queue",
-			Source: "docker-hub-official", Image: "apache/activemq-classic:latest",
+			Source:   "docker-hub-official", Image: "apache/activemq-classic:latest",
 			Tags: []string{"queue", "jms"},
 			ComposeContent: `services:
   activemq:
@@ -1467,7 +1529,7 @@ volumes:
 		{
 			ID: "fail2ban", Name: "fail2ban", Description: "Log-scanning intrusion prevention.",
 			Category: "security",
-			Source: "docker-hub", Image: "crazymax/fail2ban:latest",
+			Source:   "docker-hub", Image: "crazymax/fail2ban:latest",
 			Tags: []string{"security", "ips"},
 			ComposeContent: `services:
   fail2ban:
@@ -1491,7 +1553,7 @@ volumes:
 		{
 			ID: "wazuh-manager", Name: "Wazuh Manager", Description: "Open-source security monitoring / SIEM manager.",
 			Category: "security",
-			Source: "docker-hub", Image: "wazuh/wazuh-manager:4.14.6",
+			Source:   "docker-hub", Image: "wazuh/wazuh-manager:4.14.6",
 			Tags: []string{"security", "siem"},
 			ComposeContent: `services:
   wazuh:
@@ -1514,7 +1576,7 @@ volumes:
 		{
 			ID: "certbot", Name: "certbot", Description: "Let's Encrypt cert issuer (interactive mode).",
 			Category: "security",
-			Source: "docker-hub", Image: "certbot/certbot:latest",
+			Source:   "docker-hub", Image: "certbot/certbot:latest",
 			Tags: []string{"security", "tls"},
 			ComposeContent: `services:
   certbot:
@@ -1533,7 +1595,7 @@ volumes:
 		{
 			ID: "openresty", Name: "OpenResty", Description: "Nginx + LuaJIT distribution for scripted request handling.",
 			Category: "web",
-			Source: "docker-hub", Image: "openresty/openresty:alpine",
+			Source:   "docker-hub", Image: "openresty/openresty:alpine",
 			Tags: []string{"web", "nginx", "lua"},
 			ComposeContent: `services:
   openresty:
@@ -1551,7 +1613,7 @@ volumes:
 		{
 			ID: "hugo-server", Name: "Hugo Static Server", Description: "Hugo builder + Caddy for serving a static site.",
 			Category: "web",
-			Source: "docker-hub", Image: "klakegg/hugo:ext-alpine",
+			Source:   "docker-hub", Image: "klakegg/hugo:ext-alpine",
 			Tags: []string{"web", "static", "hugo"},
 			ComposeContent: `services:
   hugo:
@@ -1569,7 +1631,7 @@ volumes:
 		{
 			ID: "caddy-file-browser", Name: "Caddy Static + Auth", Description: "Caddy 2 serving files with basicauth from Caddyfile.",
 			Category: "web",
-			Source: "docker-hub-official", Image: "caddy:latest",
+			Source:   "docker-hub-official", Image: "caddy:latest",
 			Tags: []string{"web", "static"},
 			ComposeContent: `services:
   caddy:
@@ -1596,7 +1658,7 @@ volumes:
 		{
 			ID: "haproxy", Name: "HAProxy", Description: "Reliable, high-performance L4/L7 load balancer.",
 			Category: "proxy",
-			Source: "docker-hub-official", Image: "haproxy:lts-alpine",
+			Source:   "docker-hub-official", Image: "haproxy:lts-alpine",
 			Tags: []string{"proxy", "loadbalancer"},
 			ComposeContent: `services:
   haproxy:
@@ -1614,7 +1676,7 @@ volumes:
 		{
 			ID: "squid", Name: "Squid Proxy", Description: "Caching HTTP forward proxy.",
 			Category: "proxy",
-			Source: "docker-hub", Image: "ubuntu/squid:latest",
+			Source:   "docker-hub", Image: "ubuntu/squid:latest",
 			Tags: []string{"proxy", "forward-proxy"},
 			ComposeContent: `services:
   squid:
@@ -1634,7 +1696,7 @@ volumes:
 		{
 			ID: "envoy", Name: "Envoy Proxy", Description: "Cloud-native L4/L7 proxy for service meshes and edge.",
 			Category: "proxy",
-			Source: "docker-hub", Image: "envoyproxy/envoy:v1.31-latest",
+			Source:   "docker-hub", Image: "envoyproxy/envoy:v1.31-latest",
 			Tags: []string{"proxy", "servicemesh"},
 			ComposeContent: `services:
   envoy:
@@ -1652,7 +1714,7 @@ volumes:
 		{
 			ID: "swag", Name: "SWAG (LinuxServer.io)", Description: "Reverse proxy with automatic Let's Encrypt certs and fail2ban.",
 			Category: "proxy",
-			Source: "docker-hub", Image: "linuxserver/swag:latest",
+			Source:   "docker-hub", Image: "linuxserver/swag:latest",
 			Tags: []string{"proxy", "reverse-proxy", "tls"},
 			ComposeContent: `services:
   swag:
@@ -1680,7 +1742,7 @@ volumes:
 		{
 			ID: "zoraxy", Name: "Zoraxy", Description: "All-in-one reverse proxy with GUI, TLS, and IP filtering.",
 			Category: "proxy",
-			Source: "docker-hub", Image: "zoraxydocker/zoraxy:latest",
+			Source:   "docker-hub", Image: "zoraxydocker/zoraxy:latest",
 			Tags: []string{"proxy", "reverse-proxy"},
 			ComposeContent: `services:
   zoraxy:
@@ -1701,7 +1763,7 @@ volumes:
 		{
 			ID: "pomerium", Name: "Pomerium", Description: "Identity-aware access proxy for internal services.",
 			Category: "proxy",
-			Source: "docker-hub", Image: "pomerium/pomerium:latest",
+			Source:   "docker-hub", Image: "pomerium/pomerium:latest",
 			Tags: []string{"proxy", "zero-trust"},
 			ComposeContent: `services:
   pomerium:

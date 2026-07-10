@@ -207,6 +207,24 @@ const enhancedGuides = {
       ['GitHub', 'https://github.com/rhasspy/piper'],
     ],
   },
+  'voice-assistant': {
+    fit: 'Talk to a local LLM by voice. Ollama for the model, Open WebUI as the chat/voice UI, and Kokoro for text-to-speech — pre-wired so voice works on first login with no manual audio setup. Deploy-verified: all services boot clean, Kokoro synthesizes speech, and Open WebUI reaches it.',
+    setup: [
+      'Deploy the stack. All three services come up on their own; no passwords to set for the voice pieces.',
+      'Open WebUI: http://<host>:WEBUI_PORT — create the admin account on first visit. Ollama is auto-connected.',
+      'Pull a model: docker exec <ollama-container> ollama pull llama3.1 (or any Ollama model).',
+      'Start a chat, then click the headphone/call icon to talk. Speech-to-text uses Open WebUI\'s built-in Whisper (it downloads a small model on first mic use); text-to-speech is already routed to the local Kokoro server.',
+      'Change the voice by setting TTS_VOICE in .env (af_sky, af_bella, am_adam, bf_emma, and more) and restarting Open WebUI. Everything stays editable in Admin > Settings > Audio.',
+      'Kokoro TTS API (OpenAI-compatible) is also directly usable at http://<host>:KOKORO_PORT/v1/audio/speech if you want to wire other apps to it.',
+    ],
+    caution: 'Plan for 6+ GB RAM. TTS is fully local (Kokoro bundles its model). STT downloads a Whisper model on first use. GPU passthrough for Ollama makes responses much faster but is optional.',
+    links: [
+      ['Open WebUI', 'https://docs.openwebui.com/'],
+      ['Open WebUI Audio config', 'https://docs.openwebui.com/troubleshooting/audio/'],
+      ['Kokoro-FastAPI', 'https://github.com/remsky/Kokoro-FastAPI'],
+      ['Ollama', 'https://ollama.com/'],
+    ],
+  },
   'openbrain': {
     fit: 'Full AI agent development stack: Ollama for local LLMs, Open WebUI for chat, Neo4j for knowledge graphs, Temporal for durable workflows.',
     setup: [
