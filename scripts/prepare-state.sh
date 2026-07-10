@@ -5,6 +5,7 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(dirname "${script_dir}")"
 agent_mode=0
 agent_app_mode=""
+agent_controller_url=""
 # Parse leading flags. --agent enables agent mode; --mode selects which agent
 # APP_MODE to write into .env so the start command needs no APP_MODE override.
 while :; do
@@ -24,6 +25,11 @@ while :; do
           exit 1
           ;;
       esac
+      shift
+      ;;
+    --controller | --controller-url)
+      shift
+      agent_controller_url="${1:-}"
       shift
       ;;
     *)
@@ -169,12 +175,40 @@ if [ "${agent_mode}" -eq 1 ]; then
   ensure_setting AGENT_NAME "$(detect_agent_name)"
   ensure_secret AGENT_TOKEN
   ensure_setting AGENT_PORT 8192
-  # Only set if empty or still the placeholder. Don't overwrite a URL the
-  # operator already configured.
-  current_controller="$(env_value AGENT_CONTROLLER_URL)"
-  case "${current_controller}" in
-    "" | *change-me*)
-      set_env_value AGENT_CONTROLLER_URL "https://change-me:8993"
+  # AGENT_CONTROLLER_URL is where a callback/both agent phones home. Inbound-only
+  # agents (APP_MODE=agent) never call out, so they don't need it — leave it
+  # unset rather than writing a placeholder the operator has to clean up.
+  # Precedence for callback/both: --controller flag, then a value already in
+  # .env, then an interactive prompt (when run in a terminal), then a placeholder
+  # the summary flags as ACTION REQUIRED.
+  case "$(env_value APP_MODE)" in
+    agent-callback | agent-both)
+      current_controller="$(env_value AGENT_CONTROLLER_URL)"
+      if [ -n "${agent_controller_url}" ]; then
+        set_env_value AGENT_CONTROLLER_URL "${agent_controller_url}"
+      else
+        case "${current_controller}" in
+          "" | *change-me*)
+            answer_controller=""
+            if [ -t 0 ]; then
+              printf 'Controller URL this agent checks in to (e.g. https://10.10.10.93:8993), blank to set later: ' >&2
+              read -r answer_controller || answer_controller=""
+            fi
+            if [ -n "${answer_controller}" ]; then
+              set_env_value AGENT_CONTROLLER_URL "${answer_controller}"
+            else
+              set_env_value AGENT_CONTROLLER_URL "https://change-me:8993"
+            fi
+            ;;
+        esac
+      fi
+      ;;
+    agent)
+      # Inbound-only agents never phone home. Clear the placeholder that
+      # .env.example ships so it isn't left as a confusing "change-me" field.
+      case "$(env_value AGENT_CONTROLLER_URL)" in
+        *change-me*) set_env_value AGENT_CONTROLLER_URL "" ;;
+      esac
       ;;
   esac
   ensure_setting AGENT_CHECKIN_SECONDS 60
@@ -423,14 +457,19 @@ if [ "${agent_mode}" -eq 1 ]; then
   printf '\n'
   if printf '%s' "${controller_url}" | grep -q 'change-me'; then
     printf '*** ACTION REQUIRED ***\n'
-    printf 'Edit .env and set AGENT_CONTROLLER_URL to your controller'\''s URL:\n'
-    printf '  Example: AGENT_CONTROLLER_URL=https://10.10.10.93:8993\n'
+    printf 'Set the controller URL this agent checks in to. Either re-run with\n'
+    printf '  ./scripts/prepare-state.sh --agent --controller https://10.10.10.93:8993 .env\n'
+    printf 'or edit .env directly:\n'
+    printf '  AGENT_CONTROLLER_URL=https://<controller-host>:8993\n'
     printf '\n'
   fi
   printf 'Start the agent (APP_MODE is already set in .env):\n'
   printf '  docker compose --env-file .env -f docker-compose.agent.yml up -d --build\n'
   printf '\n'
-  printf 'Then register from the controller: Settings > Agents.\n'
+  printf 'Register on the controller under Settings > Agents using EXACTLY:\n'
+  printf '  Name:  %s\n' "$(env_value AGENT_NAME)"
+  printf '  Token: %s\n' "$(env_value AGENT_TOKEN)"
+  printf 'The name and token must match on both sides or check-in returns 401.\n'
 else
   printf 'Stack Manager is ready.\n'
   printf '\n'
