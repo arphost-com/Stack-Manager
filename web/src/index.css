@@ -171,6 +171,47 @@ html.dark .text-violet-800 {
   color: #ddd6fe;
 }
 
+/* Lighter -50 tints and colored rings had no dark override, so chips that use
+   them (e.g. clickable port links) stayed washed out on dark backgrounds. */
+html.dark .bg-blue-50 {
+  background-color: #1e3a8a;
+}
+
+html.dark .bg-gray-50 {
+  background-color: #1e293b;
+}
+
+html.dark .bg-green-50 {
+  background-color: #064e3b;
+}
+
+html.dark .bg-violet-50 {
+  background-color: #4c1d95;
+}
+
+html.dark .hover\:bg-blue-100:hover {
+  background-color: #1e40af;
+}
+
+html.dark .ring-blue-200,
+html.dark .hover\:ring-blue-300:hover {
+  --tw-ring-color: #3b82f6;
+}
+
+html.dark .ring-gray-200 {
+  --tw-ring-color: #334155;
+}
+
+html.dark .ring-violet-200 {
+  --tw-ring-color: #7c3aed;
+}
+
+/* Muted glyph/text tones inside chips need to lift off dark, too. */
+html.dark .text-gray-400,
+html.dark .text-gray-300 {
+  color: #94a3b8;
+}
+
 html.dark .bg-gray-950 {
   background-color: #020617;
 }

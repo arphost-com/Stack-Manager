@@ -45,7 +45,7 @@ func runAgentCallbackLoop(ctx context.Context, cfg *config.Config, engine *core.
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{ // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 				InsecureSkipVerify: true,  //nolint:gosec // intentional for self-signed controllers
-				MinVersion:         tls.VersionTLS12,
+				MinVersion:         tls.VersionTLS13, // agent/peer traffic must use TLS 1.3
 			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

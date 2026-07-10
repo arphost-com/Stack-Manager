@@ -32,7 +32,7 @@ func NewAgentProxyHandler(store *storage.Store) *AgentProxyHandler {
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{ // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
 					InsecureSkipVerify: true,
-					MinVersion:         tls.VersionTLS12,
+					MinVersion:         tls.VersionTLS13, // agent/peer traffic must use TLS 1.3
 				},
 			},
 		},
