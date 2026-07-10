@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -24,6 +26,51 @@ var (
 func GPUDetect(w http.ResponseWriter, r *http.Request) {
 	info := detectGPU()
 	writeJSON(w, http.StatusOK, info)
+}
+
+type gpuTestResult struct {
+	Success bool   `json:"success"`
+	Image   string `json:"image"`
+	Output  string `json:"output"`
+	Error   string `json:"error,omitempty"`
+}
+
+// GPUTest runs a throwaway container with --gpus all and nvidia-smi to prove the
+// full passthrough chain (driver + nvidia-container-toolkit + runtime) actually
+// works end-to-end, not just that the runtime is registered. The first run pulls
+// the CUDA base image, so allow a generous timeout. The image is fixed (env
+// override only), never user input, and the call runs without a shell.
+func GPUTest(w http.ResponseWriter, r *http.Request) {
+	image := strings.TrimSpace(os.Getenv("GPU_TEST_IMAGE"))
+	if image == "" {
+		image = "nvidia/cuda:12.4.1-base-ubuntu22.04"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--gpus", "all", image, "nvidia-smi")
+	out, err := cmd.CombinedOutput()
+	res := gpuTestResult{Image: image, Output: strings.TrimRight(string(out), "\n")}
+	if err != nil {
+		res.Success = false
+		res.Error = err.Error()
+		if ctx.Err() == context.DeadlineExceeded {
+			res.Error = "timed out (image pull or run took too long)"
+		}
+	} else {
+		res.Success = true
+		// A working run always includes the nvidia-smi header.
+		if !strings.Contains(res.Output, "NVIDIA-SMI") {
+			res.Success = false
+			res.Error = "nvidia-smi did not report a GPU"
+		}
+	}
+	// Refresh detection cache alongside a successful test.
+	if res.Success {
+		gpuMu.Lock()
+		gpuCache = nil
+		gpuMu.Unlock()
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func detectGPU() gpuInfo {

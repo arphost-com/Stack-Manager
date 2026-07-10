@@ -101,6 +101,7 @@ export default function StackCatalog() {
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [gpuInfo, setGpuInfo] = useState(null);
+  const [gpuEnabled, setGpuEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorDetails, setErrorDetails] = useState('');
 
@@ -173,20 +174,33 @@ export default function StackCatalog() {
 
   const gpuDeploySnippet = '    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n';
 
+  // applyGpuToCompose adds or removes the GPU passthrough deploy block so the
+  // "Add GPU passthrough" checkbox can toggle it without losing other edits.
+  const applyGpuToCompose = (compose, enable) => {
+    const has = compose.includes('capabilities: [gpu]');
+    if (enable && !has) {
+      return compose.replace(/(restart:\s*unless-stopped\n)/, '$1' + gpuDeploySnippet);
+    }
+    if (!enable && has) {
+      return compose.replace(gpuDeploySnippet, '');
+    }
+    return compose;
+  };
+
+  const toggleGpu = (next) => {
+    setGpuEnabled(next);
+    setForm(f => ({ ...f, compose_content: applyGpuToCompose(f.compose_content, next) }));
+  };
+
   const openTemplate = (template) => {
     setSelected(template);
-    let compose = template.compose_content;
-
-    // Auto-inject GPU config for AI templates when a GPU is detected.
     const isAI = template.category === 'ai';
     const hasGPU = gpuInfo?.available;
-    if (isAI && hasGPU && !compose.includes('capabilities: [gpu]')) {
-      // Insert deploy block after the first service's restart line.
-      compose = compose.replace(
-        /(restart:\s*unless-stopped\n)/,
-        '$1' + gpuDeploySnippet
-      );
-    }
+    // Default the checkbox on for AI stacks when a GPU is present, but let the
+    // user turn it off (or on) explicitly.
+    const enableGpu = isAI && hasGPU;
+    setGpuEnabled(enableGpu);
+    const compose = applyGpuToCompose(template.compose_content, enableGpu);
 
     setForm({
       name: template.id,
@@ -199,9 +213,9 @@ export default function StackCatalog() {
       overwrite: false,
     });
     if (isAI && hasGPU) {
-      setMessage({ type: 'success', text: `GPU detected (${gpuInfo.gpu_name || 'NVIDIA'}) — GPU acceleration enabled in compose.` });
+      setMessage({ type: 'success', text: `GPU detected (${gpuInfo.gpu_name || 'NVIDIA'}) — GPU passthrough enabled. Uncheck "Add GPU passthrough" to run CPU-only.` });
     } else if (isAI && !hasGPU) {
-      setMessage({ type: 'info', text: 'No GPU detected — this AI stack will run in CPU mode. Add GPU config manually if you attach one later.' });
+      setMessage({ type: 'info', text: 'No GPU detected — this AI stack will run in CPU mode. Enable "Add GPU passthrough" if you attach one later.' });
     } else {
       setMessage(null);
     }
@@ -400,6 +414,13 @@ export default function StackCatalog() {
                   Apply to services
                 </label>
               </div>
+              {selected?.category === 'ai' && (
+                <label className={`flex items-center gap-2 text-sm ${gpuInfo?.available ? 'text-gray-700' : 'text-gray-400'}`}
+                  title="Injects deploy.resources.reservations.devices so the stack can use an NVIDIA GPU. Uncheck to run CPU-only.">
+                  <input type="checkbox" disabled={submitting} checked={gpuEnabled} onChange={e => toggleGpu(e.target.checked)} />
+                  Add GPU passthrough (NVIDIA){!gpuInfo?.available && ' — no GPU detected on this host'}
+                </label>
+              )}
               <label className="block text-sm" title="Editable compose.yml before creation.">
                 <span className="mb-1 block font-medium text-gray-700">compose.yml</span>
                 <textarea disabled={submitting} required className="textarea h-72 font-mono" value={form.compose_content} onChange={e => setForm({ ...form, compose_content: e.target.value })} />

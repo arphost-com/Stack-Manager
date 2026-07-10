@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi } from '../api/client';
+import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';
 
@@ -87,6 +87,9 @@ const emptyDockerForm = {
 export default function Settings() {
   const [me, setMe] = useState(null);
   const [activeTab, setActiveTab] = useState('account');
+  const [gpuInfo, setGpuInfo] = useState(null);
+  const [gpuTest, setGpuTest] = useState(null);
+  const [gpuTesting, setGpuTesting] = useState(false);
   const [userList, setUserList] = useState([]);
   const [destinationList, setDestinationList] = useState([]);
   const [projectList, setProjectList] = useState([]);
@@ -164,6 +167,7 @@ export default function Settings() {
       { key: 'schedules', label: 'Scheduled Updates', title: 'Schedule local or agent project updates.' },
       { key: 'registries', label: 'Registry Logins', title: 'Docker Hub account and private registry logins.' },
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
+      { key: 'gpu', label: 'GPU', title: 'Detect and test NVIDIA GPU passthrough for AI stacks.' },
       { key: 'ssl', label: 'SSL / TLS', title: 'View, regenerate, or switch the TLS cert (self-signed or Let’s Encrypt).' },
       { key: 'backups', label: 'Backup Endpoints', title: 'Configure local and remote backup destinations.' },
       { key: 'firewall', label: 'Firewall', title: 'ConfigServer Firewall (csf/lfd) install, monitor, and IP management.' },
@@ -203,6 +207,26 @@ export default function Settings() {
   useEffect(() => {
     if (admin && activeTab === 'docker') loadDockerSettings();
   }, [admin, activeTab]);
+
+  useEffect(() => {
+    if (admin && activeTab === 'gpu' && !gpuInfo) {
+      system.gpu().then(r => setGpuInfo(r.data)).catch(() => setGpuInfo({ available: false }));
+    }
+  }, [admin, activeTab]);
+
+  const runGpuTest = async () => {
+    setGpuTesting(true);
+    setGpuTest(null);
+    try {
+      const res = await system.gpuTest();
+      setGpuTest(res.data);
+      if (res.data?.success) setGpuInfo(g => ({ ...(g || {}), available: true }));
+    } catch (err) {
+      setGpuTest({ success: false, error: err.message, output: '' });
+    } finally {
+      setGpuTesting(false);
+    }
+  };
 
   useEffect(() => {
     if (admin && activeTab === 'ssl') loadSslInfo();
@@ -1678,6 +1702,52 @@ export default function Settings() {
             </div>
           </div>
         </form>
+      )}
+
+      {admin && activeTab === 'gpu' && (
+        <div className="space-y-4">
+          <div className="section-panel">
+            <h2 className="text-lg font-semibold text-gray-950">NVIDIA GPU</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Detect the host GPU and run a real passthrough test. The test launches a throwaway
+              <code className="mx-1 rounded bg-gray-100 px-1">--gpus all</code> container running <code className="rounded bg-gray-100 px-1">nvidia-smi</code>,
+              which proves the full chain (driver + nvidia-container-toolkit + Docker runtime) works — not just that the runtime is registered.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+                <span className="text-gray-500">Detected: </span>
+                {gpuInfo?.available
+                  ? <span className="font-medium text-green-700">{gpuInfo.gpu_name || 'NVIDIA GPU'}{gpuInfo.driver ? ` · driver ${gpuInfo.driver}` : ''} · runtime {gpuInfo.runtime || 'nvidia'}</span>
+                  : <span className="font-medium text-gray-500">no NVIDIA runtime detected</span>}
+              </div>
+              <button onClick={runGpuTest} disabled={gpuTesting} className="btn-primary inline-flex items-center gap-2">
+                {gpuTesting && <span className="spinner" aria-hidden="true"></span>}
+                {gpuTesting ? 'Running test container…' : 'Run GPU test'}
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-gray-400">First run pulls the CUDA base image and can take a minute.</p>
+            {gpuTest && (
+              <div className="mt-4">
+                <div className={`mb-2 inline-flex items-center gap-2 rounded px-2 py-0.5 text-sm font-medium ${gpuTest.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  {gpuTest.success ? 'GPU passthrough works' : 'GPU test failed'}
+                  {gpuTest.image && <span className="font-mono text-xs opacity-70">{gpuTest.image}</span>}
+                </div>
+                {gpuTest.error && <div className="mb-2 text-sm text-red-700">{gpuTest.error}</div>}
+                {gpuTest.output && (
+                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 text-xs text-gray-100">{gpuTest.output}</pre>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="section-panel">
+            <h3 className="text-sm font-semibold text-gray-950">Using the GPU in stacks</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              When you open an AI stack template from the Stack Catalog and a GPU is detected, the
+              <span className="mx-1 font-medium">Add GPU passthrough</span> checkbox injects the compose
+              <code className="mx-1 rounded bg-gray-100 px-1">deploy.resources.reservations.devices</code> block for you. Toggle it off to run CPU-only.
+            </p>
+          </div>
+        </div>
       )}
 
       {admin && activeTab === 'ssl' && (

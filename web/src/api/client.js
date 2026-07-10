@@ -299,6 +299,7 @@ export function systemForSource(agentId) {
 
 export const system = {
   gpu: () => request('/system/gpu'),
+  gpuTest: () => request('/system/gpu/test', { method: 'POST' }),
   prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
 };
 

@@ -252,6 +252,7 @@ func main() {
 
 			// System info
 			r.Get("/system/gpu", handlers.GPUDetect)
+			r.Post("/system/gpu/test", handlers.GPUTest)
 
 			// Agent proxy — forward actions to inbound agents
 			r.HandleFunc("/agent-proxy/{agentId}/*", agentProxyHandler.Proxy)
