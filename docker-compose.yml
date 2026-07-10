@@ -68,6 +68,11 @@ services:
     user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     group_add:
       - "${DOCKER_GID:-0}"
+    # Lets the server reach services published on the host (e.g. a co-located
+    # Nginx Proxy Manager) via host.docker.internal, so the reverse proxy can be
+    # connected "over localhost" without exposing NPM's admin port externally.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Bind DOCKER_ROOT at the same host path inside the container so

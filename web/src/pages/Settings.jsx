@@ -395,14 +395,22 @@ export default function Settings() {
   };
 
   const [deployingNpm, setDeployingNpm] = useState(false);
+  const [npmCreds, setNpmCreds] = useState(null);
   const deployNpm = async () => {
     setDeployingNpm(true);
+    setNpmCreds(null);
     try {
       const res = await proxyApi.deploy();
-      showMessage(`Nginx Proxy Manager deployed. Admin UI on port 81 — connect with ${res.data?.default_login || 'admin@example.com'} / ${res.data?.default_password || 'changeme'}.`);
-      // Prefill the connection form with the NPM admin URL + defaults so the
-      // next click is just Connect. NPM's admin listens on host port 81.
-      setNpmForm({ url: `http://${window.location.hostname}:81`, email: 'admin@example.com', password: 'changeme' });
+      if (res.data?.auto_configured) {
+        // NPM was auto-initialized and connected over localhost. Surface the
+        // generated password persistently so the operator can save it.
+        setNpmCreds({ url: res.data.url, login: res.data.login, password: res.data.password });
+        setNpmForm({ url: res.data.url || 'http://localhost:81', email: res.data.login || 'admin@example.com', password: '' });
+        showMessage('Nginx Proxy Manager deployed and auto-connected. Save the generated password shown below.');
+      } else {
+        showMessage(`Nginx Proxy Manager deployed. Connect with ${res.data?.default_login || 'admin@example.com'} / ${res.data?.default_password || 'changeme'}.`);
+        setNpmForm({ url: 'http://localhost:81', email: 'admin@example.com', password: 'changeme' });
+      }
       loadProxyStatus();
     } catch (err) { showError(err); }
     finally { setDeployingNpm(false); }
@@ -2202,7 +2210,18 @@ export default function Settings() {
                   {deployingNpm && <span className="spinner" aria-hidden="true"></span>}
                   {deployingNpm ? 'Deploying…' : 'Deploy Nginx Proxy Manager'}
                 </button>
-                <p className="text-xs text-blue-800">After it deploys, log into NPM admin once to change the default password, then click Connect below.</p>
+                <p className="text-xs text-blue-800">One click deploys NPM, sets a secure admin password automatically, and connects Stack Manager over localhost — no manual NPM setup needed.</p>
+                {npmCreds && (
+                  <div className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
+                    <div className="font-semibold">NPM deployed &amp; connected. Save these — this is also your NPM admin login:</div>
+                    <div className="mt-2 grid gap-1 font-mono text-xs">
+                      <div>Admin UI: <span className="font-semibold">http://{window.location.hostname}:81</span></div>
+                      <div>Login: <span className="font-semibold">{npmCreds.login}</span></div>
+                      <div>Password: <span className="select-all font-semibold">{npmCreds.password}</span></div>
+                    </div>
+                    <div className="mt-2 text-xs">Change it any time inside NPM. This is shown once.</div>
+                  </div>
+                )}
               </div>
 
               <div className="section-panel space-y-3">

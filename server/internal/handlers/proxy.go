@@ -3,10 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -101,7 +104,7 @@ func (h *ProxyHandler) Configure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, exp, err := h.authenticate(cfg.URL, cfg.Email, cfg.Password)
+	token, exp, err := h.authenticate(dialURL(cfg.URL), cfg.Email, cfg.Password)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed to authenticate with NPM: "+err.Error())
 		return
@@ -156,6 +159,66 @@ func (h *ProxyHandler) Status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func generateNPMPassword() (string, error) {
+	b := make([]byte, 18)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	// NPM requires >= 8 chars; hex is safe. The "Sm" prefix guarantees a letter
+	// start in case NPM ever enforces a leading non-digit.
+	return "Sm" + hex.EncodeToString(b), nil
+}
+
+func (h *ProxyHandler) npmPutRaw(dial, token, path string, body []byte) error {
+	req, _ := http.NewRequest("PUT", dial+path, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("PUT %s -> %d: %s", path, resp.StatusCode, truncate(string(raw), 200))
+	}
+	return nil
+}
+
+// initNPMDefaults waits for a freshly deployed NPM to be reachable, logs in with
+// the first-run default admin@example.com/changeme, and changes the password to
+// a generated one (NPM forces changing the default). Returns the admin email +
+// new password. Fails if NPM was already initialized (default login rejected).
+func (h *ProxyHandler) initNPMDefaults(dial string) (string, string, error) {
+	const defEmail = "admin@example.com"
+	const defPass = "changeme"
+	var token string
+	var err error
+	deadline := time.Now().Add(45 * time.Second)
+	for {
+		token, _, err = h.authenticate(dial, defEmail, defPass)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return "", "", fmt.Errorf("NPM not ready or already initialized: %w", err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	newPass, err := generateNPMPassword()
+	if err != nil {
+		return "", "", err
+	}
+	// Best-effort profile fill (NPM's first run wants a real name).
+	profile, _ := json.Marshal(map[string]interface{}{"name": "Administrator", "nickname": "Admin", "email": defEmail})
+	_ = h.npmPutRaw(dial, token, "/api/users/1", profile)
+	authBody, _ := json.Marshal(map[string]string{"type": "password", "current": defPass, "secret": newPass})
+	if err := h.npmPutRaw(dial, token, "/api/users/1/auth", authBody); err != nil {
+		return "", "", fmt.Errorf("failed to set NPM password: %w", err)
+	}
+	return defEmail, newPass, nil
+}
+
 // DeployNPM creates and starts a Nginx Proxy Manager project from the built-in
 // template, so the operator can stand NPM up with one click before connecting.
 // If the project already exists it is just brought up. NPM's first-run default
@@ -204,12 +267,40 @@ func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Auto-initialize NPM's admin (set a real password) and wire the connection
+	// over localhost so it "just works" without the operator touching NPM's UI.
+	const localURL = "http://localhost:81"
+	email, pass, initErr := h.initNPMDefaults(dialURL(localURL))
+	if initErr != nil {
+		// NPM is up but auto-setup didn't run (already initialized, or slow to
+		// start). Fall back to manual connect.
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"deployed":         true,
+			"project":          projectName,
+			"auto_configured":  false,
+			"default_login":    "admin@example.com",
+			"default_password": "changeme",
+			"note":             "NPM deployed. Auto-setup skipped (" + initErr.Error() + "). Connect in Settings > Reverse Proxy with http://localhost:81 and your credentials.",
+		})
+		return
+	}
+	h.mu.Lock()
+	h.npmURL = localURL
+	h.npmToken = ""
+	h.npmUser = email
+	h.npmPass = pass
+	h.mu.Unlock()
+	h.persist(localURL, email, pass)
+	_, _, _ = h.ensureToken() // prime a token so the tab shows connected immediately
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"deployed":         true,
-		"project":          projectName,
-		"default_login":    "admin@example.com",
-		"default_password": "changeme",
-		"note":             "NPM admin UI is on the mapped 81 port. Connect with the default login, then change the password when NPM prompts.",
+		"deployed":        true,
+		"project":         projectName,
+		"auto_configured": true,
+		"url":             localURL,
+		"login":           email,
+		"password":        pass,
+		"note":            "NPM deployed and auto-connected over localhost. Save this password — it's also the NPM admin UI login (admin@example.com). Change it in NPM when convenient.",
 	})
 }
 
@@ -301,22 +392,47 @@ func (h *ProxyHandler) ProjectSuggestions(w http.ResponseWriter, r *http.Request
 
 // --- NPM HTTP helpers --------------------------------------------------------
 
+// dialURL rewrites a localhost/loopback NPM URL to host.docker.internal so the
+// containerized server can actually reach NPM published on the host. This lets
+// the operator connect the reverse proxy "over localhost" without exposing NPM's
+// admin port externally. Requires the server service to have
+// extra_hosts: host.docker.internal:host-gateway (set in docker-compose.yml).
+func dialURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		host := "host.docker.internal"
+		if p := u.Port(); p != "" {
+			host += ":" + p
+		}
+		u.Host = host
+		return u.String()
+	}
+	return raw
+}
+
 func (h *ProxyHandler) ensureToken() (string, string, error) {
 	h.mu.RLock()
-	url := h.npmURL
+	rawURL := h.npmURL
 	token := h.npmToken
 	exp := h.npmExp
 	user := h.npmUser
 	pass := h.npmPass
 	h.mu.RUnlock()
 
-	if url == "" {
+	if rawURL == "" {
 		return "", "", fmt.Errorf("NPM not configured — set the connection in Settings > Reverse Proxy")
 	}
+	// Connect over the host gateway when configured as localhost so the request
+	// leaves the container and reaches NPM's published port on the host.
+	dial := dialURL(rawURL)
 	if token != "" && time.Now().Before(exp.Add(-1*time.Minute)) {
-		return url, token, nil
+		return dial, token, nil
 	}
-	newToken, newExp, err := h.authenticate(url, user, pass)
+	newToken, newExp, err := h.authenticate(dial, user, pass)
 	if err != nil {
 		return "", "", err
 	}
@@ -324,7 +440,7 @@ func (h *ProxyHandler) ensureToken() (string, string, error) {
 	h.npmToken = newToken
 	h.npmExp = newExp
 	h.mu.Unlock()
-	return url, newToken, nil
+	return dial, newToken, nil
 }
 
 func (h *ProxyHandler) authenticate(baseURL, email, password string) (string, time.Time, error) {
