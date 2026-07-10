@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -44,10 +45,14 @@ func fetchPeerProjects(ctx context.Context, agent *core.ComposeAgent, rawQuery s
 	if strings.TrimSpace(agent.BaseURL) == "" {
 		return nil, fmt.Errorf("peer %s has no base URL", agent.Name)
 	}
-	target := peerAPIBase(agent.BaseURL) + "/projects"
-	if rawQuery != "" {
-		target += "?" + rawQuery
-	}
+	// Always ask the peer for its LOCAL projects only. Forwarding source=all (or
+	// an empty source) would make the peer fan out to ITS peers — and with two
+	// controllers registered as peers of each other that recurses forever until
+	// the request times out, so both dashboards end up showing nothing. We keep
+	// the display filters (include_inactive / running_only) but pin source=local.
+	q, _ := url.ParseQuery(rawQuery)
+	q.Set("source", "local")
+	target := peerAPIBase(agent.BaseURL) + "/projects?" + q.Encode()
 	reqCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target, nil)
