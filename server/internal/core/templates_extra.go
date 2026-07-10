@@ -1639,14 +1639,25 @@ volumes:
 			Notes:      "Drop *.conf files under ./conf.d to configure server blocks.",
 		},
 		{
-			ID: "hugo-server", Name: "Hugo Static Server", Description: "Hugo builder + Caddy for serving a static site.",
+			ID: "hugo-server", Name: "Hugo Static Server", Description: "Hugo dev server with live reload for a static site.",
 			Category: "web",
-			Source:   "docker-hub", Image: "klakegg/hugo:ext-alpine",
+			Source:   "docker-hub", Image: "hugomods/hugo:exts",
 			Tags: []string{"web", "static", "hugo"},
+			// The old klakegg/hugo image is archived/unmaintained; hugomods/hugo
+			// is the maintained replacement. On first run, seed a minimal site
+			// (config + a home page + a home layout) into the mounted ./site so
+			// the server boots and renders instead of crash-looping on an empty
+			// dir. Edit ./site on the host or drop in a real Hugo theme.
 			ComposeContent: `services:
   hugo:
-    image: klakegg/hugo:ext-alpine
-    command: server --bind 0.0.0.0 -p 1313 --disableFastRender
+    image: hugomods/hugo:exts
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        [ -f hugo.toml ] || [ -f config.toml ] || [ -f hugo.yaml ] || printf 'baseURL = "http://localhost:1313/"\ntitle = "My Hugo Site"\n' > hugo.toml
+        [ -f content/_index.md ] || { mkdir -p content; printf '# Welcome\n\nEdit hugo.toml, add a theme, and put content under content/.\n' > content/_index.md; }
+        [ -f layouts/index.html ] || { mkdir -p layouts; printf '<!doctype html><html><head><title>{{ .Site.Title }}</title></head><body><h1>{{ .Site.Title }}</h1>{{ .Content }}</body></html>\n' > layouts/index.html; }
+        exec hugo server --bind 0.0.0.0 -p 1313 --disableFastRender
     ports:
       - "${HUGO_PORT:-1313}:1313"
     volumes:
@@ -1654,7 +1665,7 @@ volumes:
     restart: unless-stopped
 `,
 			EnvContent: "HUGO_PORT=1313\n",
-			Notes:      "Place your Hugo site under ./site (must contain config.toml/yaml).",
+			Notes:      "Boots a live-reload Hugo dev server with a seeded starter site under ./site (config + home page + a minimal home layout). Edit ./site on the host, or drop in a real Hugo theme and set 'theme' in hugo.toml.",
 		},
 		{
 			ID: "caddy-file-browser", Name: "Caddy Static + Auth", Description: "Caddy 2 serving files with basicauth from Caddyfile.",
