@@ -358,6 +358,12 @@ cmd_uninstall() {
   local uninst="$CSF_ETC/uninstall.sh"
   [[ -x "$uninst" ]] || die "uninstall script not found at $uninst"
   sh "$uninst"
+  # Uninstalling CSF flushes iptables and removes Docker's DOCKER NAT chain, so
+  # Docker can no longer program container port mappings until dockerd rebuilds
+  # its chains. Restart Docker afterward — delayed + detached so it fires after
+  # this (containerized) helper returns and doesn't kill it mid-run.
+  log "Scheduling Docker restart to rebuild iptables chains after CSF removal"
+  nohup bash -c 'sleep 5 && (systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || true) && echo "[csf-uninstall] Docker restarted."' >> /var/log/csf-uninstall-docker.log 2>&1 &
 }
 
 # --- dispatch -----------------------------------------------------------------
