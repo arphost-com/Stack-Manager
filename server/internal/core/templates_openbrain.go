@@ -253,7 +253,7 @@ volumes:
 networks:
   openbrain:
 `,
-			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nNEO4J_HTTP_PORT=7474\nNEO4J_BOLT_PORT=7687\nQDRANT_PORT=6333\nMEM0_PORT=8000\nN8N_PORT=5678\nPOSTGRES_PASSWORD=change-me\nNEO4J_PASSWORD=change-me\nMEM0_USER=admin\nN8N_HOST=localhost\nOPENAI_API_KEY=\n",
+			EnvContent: "OLLAMA_PORT=11435\nWEBUI_PORT=8081\nNEO4J_HTTP_PORT=7475\nNEO4J_BOLT_PORT=7688\nQDRANT_PORT=6333\nMEM0_PORT=8000\nN8N_PORT=5678\nPOSTGRES_PASSWORD=change-me\nNEO4J_PASSWORD=change-me\nMEM0_USER=admin\nN8N_HOST=localhost\nOPENAI_API_KEY=\n",
 			Notes:      "Verified boot: mem0 (OpenMemory) API on MEM0_PORT, Qdrant vector store on QDRANT_PORT, n8n on N8N_PORT persisting to Postgres. Change all passwords first. mem0 needs an LLM to extract/embed memories: set OPENAI_API_KEY (works out of the box), or switch mem0's LLM+embedder to the bundled Ollama in the OpenMemory Settings UI (base URL http://ollama:11434, embedder nomic-embed-text with 768 dims). n8n login works over plain HTTP by IP because N8N_SECURE_COOKIE is false. Neo4j is included for optional graph memory.",
 		},
 		{
@@ -348,7 +348,7 @@ volumes:
 networks:
   openbrain:
 `,
-			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nQDRANT_PORT=6333\nFLOWISE_PORT=3000\nPOSTGRES_PASSWORD=change-me\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\n",
+			EnvContent: "OLLAMA_PORT=11436\nWEBUI_PORT=8082\nQDRANT_PORT=6335\nFLOWISE_PORT=3000\nPOSTGRES_PASSWORD=change-me\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\n",
 			Notes:      "Verified boot: Flowise on FLOWISE_PORT (persists to Postgres), Qdrant on QDRANT_PORT, Ollama on 11434, Open WebUI on WEBUI_PORT. Change POSTGRES_PASSWORD and FLOWISE_PASSWORD first. In Flowise, add an Ollama chat model (base URL http://ollama:11434) and a Qdrant vector store (http://qdrant:6333) inside your chatflows. Pull a model first: docker exec <ollama-container> ollama pull llama3.1.",
 		},
 	}

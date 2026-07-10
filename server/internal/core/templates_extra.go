@@ -409,7 +409,7 @@ volumes:
 networks:
   voice:
 `,
-			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nKOKORO_PORT=8880\nTTS_VOICE=af_sky\nTTS_API_KEY=sk-local-no-auth\n",
+			EnvContent: "OLLAMA_PORT=11437\nWEBUI_PORT=8083\nKOKORO_PORT=8880\nTTS_VOICE=af_sky\nTTS_API_KEY=sk-local-no-auth\n",
 			Notes:      "Deploy-verified: all 3 services boot clean, Kokoro synthesizes speech, and Open WebUI reaches it. After boot: create the admin account on first visit, then pull a model (docker exec <ollama-container> ollama pull llama3.1). Click the headphone/call icon in a chat to talk. TTS is already set to Kokoro; change the voice via TTS_VOICE (af_sky, af_bella, am_adam, bf_emma, ...). STT uses Open WebUI's built-in Whisper (downloads a small model on first mic use). Everything stays editable in Admin > Settings > Audio.",
 		},
 
