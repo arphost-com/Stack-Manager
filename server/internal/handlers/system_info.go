@@ -39,12 +39,21 @@ func (h *SystemInfoHandler) serverName(r *http.Request) string {
 }
 
 func (h *SystemInfoHandler) Get(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"server_name": h.serverName(r)})
+	res := map[string]string{"server_name": h.serverName(r)}
+	if h.Store != nil {
+		if v, ok := h.Store.GetSettingString(r.Context(), "app_version"); ok {
+			res["version"] = v
+		}
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (h *SystemInfoHandler) Save(w http.ResponseWriter, r *http.Request) {
+	// Pointers so only provided fields update: the UI sends server_name; the
+	// deploy script sends app_version (the version stamp, DB-backed).
 	var req struct {
-		ServerName string `json:"server_name"`
+		ServerName *string `json:"server_name"`
+		AppVersion *string `json:"app_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -54,9 +63,21 @@ func (h *SystemInfoHandler) Save(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "settings store unavailable")
 		return
 	}
-	if err := h.Store.SetSettingString(r.Context(), "server_display_name", strings.TrimSpace(req.ServerName)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if req.ServerName != nil {
+		if err := h.Store.SetSettingString(r.Context(), "server_display_name", strings.TrimSpace(*req.ServerName)); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"server_name": h.serverName(r)})
+	if req.AppVersion != nil {
+		if err := h.Store.SetSettingString(r.Context(), "app_version", strings.TrimSpace(*req.AppVersion)); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	res := map[string]string{"server_name": h.serverName(r)}
+	if v, ok := h.Store.GetSettingString(r.Context(), "app_version"); ok {
+		res["version"] = v
+	}
+	writeJSON(w, http.StatusOK, res)
 }

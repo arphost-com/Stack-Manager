@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { auth } from '../api/client';
+import { auth, system } from '../api/client';
 
 export default function Layout() {
   const location = useLocation();
@@ -8,6 +8,9 @@ export default function Layout() {
   const [me, setMe] = useState(() => {
     try { return JSON.parse(localStorage.getItem('cm_user') || 'null'); } catch { return null; }
   });
+  // The footer version prefers the DB-stamped value (set by deploy) so it
+  // reflects the deployed commit; falls back to the value baked at build.
+  const [version, setVersion] = useState('');
 
   useEffect(() => {
     // Refresh cached identity so the header shows the right name after login.
@@ -17,6 +20,7 @@ export default function Layout() {
         localStorage.setItem('cm_user', JSON.stringify(res.data));
       }
     }).catch(() => {});
+    system.info().then(res => setVersion(res.data?.version || '')).catch(() => {});
   }, []);
 
   const logout = async () => {
@@ -64,7 +68,7 @@ export default function Layout() {
       </main>
       <footer className="mx-auto flex max-w-7xl items-center justify-end gap-3 px-6 pb-6 text-right text-sm">
         <span className="brand-wordmark text-lg text-blue-800">ARPHost Stack Manager</span>
-        <span className="text-xs text-gray-400" title="Build version (base from package.json + commit SHA)">v{__APP_VERSION__}</span>
+        <span className="text-xs text-gray-400" title="Deployed version (DB-stamped by deploy; falls back to the build value)">v{version || __APP_VERSION__}</span>
         <a href="https://arphost.com" className="text-blue-700 hover:underline" title="Open ARPHost website.">arphost.com</a>
       </footer>
     </div>

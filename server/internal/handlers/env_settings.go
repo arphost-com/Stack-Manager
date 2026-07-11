@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 	"github.com/arphost-com/Stack-Manager/server/internal/storage"
@@ -22,6 +23,9 @@ import (
 type EnvSettingsHandler struct {
 	envFile string
 	store   *storage.Store
+	// setAPIKey updates the live API key used by the auth middleware, so a roll
+	// takes effect without a restart. Wired from main.go.
+	setAPIKey func(string)
 }
 
 func NewEnvSettingsHandler(stateDir string, store *storage.Store) *EnvSettingsHandler {
@@ -31,6 +35,17 @@ func NewEnvSettingsHandler(stateDir string, store *storage.Store) *EnvSettingsHa
 		envFile = f
 	}
 	return &EnvSettingsHandler{envFile: envFile, store: store}
+}
+
+// SetAPIKeyUpdater wires the live-key setter used by RollAPIKey.
+func (h *EnvSettingsHandler) SetAPIKeyUpdater(fn func(string)) { h.setAPIKey = fn }
+
+func (h *EnvSettingsHandler) apiKeyIsSet(r *http.Request) bool {
+	if h.store == nil {
+		return false
+	}
+	k, ok := h.store.GetSettingString(r.Context(), "api_key")
+	return ok && strings.TrimSpace(k) != ""
 }
 
 var editableKeys = map[string]struct{}{
@@ -53,6 +68,8 @@ var dbBackedKeys = map[string]struct{}{
 	"EXTRA_DOCKER_ROOTS":      {},
 	"METRICS_REFRESH_MINUTES": {},
 	"WARM_CACHE_TTL_MINUTES":  {},
+	"CACHE_TTL_SECONDS":       {},
+	"DOCKER_DAEMON_DIR":       {},
 }
 
 // settingValueOr returns a setting's effective value: DB (for db-backed keys)
@@ -66,15 +83,16 @@ func (h *EnvSettingsHandler) settingValueOr(r *http.Request, envValues map[strin
 }
 
 type envSettings struct {
-	WebHTTPPort          string `json:"web_http_port"`
-	WebSSLPort           string `json:"web_ssl_port"`
-	CacheTTLSeconds      string `json:"cache_ttl_seconds"`
-	MetricsRefreshMin    string `json:"metrics_refresh_minutes"`
-	WarmCacheTTLMin      string `json:"warm_cache_ttl_minutes"`
-	HostURL              string `json:"host_url"`
-	ExtraDockerRoots     string `json:"extra_docker_roots"`
-	Timezone             string `json:"tz"`
-	APIKeySet            bool   `json:"api_key_set"`
+	WebHTTPPort       string `json:"web_http_port"`
+	WebSSLPort        string `json:"web_ssl_port"`
+	CacheTTLSeconds   string `json:"cache_ttl_seconds"`
+	MetricsRefreshMin string `json:"metrics_refresh_minutes"`
+	WarmCacheTTLMin   string `json:"warm_cache_ttl_minutes"`
+	HostURL           string `json:"host_url"`
+	ExtraDockerRoots  string `json:"extra_docker_roots"`
+	Timezone          string `json:"tz"`
+	DockerDaemonDir   string `json:"docker_daemon_dir"`
+	APIKeySet         bool   `json:"api_key_set"`
 }
 
 func (h *EnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -85,13 +103,14 @@ func (h *EnvSettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	settings := envSettings{
 		WebHTTPPort:       valueOr(values, "WEB_HTTP_PORT", "8193"),
 		WebSSLPort:        valueOr(values, "WEB_SSL_PORT", "8993"),
-		CacheTTLSeconds:   valueOr(values, "CACHE_TTL_SECONDS", "15"),
+		CacheTTLSeconds:   h.settingValueOr(r, values, "CACHE_TTL_SECONDS", "15"),
 		MetricsRefreshMin: h.settingValueOr(r, values, "METRICS_REFRESH_MINUTES", "15"),
 		WarmCacheTTLMin:   h.settingValueOr(r, values, "WARM_CACHE_TTL_MINUTES", "30"),
 		HostURL:           h.settingValueOr(r, values, "HOST_URL", ""),
 		ExtraDockerRoots:  h.settingValueOr(r, values, "EXTRA_DOCKER_ROOTS", ""),
 		Timezone:          h.settingValueOr(r, values, "TZ", "UTC"),
-		APIKeySet:         values["API_KEY"] != "",
+		DockerDaemonDir:   h.settingValueOr(r, values, "DOCKER_DAEMON_DIR", "/etc/docker"),
+		APIKeySet:         h.apiKeyIsSet(r) || values["API_KEY"] != "",
 	}
 	writeJSON(w, http.StatusOK, settings)
 }
@@ -148,6 +167,12 @@ func (h *EnvSettingsHandler) Save(w http.ResponseWriter, r *http.Request) {
 			// Let readers that consult the environment at runtime (HOST_URL, TZ)
 			// pick up the change without a restart.
 			_ = os.Setenv(key, value)
+			// The Redis cache TTL is a live field on the store — update it now.
+			if key == "CACHE_TTL_SECONDS" {
+				if n, err := strconv.Atoi(value); err == nil && n >= 1 {
+					h.store.CacheTTL = time.Duration(n) * time.Second
+				}
+			}
 			dbChanged = true
 			continue
 		}
@@ -180,22 +205,31 @@ func (h *EnvSettingsHandler) RollAPIKey(w http.ResponseWriter, r *http.Request) 
 	if !middleware.RequireAdmin(w, r) {
 		return
 	}
-	newKey, err := generateAPIKey()
+	newKey, err := GenerateAPIKey()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate key: "+err.Error())
 		return
 	}
-	if err := updateEnvFile(h.envFile, map[string]string{"API_KEY": newKey}); err != nil {
+	if h.store == nil {
+		writeError(w, http.StatusInternalServerError, "settings store unavailable")
+		return
+	}
+	if err := h.store.SetSettingString(r.Context(), "api_key", newKey); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Take effect immediately.
+	if h.setAPIKey != nil {
+		h.setAPIKey(newKey)
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"api_key": newKey,
-		"warning": "The new API key is saved to .env and will take effect on the next server restart. Existing API-key sessions will stop working. Session-based logins are not affected.",
+		"warning": "New API key is active now and shown once — save it. The previous key stops working immediately. Session logins are unaffected.",
 	})
 }
 
-func generateAPIKey() (string, error) {
+// GenerateAPIKey returns a new random API key.
+func GenerateAPIKey() (string, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err

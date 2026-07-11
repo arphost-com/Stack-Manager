@@ -1379,6 +1379,14 @@ export default function Settings() {
             </Field>
           </div>
 
+          <div className="section-panel space-y-3">
+            <h2 className="text-lg font-semibold text-gray-950">Docker daemon directory</h2>
+            <p className="text-sm text-gray-600">Where the host&rsquo;s <code className="rounded bg-gray-100 px-1">daemon.json</code> lives, used by the Docker Settings tab. Stored in the database; a change takes effect on the next restart.</p>
+            <Field label="DOCKER_DAEMON_DIR" title="Host directory containing daemon.json." hint="Default: /etc/docker">
+              <input className="input" value={generalForm.docker_daemon_dir || ''} onChange={e => setGeneralForm({ ...generalForm, docker_daemon_dir: e.target.value })} placeholder="/etc/docker" />
+            </Field>
+          </div>
+
           <div className="flex gap-2">
             <button className="btn-primary" onClick={saveGeneralSettings} title="Runtime settings (host URL, timezone, extra roots, metrics/cache intervals) save to the database; ports save to .env and need a restart.">Save settings</button>
             <button className="btn-secondary" onClick={loadGeneralSettings}>Reset</button>
@@ -1396,7 +1404,7 @@ export default function Settings() {
                 </div>
               )}
             </div>
-            {rolledAPIKey && <p className="text-xs text-amber-800">Save this key — it will not be shown again. Restart the server to activate it.</p>}
+            {rolledAPIKey && <p className="text-xs text-amber-800">Save this key — it won’t be shown again. It’s active now; the previous key stopped working.</p>}
           </div>
         </div>
       )}

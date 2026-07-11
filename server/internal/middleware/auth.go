@@ -15,17 +15,19 @@ type contextKey string
 
 const UserContextKey contextKey = "stack-manager-user"
 
-// RequireAPIKey validates the X-API-Key header against the configured key.
-func RequireAPIKey(apiKey string) func(http.Handler) http.Handler {
-	return RequireAuth(apiKey, nil)
+// RequireAPIKey validates the X-API-Key header against the current key.
+func RequireAPIKey(keyFn func() string) func(http.Handler) http.Handler {
+	return RequireAuth(keyFn, nil)
 }
 
 // RequireAuth validates either a bearer session token or the legacy X-API-Key.
+// keyFn returns the current API key (stored in the DB, so a roll takes effect
+// without a restart).
 // EventSource in the browser can not set custom request headers, so this
 // middleware also honours ?token= and ?api_key= query parameters as a
 // fallback specifically for streaming endpoints. Query auth is still bound
 // to HTTPS, so it is no weaker than the header equivalents.
-func RequireAuth(apiKey string, sessions *cmauth.SessionManager) func(http.Handler) http.Handler {
+func RequireAuth(keyFn func() string, sessions *cmauth.SessionManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if sessions != nil {
@@ -54,7 +56,11 @@ func RequireAuth(apiKey string, sessions *cmauth.SessionManager) func(http.Handl
 				return
 			}
 
-			if subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
+			apiKey := ""
+			if keyFn != nil {
+				apiKey = keyFn()
+			}
+			if apiKey == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
 				writeAuthError(w, "invalid API key")
 				return
 			}

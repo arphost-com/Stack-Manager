@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata" // embed the tz database so LoadLocation works in the container (scheduler timezone)
@@ -49,6 +50,14 @@ func applyDBSettingOverrides(ctx context.Context, store *storage.Store, cfg *con
 			cfg.WarmCacheTTL = time.Duration(n) * time.Minute
 		}
 	}
+	if v := store.SettingStringOr(ctx, "CACHE_TTL_SECONDS", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			store.CacheTTL = time.Duration(n) * time.Second
+		}
+	}
+	if v := store.SettingStringOr(ctx, "DOCKER_DAEMON_DIR", ""); v != "" {
+		cfg.DockerDaemonDir = v
+	}
 	if v := store.SettingStringOr(ctx, "EXTRA_DOCKER_ROOTS", ""); v != "" {
 		roots := []string{}
 		for _, p := range strings.Split(v, ",") {
@@ -65,6 +74,26 @@ func applyDBSettingOverrides(ctx context.Context, store *storage.Store, cfg *con
 	if v := store.SettingStringOr(ctx, "TZ", ""); v != "" {
 		_ = os.Setenv("TZ", v)
 	}
+}
+
+// loadOrSeedAPIKey returns the current API key from the DB (app_settings),
+// seeding it from the .env value on first run, or generating one if .env has
+// none. Storing it in the DB lets the roll endpoint change it live.
+func loadOrSeedAPIKey(ctx context.Context, store *storage.Store, envKey string) string {
+	if k, ok := store.GetSettingString(ctx, "api_key"); ok && strings.TrimSpace(k) != "" {
+		return k
+	}
+	k := strings.TrimSpace(envKey)
+	if k == "" {
+		if gen, err := handlers.GenerateAPIKey(); err == nil {
+			k = gen
+			log.Printf("Stack Manager: generated a new API key (shown once): %s", k)
+		}
+	}
+	if k != "" {
+		_ = store.SetSettingString(ctx, "api_key", k)
+	}
+	return k
 }
 
 func main() {
@@ -156,6 +185,13 @@ func main() {
 	shellHandler := handlers.NewShellHandler(engine)
 	projectFileHandler := handlers.NewProjectFileHandler(engine)
 	envSettingsHandler := handlers.NewEnvSettingsHandler(cfg.StateDir, appStore)
+	// API key lives in the DB (seeded from .env). A thread-safe holder lets the
+	// roll endpoint change it live without a restart, and the auth middleware
+	// reads the current value each request.
+	var apiKeyMu sync.RWMutex
+	currentAPIKey := loadOrSeedAPIKey(context.Background(), appStore, cfg.APIKey)
+	getAPIKey := func() string { apiKeyMu.RLock(); defer apiKeyMu.RUnlock(); return currentAPIKey }
+	envSettingsHandler.SetAPIKeyUpdater(func(k string) { apiKeyMu.Lock(); currentAPIKey = k; apiKeyMu.Unlock() })
 	agentProxyHandler := handlers.NewAgentProxyHandler(appStore)
 	proxyHandler := handlers.NewProxyHandler(engine, appStore)
 	authHandler := handlers.NewAuthHandler(userStore, sessionManager)
@@ -206,7 +242,7 @@ func main() {
 		r.Post("/agent-checkin/results", agentCheckinHandler.Results)
 
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.RequireAuth(cfg.APIKey, sessionManager))
+			r.Use(middleware.RequireAuth(getAPIKey, sessionManager))
 			r.Use(middleware.AuditRecorder(appStore, os.Getenv("AUDIT_NODE_NAME")))
 
 			r.Get("/auth/me", authHandler.Me)
