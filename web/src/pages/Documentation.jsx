@@ -530,6 +530,26 @@ export default function Documentation() {
         >
           Stack Catalog <span className="ml-1 text-xs opacity-80">({templates.length})</span>
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={docsTab === 'stackmanager'}
+          onClick={() => changeDocsTab('stackmanager')}
+          className={docsTab === 'stackmanager' ? 'btn-primary' : 'btn-secondary'}
+          title="How to install, upgrade, and use Stack Manager itself, plus the API reference."
+        >
+          Stack Manager
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={docsTab === 'compose'}
+          onClick={() => changeDocsTab('compose')}
+          className={docsTab === 'compose' ? 'btn-primary' : 'btn-secondary'}
+          title="Docker Compose command cheatsheet and how-tos."
+        >
+          Docker Compose
+        </button>
       </div>
 
       {docsTab === 'current' && (
@@ -605,6 +625,9 @@ export default function Documentation() {
           )}
         </>
       )}
+
+      {docsTab === 'stackmanager' && <StackManagerDocs />}
+      {docsTab === 'compose' && <DockerComposeDocs />}
     </div>
   );
 }
@@ -782,5 +805,163 @@ function DocLink({ href, children, compact = false }) {
     >
       {children}
     </a>
+  );
+}
+
+function DocSection({ title, children }) {
+  return (
+    <section className="section-panel space-y-2">
+      <h2 className="text-lg font-semibold text-gray-950">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function Code({ children }) {
+  return (
+    <pre className="overflow-x-auto rounded-md bg-gray-950 p-3 font-mono text-xs leading-relaxed text-gray-100">{children}</pre>
+  );
+}
+
+const GH_BASE = 'https://github.com/arphost-com/Stack-Manager/blob/main';
+
+function StackManagerDocs() {
+  return (
+    <div className="space-y-4">
+      <DocSection title="What Stack Manager is">
+        <p className="text-sm text-gray-700">A dashboard + CLI for discovering and running Docker Compose stacks on a fleet of hosts. One Go binary runs as a <strong>controller</strong> (full UI + MariaDB/Redis, <code className="rounded bg-gray-100 px-1">/api/v1</code>) or an <strong>agent</strong> (<code className="rounded bg-gray-100 px-1">/agent/v1</code>, bearer-token). Two dirs never to confuse: <code className="rounded bg-gray-100 px-1">STATE_DIR</code> (Stack Manager's own DB/backups/TLS) and <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code> (the managed projects).</p>
+        <p className="text-sm text-gray-600">Full guide: <DocLink href={`${GH_BASE}/docs/PLATFORM.md`} compact>docs/PLATFORM.md</DocLink> · <DocLink href={`${GH_BASE}/README.md`} compact>README</DocLink> · <DocLink href={`${GH_BASE}/docs/AGENT_MODES.md`} compact>Agent modes</DocLink></p>
+      </DocSection>
+
+      <DocSection title="Install">
+        <p className="text-sm text-gray-700">Web dashboard (recommended):</p>
+        <Code>{`mkdir -p ~/docker && cd ~/docker
+git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
+cd stack-manager
+./scripts/prepare-state.sh .env
+docker compose --env-file .env up -d --build`}</Code>
+        <p className="text-sm text-gray-600"><code className="rounded bg-gray-100 px-1">prepare-state.sh</code> generates random secrets, detects <code className="rounded bg-gray-100 px-1">DOCKER_GID</code>/<code className="rounded bg-gray-100 px-1">SERVER_USER</code>, and prints the login URL — re-running it never overwrites existing secrets. Default dashboard: HTTP 8193 → HTTPS 8993 (self-signed on first boot).</p>
+        <p className="text-sm text-gray-700 pt-1">Agent (managed node):</p>
+        <Code>{`./scripts/prepare-state.sh --agent --mode callback .env   # or inbound / both
+# set DOCKER_ROOT + AGENT_CONTROLLER_URL in .env, then:
+docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code>
+      </DocSection>
+
+      <DocSection title="Upgrade">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are and what's in the update. Install the helper once: <code className="rounded bg-gray-100 px-1 text-xs">sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update</code></li>
+          <li><strong>deploy.sh (recommended full refresh):</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/deploy.sh</code> — rebuilds with the correct version stamp, installs all host helpers, records the version in the DB.</li>
+          <li><strong>Manual:</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/prepare-state.sh .env &amp;&amp; docker compose --env-file .env up -d --build</code></li>
+        </ul>
+        <p className="text-sm text-amber-700">Always use <code className="rounded bg-white/60 px-1">up -d --build</code> after pulling — a bare <code className="rounded bg-white/60 px-1">up -d</code> reuses stale images (wrong footer version / "invalid request body").</p>
+      </DocSection>
+
+      <DocSection title="Manual upgrade from an old version">
+        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li><strong>Keep your secrets</strong> — never regenerate <code className="rounded bg-gray-100 px-1">.env</code>; re-running prepare-state only fills placeholders.</li>
+          <li><strong>Settings moved to the DB</strong> (API key, version, timezone, cache TTL, daemon dir, host URL) — seeded from <code className="rounded bg-gray-100 px-1">.env</code> on first boot, so your existing API key keeps working. Edit them under Settings → General afterward.</li>
+          <li><strong>Never chown</strong> <code className="rounded bg-gray-100 px-1">STATE_DIR/mariadb</code> or <code className="rounded bg-gray-100 px-1">/redis</code> after init, and never recursively chown <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code>.</li>
+          <li><strong>If CSF was removed</strong>, run <code className="rounded bg-gray-100 px-1">systemctl restart docker</code> (Docker's iptables NAT chain gets flushed with it).</li>
+        </ul>
+        <p className="text-sm text-gray-600">Details + troubleshooting: <DocLink href={`${GH_BASE}/docs/PLATFORM.md`} compact>docs/PLATFORM.md</DocLink></p>
+      </DocSection>
+
+      <DocSection title="API reference">
+        <p className="text-sm text-gray-700">REST under <code className="rounded bg-gray-100 px-1">/api/v1</code>. <code className="rounded bg-gray-100 px-1">GET /health</code> and <code className="rounded bg-gray-100 px-1">POST /api/v1/auth/login</code> are public; everything else needs a <strong>login session cookie</strong> or the legacy <code className="rounded bg-gray-100 px-1">X-API-Key</code> header. Some routes (users, docker daemon, OS/self-update, SSL) require an admin.</p>
+        <p className="text-sm text-gray-700">Every response uses one envelope:</p>
+        <Code>{`{ "status": "ok",    "data": { ... }, "timestamp": "..." }
+{ "status": "error", "error": "message", "timestamp": "..." }`}</Code>
+        <p className="text-sm text-gray-700">Example (API-key auth):</p>
+        <Code>{`curl -sk -H "X-API-Key: $API_KEY" https://HOST:8993/api/v1/projects
+curl -sk -H "X-API-Key: $API_KEY" -X POST https://HOST:8993/api/v1/projects/myapp/up
+curl -sk -H "X-API-Key: $API_KEY" https://HOST:8993/api/v1/projects/myapp/volumes`}</Code>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead><tr className="border-b border-gray-200 text-left text-xs uppercase text-gray-500"><th className="py-2 pr-4">Group</th><th className="py-2 pr-4">Routes</th></tr></thead>
+            <tbody className="align-top">
+              {[
+                ['Auth / users', 'POST /auth/login · /auth/totp/login · GET /auth/me · POST /auth/logout · /auth/change-password · TOTP enroll/verify/disable · GET/POST/DELETE /users'],
+                ['Projects', 'GET /projects · POST /projects · GET|DELETE /projects/{name} · POST /projects/{name}/{up|down|pull|restart|update} · POST /projects/bulk/{action}'],
+                ['Per-project', 'GET /projects/{name}/{status|images|logs*|stats*|files} · shell/exec (WS) · watch · /update-policy · /inactive'],
+                ['Volumes / networks', 'GET /projects/{name}/volumes · DELETE …/volumes/{volume} · GET /projects/{name}/networks · DELETE …/networks/{network}'],
+                ['Agents / schedules', 'GET|POST /agents · GET /agents/{id}/projects · POST|GET /agents/{id}/commands · GET|POST /schedules · POST /schedules/{id}/run'],
+                ['System / settings', 'GET|PUT /settings/env · POST /settings/env/roll-api-key · GET|POST /settings/ssl/* · GET /system/{gpu|os|update|tz} (+ POST actions) · GET|PUT /docker/daemon · GET /metrics/* · GET /audit'],
+                ['Skills', 'GET /scan/{name} (security) · backup, dbadmin, debug (inspect/top/logs/stats), firewall'],
+                ['Registry / proxy / templates', 'POST /registries/login · GET /stack-templates · /proxy/{status|deploy|hosts}'],
+              ].map(([g, r]) => (
+                <tr key={g} className="border-b border-gray-100"><td className="py-2 pr-4 font-medium text-gray-900 whitespace-nowrap">{g}</td><td className="py-2 pr-4 font-mono text-xs text-gray-600">{r}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-gray-500">Agents expose a parallel read/action subset under <code className="rounded bg-gray-100 px-1">/agent/v1</code> (bearer <code className="rounded bg-gray-100 px-1">AGENT_TOKEN</code>). The controller proxies to them at <code className="rounded bg-gray-100 px-1">/agent-proxy/{'{'}agentId{'}'}/…</code>.</p>
+      </DocSection>
+    </div>
+  );
+}
+
+const COMPOSE_COMMANDS = [
+  ['Start / update a stack', 'docker compose --env-file .env up -d --build', 'Build (if needed) and start in the background. --build picks up Dockerfile/context changes; omit it to just (re)create.'],
+  ['Stop and remove', 'docker compose down', 'Stop and remove containers + the default network. Add -v to also delete named volumes (destroys data).'],
+  ['Just stop / start', 'docker compose stop   |   docker compose start', 'Stop or start existing containers without recreating them.'],
+  ['Restart', 'docker compose restart [service]', 'Restart all services or one; no config re-read.'],
+  ['Pull newer images', 'docker compose pull', 'Fetch newer images without recreating. Follow with up -d to apply.'],
+  ['Status', 'docker compose ps        docker compose ls', 'ps = this project’s containers; ls = all compose projects on the host.'],
+  ['Logs', 'docker compose logs -f --tail=200 [service]', 'Follow logs; --tail limits history. Drop -f for a one-shot dump.'],
+  ['Shell into a container', 'docker compose exec <service> sh', 'Open a shell in a running service (use bash if present).'],
+  ['Run a one-off', 'docker compose run --rm <service> <cmd>', 'Run a throwaway container for a command (migrations, CLI tools).'],
+  ['Validate / view merged config', 'docker compose config', 'Render the fully-merged compose file with variables resolved. Great for debugging .env interpolation.'],
+  ['Rebuild one service', 'docker compose up -d --build --no-deps <service>', 'Rebuild + recreate a single service without touching its dependencies.'],
+  ['Recreate cleanly', 'docker compose up -d --force-recreate --remove-orphans', 'Force new containers and drop containers for services no longer in the file.'],
+];
+
+function DockerComposeDocs() {
+  return (
+    <div className="space-y-4">
+      <DocSection title="Docker Compose cheatsheet">
+        <p className="text-sm text-gray-600">The commands Stack Manager runs under the hood — handy from the per-project <strong>Shell</strong> tab or an SSH session in the project directory. Run them from the folder that holds <code className="rounded bg-gray-100 px-1">compose.yml</code>.</p>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead><tr className="border-b border-gray-200 text-left text-xs uppercase text-gray-500"><th className="py-2 pr-4">Task</th><th className="py-2 pr-4">Command</th><th className="py-2 pr-4">Notes</th></tr></thead>
+            <tbody className="align-top">
+              {COMPOSE_COMMANDS.map(([task, cmd, note]) => (
+                <tr key={task} className="border-b border-gray-100">
+                  <td className="py-2 pr-4 font-medium text-gray-900 whitespace-nowrap">{task}</td>
+                  <td className="py-2 pr-4"><code className="whitespace-pre rounded bg-gray-950 px-1.5 py-0.5 font-mono text-xs text-gray-100">{cmd}</code></td>
+                  <td className="py-2 pr-4 text-xs text-gray-600">{note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </DocSection>
+
+      <DocSection title="Volumes, networks & cleanup">
+        <Code>{`docker compose ps -q | xargs docker inspect --format '{{.Name}}'   # container names
+docker volume ls  --filter label=com.docker.compose.project=<project>
+docker network ls --filter label=com.docker.compose.project=<project>
+docker volume rm  <name>       # fails while a container uses it
+docker system df               # disk used by images/containers/volumes
+docker system prune            # remove unused data (add --volumes to include volumes)`}</Code>
+        <p className="text-sm text-gray-600">In the dashboard, a stack's volumes and networks (with in-use containers and a guarded delete) are on the project's <strong>Volumes</strong> and <strong>Networks</strong> tabs. Host-wide cleanup is under Dashboard → Prune.</p>
+      </DocSection>
+
+      <DocSection title="Stack Manager equivalents">
+        <p className="text-sm text-gray-700">The bundled CLI mirrors these across every discovered project (flags come <em>before</em> the command):</p>
+        <Code>{`./stack-manager.sh --root /docker list
+./stack-manager.sh --root /docker --dry-run update
+./stack-manager.sh --root /docker update <project>`}</Code>
+        <p className="text-sm text-gray-600">A per-project <code className="rounded bg-gray-100 px-1">&lt;hooks-dir&gt;/post-update_&lt;project&gt;.sh</code> overrides the generic pull+up for stacks that need a specific sequence.</p>
+      </DocSection>
+
+      <DocSection title="Official references">
+        <div className="flex flex-wrap gap-2">
+          <DocLink href="https://docs.docker.com/compose/">Compose overview</DocLink>
+          <DocLink href="https://docs.docker.com/reference/cli/docker/compose/">Compose CLI reference</DocLink>
+          <DocLink href="https://docs.docker.com/reference/compose-file/">Compose file spec</DocLink>
+          <DocLink href="https://docs.docker.com/engine/reference/commandline/cli/">Docker CLI</DocLink>
+        </div>
+      </DocSection>
+    </div>
   );
 }
