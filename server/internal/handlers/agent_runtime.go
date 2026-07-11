@@ -80,6 +80,66 @@ func (h *AgentRuntimeHandler) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.Engine.Status(project))
 }
 
+func (h *AgentRuntimeHandler) Volumes(w http.ResponseWriter, r *http.Request) {
+	project, err := h.projectFromRequest(w, r)
+	if err != nil {
+		return
+	}
+	vols, err := h.Engine.ListProjectVolumes(project)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"project": project.Name, "volumes": vols})
+}
+
+func (h *AgentRuntimeHandler) DeleteVolume(w http.ResponseWriter, r *http.Request) {
+	project, err := h.projectFromRequest(w, r)
+	if err != nil {
+		return
+	}
+	vol := chi.URLParam(r, "volume")
+	if !dockerObjectNameRe.MatchString(vol) {
+		writeError(w, http.StatusBadRequest, "invalid volume name")
+		return
+	}
+	if err := h.Engine.RemoveProjectVolume(project, vol); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": vol})
+}
+
+func (h *AgentRuntimeHandler) Networks(w http.ResponseWriter, r *http.Request) {
+	project, err := h.projectFromRequest(w, r)
+	if err != nil {
+		return
+	}
+	nets, err := h.Engine.ListProjectNetworks(project)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"project": project.Name, "networks": nets})
+}
+
+func (h *AgentRuntimeHandler) DeleteNetwork(w http.ResponseWriter, r *http.Request) {
+	project, err := h.projectFromRequest(w, r)
+	if err != nil {
+		return
+	}
+	net := chi.URLParam(r, "network")
+	if !dockerObjectNameRe.MatchString(net) {
+		writeError(w, http.StatusBadRequest, "invalid network name")
+		return
+	}
+	if err := h.Engine.RemoveProjectNetwork(project, net); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": net})
+}
+
 func (h *AgentRuntimeHandler) StartJob(w http.ResponseWriter, r *http.Request) {
 	project, err := h.projectFromRequest(w, r)
 	if err != nil {

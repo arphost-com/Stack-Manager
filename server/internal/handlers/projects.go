@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
@@ -187,6 +188,78 @@ func (h *ProjectHandler) Images(w http.ResponseWriter, r *http.Request) {
 }
 
 // Docs returns project-local documentation files.
+// dockerObjectNameRe matches Docker volume/network names. Rejects anything that
+// could be a path/flag/injection before the name is passed to docker.
+var dockerObjectNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// Volumes lists the Docker volumes belonging to this project.
+func (h *ProjectHandler) Volumes(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	vols, err := h.Engine.ListProjectVolumes(project)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"project": project.Name, "volumes": vols})
+}
+
+// DeleteVolume removes a single volume belonging to this project. The engine
+// re-checks project membership, so a volume outside the stack can't be deleted.
+func (h *ProjectHandler) DeleteVolume(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	vol := chi.URLParam(r, "volume")
+	if !dockerObjectNameRe.MatchString(vol) {
+		writeError(w, http.StatusBadRequest, "invalid volume name")
+		return
+	}
+	if err := h.Engine.RemoveProjectVolume(project, vol); err != nil {
+		// Most failures are "volume is in use" — surface as a 409 conflict.
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": vol})
+}
+
+// Networks lists the Docker networks belonging to this project.
+func (h *ProjectHandler) Networks(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	nets, err := h.Engine.ListProjectNetworks(project)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"project": project.Name, "networks": nets})
+}
+
+// DeleteNetwork removes a single network belonging to this project. The engine
+// re-checks project membership, so a network outside the stack can't be deleted.
+func (h *ProjectHandler) DeleteNetwork(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	net := chi.URLParam(r, "network")
+	if !dockerObjectNameRe.MatchString(net) {
+		writeError(w, http.StatusBadRequest, "invalid network name")
+		return
+	}
+	if err := h.Engine.RemoveProjectNetwork(project, net); err != nil {
+		// Most failures are "network has active endpoints" — surface as 409.
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"deleted": net})
+}
+
 func (h *ProjectHandler) Docs(w http.ResponseWriter, r *http.Request) {
 	project, err := h.getProject(w, r)
 	if err != nil {

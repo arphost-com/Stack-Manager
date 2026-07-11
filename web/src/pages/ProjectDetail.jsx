@@ -19,7 +19,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
-const TABS = ['overview', 'config', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes'];
+const TABS = ['overview', 'config', 'docs', 'sessions', 'sources', 'watch', 'logs', 'stats', 'shell', 'security', 'backups', 'databases', 'inspect', 'processes', 'volumes', 'networks'];
 const ACTIONS = [
   { key: 'update', label: 'Update', title: 'Pull and recreate containers, unless an update hook exists.' },
   { key: 'pull', label: 'Pull', title: 'Pull images without restarting containers.' },
@@ -251,6 +251,8 @@ export default function ProjectDetail() {
         case 'databases': res = await dbadmin.health(name); break;
         case 'inspect': res = await debugApi.inspect(name); break;
         case 'processes': res = await debugApi.top(name); break;
+        case 'volumes': res = await papiRef.current.volumes(name); break;
+        case 'networks': res = await papiRef.current.networks(name); break;
         default: return;
       }
       setTabData(res.data);
@@ -631,8 +633,77 @@ export default function ProjectDetail() {
           {!tabLoading && !tabData?.error && activeTab === 'databases' && <Databases data={tabData} />}
           {!tabLoading && !tabData?.error && activeTab === 'inspect' && <JsonBlock value={tabData?.inspections || []} />}
           {!tabLoading && !tabData?.error && activeTab === 'processes' && <Processes data={tabData} />}
+          {!tabLoading && !tabData?.error && activeTab === 'volumes' && <DockerResources kind="volume" data={tabData} projectName={name} papi={papiRef.current} reload={() => loadTab('volumes')} setActionResult={setActionResult} />}
+          {!tabLoading && !tabData?.error && activeTab === 'networks' && <DockerResources kind="network" data={tabData} projectName={name} papi={papiRef.current} reload={() => loadTab('networks')} setActionResult={setActionResult} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+function DockerResources({ kind, data, projectName, papi, reload, setActionResult }) {
+  const [busy, setBusy] = useState('');
+  const items = (kind === 'volume' ? data?.volumes : data?.networks) || [];
+  const del = async (itemName) => {
+    const detail = kind === 'volume' ? ' and any data it holds' : '';
+    if (!window.confirm(`Delete ${kind} "${itemName}"?\n\nThis permanently removes it${detail}. This cannot be undone.`)) return;
+    setBusy(itemName);
+    try {
+      if (kind === 'volume') await papi.deleteVolume(projectName, itemName);
+      else await papi.deleteNetwork(projectName, itemName);
+      setActionResult({ success: true, output: `Deleted ${kind} ${itemName}` });
+      reload();
+    } catch (err) {
+      setActionResult({ success: false, output: err.message });
+    } finally {
+      setBusy('');
+    }
+  };
+  if (!items.length) return <div className="text-sm text-gray-500">No {kind}s belong to this stack.</div>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 text-left text-xs uppercase text-gray-500">
+            <th className="py-2 pr-4">Name</th>
+            <th className="py-2 pr-4">Driver</th>
+            <th className="py-2 pr-4">{kind === 'volume' ? 'Mountpoint' : 'Scope'}</th>
+            <th className="py-2 pr-4">In use by</th>
+            <th className="py-2 pr-4"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(it => {
+            const inUse = (it.in_use_by || []).length > 0;
+            return (
+              <tr key={it.name} className="border-b border-gray-100">
+                <td className="py-2 pr-4 font-mono">{it.name}</td>
+                <td className="py-2 pr-4">{it.driver || '-'}</td>
+                <td className="py-2 pr-4 font-mono text-xs text-gray-500 break-all">{(kind === 'volume' ? it.mountpoint : it.scope) || '-'}</td>
+                <td className="py-2 pr-4 text-xs">{inUse ? it.in_use_by.join(', ') : <span className="text-gray-400">—</span>}</td>
+                <td className="py-2 pr-4 text-right">
+                  <button
+                    className="btn-danger text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={inUse || busy === it.name}
+                    title={inUse
+                      ? `In use by ${it.in_use_by.join(', ')} — stop/remove those containers first (Docker won't delete an attached ${kind}).`
+                      : `Permanently delete this ${kind}.`}
+                    onClick={() => del(it.name)}
+                  >
+                    {busy === it.name ? 'Deleting…' : 'Delete'}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-gray-500">
+        Only {kind}s belonging to this stack are shown.{' '}
+        {kind === 'volume'
+          ? 'Deleting a volume destroys its data permanently.'
+          : 'Containers must be detached before a network can be deleted.'}
+      </p>
     </div>
   );
 }
@@ -1459,6 +1530,8 @@ function tabTitle(tab) {
     databases: 'Check supported database containers.',
     inspect: 'Show docker inspect JSON.',
     processes: 'Show docker top output.',
+    volumes: "List this stack's Docker volumes and delete unused ones (destroys their data).",
+    networks: "List this stack's Docker networks and delete unused ones.",
     sessions: 'Show live and completed action output sessions.',
   };
   return titles[tab] || tab;
