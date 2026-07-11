@@ -159,6 +159,7 @@ export default function Settings() {
   const [firewallConfForm, setFirewallConfForm] = useState({});
   const [generalSettings, setGeneralSettings] = useState(null);
   const [generalForm, setGeneralForm] = useState({});
+  const [hostTz, setHostTz] = useState(null);
   const [rolledAPIKey, setRolledAPIKey] = useState('');
   const [npmStatus, setNpmStatus] = useState(null);
   const [npmForm, setNpmForm] = useState({ url: '', email: 'admin@example.com', password: '' });
@@ -504,13 +505,26 @@ export default function Settings() {
       setGeneralSettings(res.data);
       setGeneralForm(res.data);
       setRolledAPIKey('');
+      system.tzStatus().then(r => setHostTz(r.data)).catch(() => setHostTz(null));
     } catch (err) { showError(err); }
   };
 
   const saveGeneralSettings = async () => {
     try {
       const res = await envSettings.save(generalForm);
-      showMessage('Settings saved. ' + (res.data?.warnings?.join(' ') || ''));
+      // Also apply the timezone to the HOST system clock (Debian/Ubuntu) when it
+      // differs from the host's current zone. The app setting is saved either
+      // way; a missing host helper just surfaces the one-time install hint.
+      let hostMsg = '';
+      if (generalForm.tz && generalForm.tz !== hostTz?.tz) {
+        try {
+          const tzRes = await system.setTz(generalForm.tz);
+          hostMsg = ` Host clock set to ${tzRes.data?.tz || generalForm.tz}.`;
+        } catch (e) {
+          hostMsg = ` (Saved, but host clock not changed: ${e?.message || 'timezone helper not installed'}.)`;
+        }
+      }
+      showMessage('Settings saved.' + hostMsg + ' ' + (res.data?.warnings?.join(' ') || ''));
       loadGeneralSettings();
     } catch (err) { showError(err); }
   };
@@ -1369,6 +1383,17 @@ export default function Settings() {
               Use an IANA name like America/New_York, Europe/London, Asia/Tokyo, or UTC —{' '}
               <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank" rel="noreferrer" className="text-blue-700 underline">see the full list</a>.
             </p>
+            {hostTz?.helper_installed && (
+              <p className="text-xs text-gray-500">
+                Host system clock: <span className="font-mono">{hostTz.tz || 'unknown'}</span>. Saving applies this timezone to the host (Debian/Ubuntu) via <span className="font-mono">timedatectl</span>.
+              </p>
+            )}
+            {hostTz && hostTz.helper_installed === false && (
+              <p className="text-xs text-amber-600">
+                Host timezone helper not installed — the app timezone saves, but the host clock won't change until you run this once on the host:{' '}
+                <code className="font-mono">sudo install -m 750 scripts/stack-manager-tz.sh /usr/local/sbin/stack-manager-tz</code>
+              </p>
+            )}
           </div>
 
           <div className="section-panel space-y-3">

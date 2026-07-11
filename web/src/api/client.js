@@ -313,6 +313,8 @@ export const system = {
   selfUpdate: () => request('/system/update', { method: 'POST' }),
   info: () => request('/system/info'),
   setName: (name) => request('/system/info', { method: 'PUT', body: JSON.stringify({ server_name: name }) }),
+  tzStatus: () => request('/system/tz'),
+  setTz: (tz) => request('/system/tz', { method: 'POST', body: JSON.stringify({ tz }) }),
   prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
 };
 

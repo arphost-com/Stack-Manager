@@ -24,7 +24,7 @@ docker compose --env-file .env up -d --build "$@"
 # Install/refresh the host helper scripts (GPU / OS updates / self-update /
 # firewall) so their Settings panels work without a manual SSH step. Deploy
 # users have passwordless sudo; failures here are non-fatal.
-for h in gpu os update csf; do
+for h in gpu os update csf tz; do
   src="scripts/stack-manager-${h}.sh"
   [ -f "${src}" ] || continue
   if sudo install -m 750 "${src}" "/usr/local/sbin/stack-manager-${h}" 2>/dev/null; then
