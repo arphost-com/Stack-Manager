@@ -427,88 +427,6 @@ export default function Documentation() {
 
       {error && <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{error}</div>}
 
-      <section className="section-panel space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-950">Docker Compose</h2>
-          <p className="mt-1 text-sm leading-6 text-gray-600">
-            Stack Manager creates normal Docker Compose projects. Review each template, set its `.env` values, then use Spin it Up or standard Compose commands such as <code className="rounded bg-gray-100 px-1 py-0.5">docker compose up -d</code>, <code className="rounded bg-gray-100 px-1 py-0.5">docker compose ps</code>, <code className="rounded bg-gray-100 px-1 py-0.5">docker compose logs</code>, and <code className="rounded bg-gray-100 px-1 py-0.5">docker compose down</code>.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <DocLink href="https://docs.docker.com/compose/">Docker Compose docs</DocLink>
-          <DocLink href="https://docs.docker.com/compose/how-tos/gpu-support/">Compose GPU support</DocLink>
-        </div>
-      </section>
-
-      <section className="section-panel space-y-3 border-amber-200 bg-amber-50">
-        <h2 className="text-lg font-semibold text-amber-900">Single-GPU Rule</h2>
-        <p className="text-sm leading-6 text-amber-900">
-          Do not plan to run multiple heavy AI projects on one GPU at the same time. LLM inference, image generation, voice models, and larger RAG/search stacks can fight over VRAM and crash or starve each other. On a one-GPU test server, start one AI stack, verify it, shut it down, then start the next unless each service is sized and pinned to a specific available GPU.
-        </p>
-      </section>
-
-      <section className="section-panel space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-950">Platform Features</h2>
-          <p className="mt-1 text-sm text-gray-600">How to reach the cross-server, proxy, and firewall features from the dashboard.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Manage multiple servers</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              The <span className="font-medium">Server</span> selector on the dashboard shows <span className="font-medium">All Servers</span> — the local controller plus every connected server. Add servers in <Link to="/settings" className="text-blue-700 underline">Settings &gt; Agents</Link>. Choose the mode that fits the network:
-            </p>
-            <ul className="mt-2 space-y-1 text-sm leading-6 text-gray-600">
-              <li><span className="font-medium">Peer controller</span> — another full Stack Manager, added by URL + API key. Register each side as a peer of the other so both dashboards see and manage both hosts live.</li>
-              <li><span className="font-medium">Inbound / both agent</span> — the controller reaches the agent directly; its projects are managed live through the controller.</li>
-              <li><span className="font-medium">Callback (check-in) agent</span> — for hosts the controller can&rsquo;t reach inbound (behind NAT). The agent pushes its inventory on a timer, and actions you take are queued for it to run on its next check-in (see below).</li>
-            </ul>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Reverse proxy (Nginx Proxy Manager)</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              In <Link to="/settings" className="text-blue-700 underline">Settings &gt; Reverse Proxy</Link>, click <span className="font-medium">Deploy Nginx Proxy Manager</span> to stand up NPM in one click, then Connect. Add proxied domains from the form, one-click <span className="font-medium">Proxy the Stack Manager UI</span>, or use the per-project <span className="font-medium">Add to Proxy (NPM)</span> button on any project. Let&rsquo;s Encrypt stays separate under <Link to="/settings" className="text-blue-700 underline">Settings &gt; SSL</Link> for installs that don&rsquo;t use the proxy.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Open project ports in the firewall</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              On any project, <span className="font-medium">Open Ports (CSF)</span> adds the project&rsquo;s published TCP ports inbound to the host ConfigServer firewall (TCP_IN) and reloads it. Requires CSF and the Stack Manager firewall helper installed on that host.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Templates boot with editable defaults</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              Catalog templates that need a config file now ship a working starter config embedded in the compose, so they run out of the box. Edit it any time from a project&rsquo;s <span className="font-medium">Config</span> tab. Voice, agent, and AI stacks are pre-wired end to end.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Open &amp; manage remote projects</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              Click any project in the <span className="font-medium">All Servers</span> view to open it — even ones on a peer or agent. Peer/inbound projects are managed live (lifecycle, sources, config, files). Callback-agent projects open from the last check-in and show a <span className="font-medium">Queued commands</span> panel: actions you take run on the agent&rsquo;s next check-in and the output appears there.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Commands follow the selected server</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              Pick a specific server in the dashboard selector and bulk actions, <span className="font-medium">Create Project</span>, and <span className="font-medium">Prune</span> target that server instead of the local host. Confirmations and results name the target so it&rsquo;s always clear where a command lands.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">GPU for AI stacks</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              <Link to="/settings" className="text-blue-700 underline">Settings &gt; GPU</Link> detects the host GPU and <span className="font-medium">Run GPU test</span> launches a real <code className="rounded bg-gray-100 px-1">--gpus all</code> container to prove passthrough works end to end. When you open an AI stack template with a GPU present, an <span className="font-medium">Add GPU passthrough</span> checkbox injects the compose device block for you.
-            </p>
-          </div>
-          <div className="rounded-md border border-gray-200 p-3">
-            <div className="text-sm font-semibold text-gray-950">Name this server &amp; clickable ports</div>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              Set a friendly name in <Link to="/settings" className="text-blue-700 underline">Settings &gt; General</Link> so the selector shows it instead of the IP (blank uses the hostname). On a project&rsquo;s <span className="font-medium">Overview</span>, published ports are clickable links that open the service in a new tab; internal ports show a lock and stay non-clickable.
-            </p>
-          </div>
-        </div>
-      </section>
-
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Documentation sections">
         <button
           type="button"
@@ -550,7 +468,29 @@ export default function Documentation() {
         >
           Docker Compose
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={docsTab === 'gpu'}
+          onClick={() => changeDocsTab('gpu')}
+          className={docsTab === 'gpu' ? 'btn-primary' : 'btn-secondary'}
+          title="GPU support: detection, passthrough, drivers, and the single-GPU rule."
+        >
+          GPU
+        </button>
       </div>
+
+      {(docsTab === 'current' || docsTab === 'catalog') && (
+        <section className="section-panel">
+          <input
+            className="input w-full"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder={docsTab === 'current' ? 'search your current stacks by name' : 'search catalog: app, image, env key, tag, category, setup note'}
+            title="Search the current tab."
+          />
+        </section>
+      )}
 
       {docsTab === 'current' && (
         <section className="space-y-3">
@@ -559,7 +499,7 @@ export default function Documentation() {
             <p className="text-sm text-gray-600">Every discovered project has a generated project guide, plus any README or docs files found in the stack directory.</p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            {projectList.map(project => <CurrentStackDoc key={project.name} project={project} />)}
+            {projectList.filter(p => { const q = query.trim().toLowerCase(); return !q || (p.name || '').toLowerCase().includes(q); }).map(project => <CurrentStackDoc key={project.name} project={project} />)}
             {projectList.length === 0 && <div className="py-8 text-center text-sm text-gray-500 lg:col-span-2">No current stacks were discovered.</div>}
           </div>
         </section>
@@ -568,7 +508,6 @@ export default function Documentation() {
       {docsTab === 'catalog' && (
         <>
           <section className="section-panel space-y-3">
-            <input className="input w-full" value={query} onChange={e => setQuery(e.target.value)} placeholder="search docs, images, env keys, tags" title="Filter documentation by app name, image, env key, category, tag, or setup note." />
             <div className="flex flex-wrap gap-2" title="Choose a documentation category.">
               {categories.map(cat => {
                 const total = cat === 'all' ? templates.length : (categoryCounts[cat] || 0);
@@ -628,6 +567,7 @@ export default function Documentation() {
 
       {docsTab === 'stackmanager' && <StackManagerDocs />}
       {docsTab === 'compose' && <DockerComposeDocs />}
+      {docsTab === 'gpu' && <GpuDocs />}
     </div>
   );
 }
@@ -833,6 +773,17 @@ function StackManagerDocs() {
         <p className="text-sm text-gray-600">Full guide: <DocLink href={`${GH_BASE}/docs/PLATFORM.md`} compact>docs/PLATFORM.md</DocLink> · <DocLink href={`${GH_BASE}/README.md`} compact>README</DocLink> · <DocLink href={`${GH_BASE}/docs/AGENT_MODES.md`} compact>Agent modes</DocLink></p>
       </DocSection>
 
+      <DocSection title="Platform features">
+        <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-gray-700">
+          <li><strong>Manage multiple servers</strong> — the dashboard&rsquo;s <em>All Servers</em> selector shows the local controller plus every connected server. Add them in Settings &rsquo; Agents as a <em>peer</em> (another full controller, by URL + API key), an <em>inbound/both agent</em> (managed live), or a <em>callback agent</em> (behind NAT — pushes inventory and runs queued commands on check-in).</li>
+          <li><strong>Open &amp; manage remote projects</strong> — click any project in All Servers to open it, even on a peer/agent. Peer/inbound projects manage live; callback-agent projects open from the last check-in with a Queued Commands panel. Bulk actions, Create Project, and Prune target the selected server.</li>
+          <li><strong>Reverse proxy (NPM)</strong> — Settings &rsquo; Reverse Proxy deploys Nginx Proxy Manager in one click; add proxied domains, one-click &ldquo;Proxy the Stack Manager UI,&rdquo; or per-project &ldquo;Add to Proxy.&rdquo; Let&rsquo;s Encrypt lives under Settings &rsquo; SSL for non-proxy installs.</li>
+          <li><strong>Firewall</strong> — per-project <em>Open Ports (CSF)</em> adds published TCP ports to the host ConfigServer firewall and reloads it.</li>
+          <li><strong>Volumes &amp; networks</strong> — each project&rsquo;s Volumes and Networks tabs list what it owns (with in-use containers) and offer a guarded delete scoped to that stack.</li>
+          <li><strong>Naming &amp; clickable ports</strong> — set a friendly server name in Settings &rsquo; General; a project&rsquo;s published ports become clickable links on its Overview.</li>
+        </ul>
+      </DocSection>
+
       <DocSection title="Install">
         <p className="text-sm text-gray-700">Web dashboard (recommended):</p>
         <Code>{`mkdir -p ~/docker && cd ~/docker
@@ -915,9 +866,63 @@ const COMPOSE_COMMANDS = [
   ['Recreate cleanly', 'docker compose up -d --force-recreate --remove-orphans', 'Force new containers and drop containers for services no longer in the file.'],
 ];
 
+function GpuDocs() {
+  return (
+    <div className="space-y-4">
+      <section className="section-panel space-y-2 border-amber-200 bg-amber-50">
+        <h2 className="text-lg font-semibold text-amber-900">Single-GPU rule</h2>
+        <p className="text-sm leading-6 text-amber-900">
+          Do not run multiple heavy AI projects on one GPU at the same time. LLM inference, image generation, voice models, and larger RAG/search stacks fight over VRAM and will crash or starve each other. On a one-GPU host: start one AI stack, verify it, shut it down, then start the next — unless each service is sized and pinned to a specific available GPU.
+        </p>
+      </section>
+
+      <DocSection title="Detect &amp; test the GPU">
+        <p className="text-sm leading-6 text-gray-700">
+          <Link to="/settings" className="text-blue-700 underline">Settings &rsquo; GPU</Link> detects the host GPU (vendor, model, driver, CUDA). <strong>Run GPU test</strong> launches a real <code className="rounded bg-gray-100 px-1">--gpus all</code> container and runs <code className="rounded bg-gray-100 px-1">nvidia-smi</code> inside it, so you know passthrough actually works end to end — not just that a driver is present.
+        </p>
+      </DocSection>
+
+      <DocSection title="One-click driver + toolkit install">
+        <p className="text-sm leading-6 text-gray-700">
+          If the GPU stack isn&rsquo;t set up, <strong>Settings &rsquo; GPU</strong> can install the NVIDIA driver and the NVIDIA Container Toolkit on the host (Debian &amp; Ubuntu) and wire Docker&rsquo;s runtime. On Secure Boot systems the DKMS module is signed with a MOK — you&rsquo;ll need to <strong>enroll the key at the console</strong> (Proxmox noVNC or a monitor) on the next reboot, then the driver loads.
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>Detect &rarr; Install &rarr; reboot (enroll MOK if Secure Boot) &rarr; Run GPU test.</li>
+          <li>The install runs detached on the host and survives the dashboard restart.</li>
+        </ul>
+      </DocSection>
+
+      <DocSection title="Give a stack the GPU">
+        <p className="text-sm leading-6 text-gray-700">
+          When you open an AI template with a GPU present, an <strong>Add GPU passthrough</strong> checkbox injects the compose device reservation for you. For an existing project, the <strong>Enable GPU</strong> action on its Overview adds the <code className="rounded bg-gray-100 px-1">deploy.resources.reservations.devices</code> block and restarts it. Tdarr and other transcoders benefit from the same passthrough.
+        </p>
+      </DocSection>
+
+      <DocSection title="Multiple GPUs">
+        <p className="text-sm leading-6 text-gray-700">
+          With more than one GPU you can run stacks concurrently if each is pinned to a specific device (e.g. <code className="rounded bg-gray-100 px-1">NVIDIA_VISIBLE_DEVICES=0</code> / <code className="rounded bg-gray-100 px-1">device_ids: ['1']</code>) and sized to fit that card&rsquo;s VRAM. Watch <code className="rounded bg-gray-100 px-1">nvidia-smi</code> for contention.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <DocLink href="https://docs.docker.com/compose/how-tos/gpu-support/" compact>Compose GPU support</DocLink>
+          <DocLink href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/" compact>NVIDIA Container Toolkit</DocLink>
+        </div>
+      </DocSection>
+    </div>
+  );
+}
+
 function DockerComposeDocs() {
   return (
     <div className="space-y-4">
+      <DocSection title="Docker Compose">
+        <p className="text-sm leading-6 text-gray-700">
+          Stack Manager runs everything as plain Docker Compose projects. Pick a template from the Stack Catalog, set its <code className="rounded bg-gray-100 px-1">.env</code>, and Spin it Up — or manage any stack by hand with the commands below. Each project is just a folder with a <code className="rounded bg-gray-100 px-1">compose.yml</code> under your <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code>.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <DocLink href="https://docs.docker.com/compose/" compact>Docker Compose docs</DocLink>
+          <DocLink href="https://docs.docker.com/compose/how-tos/gpu-support/" compact>Compose GPU support</DocLink>
+        </div>
+      </DocSection>
       <DocSection title="Docker Compose cheatsheet">
         <p className="text-sm text-gray-600">The commands Stack Manager runs under the hood — handy from the per-project <strong>Shell</strong> tab or an SSH session in the project directory. Run them from the folder that holds <code className="rounded bg-gray-100 px-1">compose.yml</code>.</p>
         <div className="overflow-x-auto">
