@@ -351,5 +351,221 @@ networks:
 			EnvContent: "OLLAMA_PORT=11436\nWEBUI_PORT=8082\nQDRANT_PORT=6335\nFLOWISE_PORT=3000\nPOSTGRES_PASSWORD=change-me\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\n",
 			Notes:      "Verified boot: Flowise on FLOWISE_PORT (persists to Postgres), Qdrant on QDRANT_PORT, Ollama on 11434, Open WebUI on WEBUI_PORT. Change POSTGRES_PASSWORD and FLOWISE_PASSWORD first. In Flowise, add an Ollama chat model (base URL http://ollama:11434) and a Qdrant vector store (http://qdrant:6333) inside your chatflows. Pull a model first: docker exec <ollama-container> ollama pull llama3.1.",
 		},
+		{
+			ID:          "openbrain-voice",
+			Name:        "OpenBrain #4 — Voice Assistant (speech, web, code, memory)",
+			Description: "The do-everything local AI: talk to it (Whisper STT + Kokoro/Piper TTS), search the web (SearXNG), write code (Code Llama), keep memory (mem0 + Qdrant), and automate tasks (n8n + Flowise) — all wired to Open WebUI and Ollama.",
+			Category:    "ai",
+			Subcategory: "voice-assistant",
+			Source:      "arphost",
+			Image:       "ghcr.io/open-webui/open-webui:main",
+			Tags:        []string{"ai", "voice", "stt", "tts", "whisper", "kokoro", "piper", "ollama", "codellama", "rag", "web-search", "searxng", "memory", "mem0", "n8n", "flowise", "qdrant"},
+			ComposeContent: `services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks: [openbrain]
+
+  # Pulls the models once on first boot (a few GB): a general chat model, a code
+  # model, and an embedding model for RAG/memory. Exits when done.
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sleep 8
+        ollama pull ${CHAT_MODEL:-llama3.1}
+        ollama pull ${CODE_MODEL:-codellama}
+        ollama pull ${EMBED_MODEL:-nomic-embed-text}
+    networks: [openbrain]
+
+  # Speech-to-text: your voice recordings -> text. OpenAI-compatible /v1 API.
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    restart: unless-stopped
+    ports:
+      - "${WHISPER_PORT:-8001}:8000"
+    environment:
+      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-small}
+    volumes:
+      - whisper-cache:/root/.cache
+    networks: [openbrain]
+
+  # Text-to-speech: replies read aloud. OpenAI-compatible /v1/audio/speech.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    ports:
+      - "${KOKORO_PORT:-8880}:8880"
+    networks: [openbrain]
+
+  # Bonus TTS engine (Wyoming protocol) for Home Assistant / n8n voice flows.
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    restart: unless-stopped
+    command: --voice ${PIPER_VOICE:-en_US-lessac-medium}
+    ports:
+      - "${PIPER_PORT:-10200}:10200"
+    volumes:
+      - piper-data:/data
+    networks: [openbrain]
+
+  # Private meta-search used for "search the web" answers.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "${SEARXNG_PORT:-8181}:8080"
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8181}/
+    volumes:
+      - searxng-data:/etc/searxng
+    networks: [openbrain]
+
+  # Vector store for RAG + memory. mem0 defaults to host "mem0_store".
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      openbrain:
+        aliases:
+          - mem0_store
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openbrain
+      POSTGRES_USER: openbrain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [openbrain]
+
+  # The hub: chat + voice in/out + web search + RAG, wired to everything above.
+  # Create the first admin account on first visit.
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: "true"
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-openbrain}
+      VECTOR_DB: qdrant
+      QDRANT_URI: http://qdrant:6333
+      RAG_EMBEDDING_ENGINE: ollama
+      RAG_EMBEDDING_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      ENABLE_RAG_WEB_SEARCH: "true"
+      RAG_WEB_SEARCH_ENGINE: searxng
+      SEARXNG_QUERY_URL: http://searxng:8080/search?q=<query>
+      AUDIO_TTS_ENGINE: openai
+      AUDIO_TTS_OPENAI_API_BASE_URL: http://kokoro:8880/v1
+      AUDIO_TTS_OPENAI_API_KEY: none
+      AUDIO_TTS_MODEL: kokoro
+      AUDIO_TTS_VOICE: ${TTS_VOICE:-af_bella}
+      AUDIO_STT_ENGINE: openai
+      AUDIO_STT_OPENAI_API_BASE_URL: http://whisper:8000/v1
+      AUDIO_STT_OPENAI_API_KEY: none
+      AUDIO_STT_MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-small}
+    volumes:
+      - openwebui-data:/app/backend/data
+    depends_on:
+      - ollama
+      - qdrant
+      - kokoro
+      - whisper
+      - searxng
+    networks: [openbrain]
+
+  # Persistent memory (mem0 / OpenMemory), vectors in Qdrant. For extraction,
+  # set OPENAI_API_KEY or switch to local Ollama in its UI settings.
+  mem0:
+    image: mem0/openmemory-mcp:latest
+    restart: unless-stopped
+    ports:
+      - "${MEM0_PORT:-8765}:8765"
+    environment:
+      USER: ${MEM0_USER:-admin}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - mem0-data:/usr/src/openmemory
+    depends_on:
+      - qdrant
+      - ollama
+    networks: [openbrain]
+
+  # Visual agent/flow builder.
+  flowise:
+    image: flowiseai/flowise:latest
+    restart: unless-stopped
+    ports:
+      - "${FLOWISE_PORT:-3001}:3000"
+    environment:
+      FLOWISE_USERNAME: ${FLOWISE_USERNAME:-admin}
+      FLOWISE_PASSWORD: ${FLOWISE_PASSWORD:-change-me}
+    volumes:
+      - flowise-data:/root/.flowise
+    depends_on:
+      - ollama
+      - qdrant
+    networks: [openbrain]
+
+  # Workflow automation for general tasks (persists to the shared Postgres).
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      N8N_SECURE_COOKIE: "false"
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: openbrain
+      DB_POSTGRESDB_USER: openbrain
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+    networks: [openbrain]
+
+volumes:
+  ollama-data:
+  openwebui-data:
+  qdrant-data:
+  postgres-data:
+  whisper-cache:
+  piper-data:
+  searxng-data:
+  mem0-data:
+  flowise-data:
+  n8n-data:
+
+networks:
+  openbrain:
+`,
+			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nWHISPER_PORT=8001\nKOKORO_PORT=8880\nPIPER_PORT=10200\nSEARXNG_PORT=8181\nQDRANT_PORT=6333\nFLOWISE_PORT=3001\nN8N_PORT=5678\nMEM0_PORT=8765\nPOSTGRES_PASSWORD=change-me\nWEBUI_SECRET_KEY=change-me-openbrain\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\nCHAT_MODEL=llama3.1\nCODE_MODEL=codellama\nEMBED_MODEL=nomic-embed-text\nWHISPER_MODEL=Systran/faster-whisper-small\nTTS_VOICE=af_bella\nPIPER_VOICE=en_US-lessac-medium\nOPENAI_API_KEY=\nMEM0_USER=admin\nN8N_HOST=localhost\n",
+			Notes:      "HEAVY stack — give it plenty of RAM and (ideally) a GPU; enable GPU passthrough on Ollama for real speed. First boot pulls a few GB of models via ollama-init (chat + Code Llama + embeddings), so give it time. Open WebUI (WEBUI_PORT) is the hub: create the admin account, then click the mic to talk (Whisper transcribes) and the speaker to hear replies (Kokoro). Pick 'codellama' from the model menu for coding. RAG document upload and memory use Qdrant automatically. ONE manual step for web search: SearXNG ships without JSON output — edit its settings.yml (Project > Config, or the searxng-data volume) to add 'formats: [html, json]' under 'search:' and restart searxng, then toggle Web Search in a chat. mem0/OpenMemory (MEM0_PORT) and Flowise/n8n are pre-wired to Ollama+Qdrant/Postgres; set OPENAI_API_KEY or point mem0's LLM at http://ollama:11434 for memory extraction. Change POSTGRES_PASSWORD/WEBUI_SECRET_KEY/FLOWISE_PASSWORD before exposing it.",
+		},
 	}
 }

@@ -20,23 +20,25 @@ if (window.matchMedia) {
 function App() {
   const credential = localStorage.getItem('cm_token');
 
-  if (!credential) {
-    return <Login />;
-  }
-
+  // BrowserRouter must wrap BOTH branches: the login/landing page reuses doc
+  // components that render <Link>, which throws without a Router context.
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/catalog" element={<StackCatalog />} />
-          <Route path="/audit" element={<AuditLog />} />
-          <Route path="/docs" element={<Documentation />} />
-          <Route path="/projects/:name" element={<ProjectDetail />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" />} />
-        </Route>
-      </Routes>
+      {!credential ? (
+        <Login />
+      ) : (
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/catalog" element={<StackCatalog />} />
+            <Route path="/audit" element={<AuditLog />} />
+            <Route path="/docs" element={<Documentation />} />
+            <Route path="/projects/:name" element={<ProjectDetail />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Route>
+        </Routes>
+      )}
     </BrowserRouter>
   );
 }
