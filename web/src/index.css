@@ -81,6 +81,25 @@ html.dark .text-gray-500 {
   color: #94a3b8;
 }
 
+/* The "Available image updates" panel gets a dark background in dark mode
+   (.rounded-md.border rule above), but its green text stays near-black and
+   becomes unreadable. Lighten just this block's greens (scoped so green toasts
+   and badges on light backgrounds elsewhere are untouched). */
+html.dark .image-updates .text-green-950,
+html.dark .image-updates .text-green-900 {
+  color: #86efac;
+}
+html.dark .image-updates .text-green-800 {
+  color: #4ade80;
+}
+
+/* The action-result banner sits on a darkened panel; its success tone uses
+   text-green-900 which isn't covered by the general overrides. Lighten just the
+   banner's colored text so the confirmation is legible in dark mode. */
+html.dark .action-result.text-green-900 {
+  color: #86efac;
+}
+
 html.dark .border-gray-300,
 html.dark .border-gray-200,
 html.dark .border-gray-100 {

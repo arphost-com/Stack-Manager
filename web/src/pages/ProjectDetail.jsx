@@ -61,6 +61,9 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  // Mirror activeTab in a ref so async callbacks (pollJob) refresh the tab the
+  // user is actually on, not the one captured when the action started.
+  const activeTabRef = useRef('overview');
   const [tabData, setTabData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
@@ -185,6 +188,8 @@ export default function ProjectDetail() {
     }
   };
 
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
   useEffect(() => { fetchProject(); }, [name, location.search]);
 
   useEffect(() => {
@@ -219,8 +224,11 @@ export default function ProjectDetail() {
   }, [activeTab, logOptions.watch, logOptions.tail, logOptions.container]);
 
   const loadTab = async (tab = activeTab) => {
+    // A refresh of the tab you're already on (log-watch tick, pollJob completion)
+    // shouldn't blank the pane and flash "Loading…" — only clear on a real switch.
+    const changing = tab !== activeTabRef.current;
     setActiveTab(tab);
-    setTabData(null);
+    if (changing) setTabData(null);
     if (tab === 'overview') return;
     // Callback agents expose only the snapshot: everything else needs a live
     // connection we don't have. Actions are queued from the overview instead.
@@ -235,13 +243,13 @@ export default function ProjectDetail() {
       setTabData({ error: `The ${tab} view isn't proxied to remote servers yet. Open ${name} on ${sourceInfo.name || 'the peer'} directly for logs, shell, scans, and backups.` });
       return;
     }
-    setTabLoading(true);
+    setTabLoading(changing);
     try {
       let res;
       switch (tab) {
         case 'docs': res = await papiRef.current.docs(name); break;
         case 'sources': res = await papiRef.current.images(name); break;
-        case 'sessions': res = await jobs.list(); break;
+        case 'sessions': res = await jobsForSource(sourceInfo.agentId).list(); break;
         case 'watch': res = await watchApi.list(name); break;
         case 'logs': res = await debugApi.logs(name, logOptions.tail, logOptions.container || undefined); break;
         case 'stats': res = await debugApi.stats(name); break;
@@ -402,7 +410,7 @@ export default function ProjectDetail() {
           window.setTimeout(tick, 1500);
         } else {
           fetchProject();
-          if (activeTab !== 'overview') loadTab(activeTab);
+          if (activeTabRef.current !== 'overview') loadTab(activeTabRef.current);
         }
       } catch (err) {
         setActionResult({ status: 'error', label, error: err.message });
@@ -564,7 +572,7 @@ export default function ProjectDetail() {
                 try {
                   const res = await debugApi.shell(name, { command: 'git-pull', tail: 200, timeout: 120 });
                   const data = res.data || {};
-                  setActionResult({ status: data.success ? 'done' : 'error', label: 'git pull', output: data.output, error: data.success ? '' : `exit ${data.exit_code}` });
+                  setActionResult({ status: data.success ? 'done' : 'error', label: 'git pull', result: { output: data.output }, error: data.success ? '' : `exit ${data.exit_code}` });
                   fetchProject();
                 } catch (err) {
                   setActionResult({ status: 'error', label: 'git pull', error: err.message });
@@ -654,10 +662,10 @@ function DockerResources({ kind, data, projectName, papi, reload, setActionResul
     try {
       if (kind === 'volume') await papi.deleteVolume(projectName, itemName);
       else await papi.deleteNetwork(projectName, itemName);
-      setActionResult({ success: true, output: `Deleted ${kind} ${itemName}` });
+      setActionResult({ status: 'done', label: `delete ${kind} ${itemName}`, result: { output: `Deleted ${kind} ${itemName}.` } });
       reload();
     } catch (err) {
-      setActionResult({ success: false, output: err.message });
+      setActionResult({ status: 'error', label: `delete ${kind} ${itemName}`, error: err.message });
     } finally {
       setBusy('');
     }
@@ -722,7 +730,7 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
         <Info label="Last update check" value={project.update_status?.checked_at ? formatDate(project.update_status.checked_at) : 'never'} />
       </div>
       {project.update_status?.images?.some(check => check.update_available) && (
-        <div className="rounded-md border border-green-200 bg-green-50 p-4">
+        <div className="image-updates rounded-md border border-green-200 bg-green-50 p-4">
           <h2 className="text-sm font-semibold text-green-950">Available image updates</h2>
           <div className="mt-2 space-y-2 text-xs">
             {project.update_status.images.filter(check => check.update_available).map(check => (
@@ -1524,7 +1532,7 @@ function ActionResult({ result, onDismiss }) {
     result.status === 'error' ? 'border-red-200 bg-red-50 text-red-900' :
     'border-green-200 bg-green-50 text-green-900';
   return (
-    <div className={`rounded border px-4 py-3 text-sm ${tone}`}>
+    <div className={`action-result rounded border px-4 py-3 text-sm ${tone}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="font-medium">{result.status === 'running' ? `Running ${result.label}...` : result.status === 'error' ? `Error during ${result.label}` : `${result.label} completed`}</div>
@@ -1619,14 +1627,22 @@ function WatchTab({ data, projectName, reload }) {
       es.close();
     });
     es.addEventListener('error', ev => {
-      setError('stream error');
-      setStreaming(false);
-      es.close();
+      // A server-sent "error" event carries the real message (e.g. a compose
+      // failure) in ev.data; a native connection error has none. The browser
+      // auto-reconnects while CONNECTING, so only surface a problem once the
+      // connection is fully CLOSED.
+      if (ev && ev.data) {
+        setLines(prev => [...prev, parseWatchLine(String(ev.data))]);
+        setError(String(ev.data));
+        setStreaming(false);
+        es.close();
+        return;
+      }
+      if (es.readyState === EventSource.CLOSED) {
+        setError('Connection to the watch stream was lost — reopen the tab to resume.');
+        setStreaming(false);
+      }
     });
-    es.onerror = () => {
-      setStreaming(false);
-      es.close();
-    };
     return () => {
       es.close();
       esRef.current = null;

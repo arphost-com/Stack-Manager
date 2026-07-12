@@ -365,12 +365,14 @@ export const watch = {
   list: (name) => request(`/projects/${encodeURIComponent(name)}/watch`),
   get: (name, sessionId) => request(`/projects/${encodeURIComponent(name)}/watch/${encodeURIComponent(sessionId)}`),
   stop: (name, sessionId) => request(`/projects/${encodeURIComponent(name)}/watch/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
-  // The stream URL is opened directly via EventSource, which cannot set
-  // custom headers. Auth flows through the session cookie set at login;
-  // if the caller is using the legacy X-API-Key, pass it as ?api_key=.
+  // The stream URL is opened directly via EventSource, which cannot set custom
+  // headers. Prefer the session token from login (?token=), falling back to a
+  // legacy X-API-Key (?api_key=). Without one of these the stream 401s and the
+  // browser reports it as a generic "stream error".
   streamUrl: (name, sessionId, apiKey) => {
+    const token = localStorage.getItem('cm_token') || '';
     const key = apiKey || localStorage.getItem('cm_api_key') || '';
-    const qs = key ? `?api_key=${encodeURIComponent(key)}` : '';
+    const qs = token ? `?token=${encodeURIComponent(token)}` : (key ? `?api_key=${encodeURIComponent(key)}` : '');
     return `/api/v1/projects/${encodeURIComponent(name)}/watch/${encodeURIComponent(sessionId)}/stream${qs}`;
   },
 };
