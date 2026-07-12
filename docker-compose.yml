@@ -21,9 +21,12 @@ services:
         # firewall / timezone) so those Settings panels activate automatically
         # the first time the stack comes up — no manual 'sudo install' step on
         # any node. /host-sbin is the host's /usr/local/sbin. Best-effort.
+        # $$h escapes docker-compose interpolation so the shell (not compose)
+        # expands the loop variable — otherwise $h resolves to a blank string and
+        # nothing installs.
         if [ -d /host-sbin ]; then
           for h in gpu os update csf tz; do
-            [ -f "/scripts/stack-manager-$h.sh" ] && install -m 750 "/scripts/stack-manager-$h.sh" "/host-sbin/stack-manager-$h" 2>/dev/null || true
+            [ -f "/scripts/stack-manager-$${h}.sh" ] && install -m 750 "/scripts/stack-manager-$${h}.sh" "/host-sbin/stack-manager-$${h}" 2>/dev/null || true
           done
         fi
     volumes:
