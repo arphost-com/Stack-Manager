@@ -36,8 +36,8 @@ Chat and code won't work until `ollama-init` has finished pulling.
 |---|---|---|
 | **Open WebUI** | `http://HOST:8080` | The hub — chat, voice, RAG, web search |
 | Ollama | `http://HOST:11434` | LLM runtime (API) |
-| Whisper (STT) | `http://HOST:8001` | Speech-to-text (OpenAI-compatible) |
-| Kokoro (TTS) | `http://HOST:8880` | Text-to-speech (OpenAI-compatible) |
+| Whisper (STT) | `http://HOST:8001` | Speech-to-text **API** — no homepage (use via Open WebUI; docs at `/docs`) |
+| Kokoro (TTS) | `http://HOST:8880` | Text-to-speech **API** — no homepage (use via Open WebUI; try `/web` and `/docs`) |
 | SearXNG | `http://HOST:8181` | Private web search |
 | Qdrant | `http://HOST:6333` | Vector DB (RAG + memory) |
 | Flowise | `http://HOST:3001` | Visual agent/flow builder |
@@ -47,6 +47,15 @@ Chat and code won't work until `ollama-init` has finished pulling.
 
 You only *log into* Open WebUI, Flowise, and n8n. The rest are wired internally
 by Docker DNS (`http://ollama:11434`, `http://qdrant:6333`, …).
+
+> **"Not Found" when I click a port?** That's normal — **Kokoro, Whisper,
+> Ollama, and Qdrant are APIs, not websites.** Opening `http://HOST:8880/`
+> returns `{"detail":"Not Found"}` because there's no page at the root; the TTS
+> lives at `/v1/audio/speech`. **You don't open these directly — Open WebUI uses
+> them for you** (mic = Whisper, speaker = Kokoro). To poke at them anyway:
+> Kokoro has a voice **playground at `http://HOST:8880/web`** and API docs at
+> `/docs`; Whisper's docs are at `http://HOST:8001/docs`. Only **Open WebUI**,
+> **Flowise**, and **n8n** are real web UIs you open in a browser.
 
 ---
 

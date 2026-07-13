@@ -409,6 +409,22 @@ networks:
       - "${KOKORO_PORT:-8880}:8880"
     networks: [openbrain]
 
+  # Voice-cloning TTS (XTTS-v2 + Piper) via openedai-speech. OpenAI-compatible,
+  # so it's a drop-in alternative to Kokoro. Keep Kokoro as the fast default;
+  # switch Open WebUI's Audio TTS to http://openedai-speech:8000/v1 (model
+  # tts-1-hd, your custom voice) when you want a CLONED voice. To clone: drop a
+  # clean 10-30s WAV in the openedai-voices volume and add it to
+  # config/voice_to_speaker.yaml. GPU strongly recommended for XTTS.
+  openedai-speech:
+    image: ghcr.io/matatonic/openedai-speech:latest
+    restart: unless-stopped
+    ports:
+      - "${OPENEDAI_PORT:-8003}:8000"
+    volumes:
+      - openedai-config:/app/config
+      - openedai-voices:/app/voices
+    networks: [openbrain]
+
   # Bonus TTS engine (Wyoming protocol) for Home Assistant / n8n voice flows.
   piper:
     image: rhasspy/wyoming-piper:latest
@@ -561,12 +577,14 @@ volumes:
   mem0-data:
   flowise-data:
   n8n-data:
+  openedai-config:
+  openedai-voices:
 
 networks:
   openbrain:
 `,
-			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nWHISPER_PORT=8001\nKOKORO_PORT=8880\nPIPER_PORT=10200\nSEARXNG_PORT=8181\nQDRANT_PORT=6333\nFLOWISE_PORT=3001\nN8N_PORT=5678\nMEM0_PORT=8765\nPOSTGRES_PASSWORD=change-me\nWEBUI_SECRET_KEY=change-me-openbrain\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\nCHAT_MODEL=llama3.1\nCODE_MODEL=codellama\nEMBED_MODEL=nomic-embed-text\nWHISPER_MODEL=Systran/faster-whisper-small\nTTS_VOICE=af_bella\nPIPER_VOICE=en_US-lessac-medium\nOPENAI_API_KEY=\nMEM0_USER=admin\nN8N_HOST=localhost\n",
-			Notes:      "HEAVY stack — give it plenty of RAM and (ideally) a GPU; enable GPU passthrough on Ollama for real speed. First boot pulls a few GB of models via ollama-init (chat + Code Llama + embeddings), so give it time. Open WebUI (WEBUI_PORT) is the hub: create the admin account, then click the mic to talk (Whisper transcribes) and the speaker to hear replies (Kokoro). Pick 'codellama' from the model menu for coding. RAG document upload and memory use Qdrant automatically. ONE manual step for web search: SearXNG ships without JSON output — edit its settings.yml (Project > Config, or the searxng-data volume) to add 'formats: [html, json]' under 'search:' and restart searxng, then toggle Web Search in a chat. mem0/OpenMemory (MEM0_PORT) and Flowise/n8n are pre-wired to Ollama+Qdrant/Postgres; set OPENAI_API_KEY or point mem0's LLM at http://ollama:11434 for memory extraction. Change POSTGRES_PASSWORD/WEBUI_SECRET_KEY/FLOWISE_PASSWORD before exposing it.",
+			EnvContent: "OLLAMA_PORT=11434\nWEBUI_PORT=8080\nWHISPER_PORT=8001\nKOKORO_PORT=8880\nOPENEDAI_PORT=8003\nPIPER_PORT=10200\nSEARXNG_PORT=8181\nQDRANT_PORT=6333\nFLOWISE_PORT=3001\nN8N_PORT=5678\nMEM0_PORT=8765\nPOSTGRES_PASSWORD=change-me\nWEBUI_SECRET_KEY=change-me-openbrain\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\nCHAT_MODEL=llama3.1\nCODE_MODEL=codellama\nEMBED_MODEL=nomic-embed-text\nWHISPER_MODEL=Systran/faster-whisper-small\nTTS_VOICE=af_bella\nPIPER_VOICE=en_US-lessac-medium\nOPENAI_API_KEY=\nMEM0_USER=admin\nN8N_HOST=localhost\n",
+			Notes:      "HEAVY stack — give it plenty of RAM and (ideally) a GPU; enable GPU passthrough on Ollama for real speed. First boot pulls a few GB of models via ollama-init (chat + Code Llama + embeddings), so give it time. Open WebUI (WEBUI_PORT) is the hub: create the admin account, then click the mic to talk (Whisper transcribes) and the speaker to hear replies (Kokoro). Pick 'codellama' from the model menu for coding. VOICE CLONING: openedai-speech (OPENEDAI_PORT) is included as a second TTS — Kokoro stays the fast default; to speak in a CLONED voice, drop a clean 10-30s WAV in the openedai-voices volume, add it to config/voice_to_speaker.yaml, then set Open WebUI Audio TTS to http://openedai-speech:8000/v1 (model tts-1-hd, your voice name). GPU strongly recommended for XTTS. See docs/OPENBRAIN4-RECIPES.md. RAG document upload and memory use Qdrant automatically. ONE manual step for web search: SearXNG ships without JSON output — edit its settings.yml (Project > Config, or the searxng-data volume) to add 'formats: [html, json]' under 'search:' and restart searxng, then toggle Web Search in a chat. mem0/OpenMemory (MEM0_PORT) and Flowise/n8n are pre-wired to Ollama+Qdrant/Postgres; set OPENAI_API_KEY or point mem0's LLM at http://ollama:11434 for memory extraction. Change POSTGRES_PASSWORD/WEBUI_SECRET_KEY/FLOWISE_PASSWORD before exposing it.",
 		},
 	}
 }

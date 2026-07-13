@@ -9,7 +9,8 @@ Replace `HOST` with your server IP. Ports are the OpenBrain #4 defaults:
 |---|---|---|
 | Whisper (STT) | `http://HOST:8001/v1` | `http://whisper:8000/v1` |
 | Ollama (LLM) | `http://HOST:11434` | `http://ollama:11434` |
-| Kokoro (TTS) | `http://HOST:8880/v1` | `http://kokoro:8880/v1` |
+| Kokoro (TTS, fast) | `http://HOST:8880/v1` | `http://kokoro:8880/v1` |
+| openedai-speech (TTS + cloning) | `http://HOST:8003/v1` | `http://openedai-speech:8000/v1` |
 
 All three speak the **OpenAI-compatible** API, so any tool that talks to OpenAI works.
 
@@ -95,6 +96,68 @@ Build once, reuse for every file. Nodes:
 5. **Write Binary File** (or return via the webhook) → your new `.mp3`.
 
 Use the **internal** DNS names above — n8n runs inside the same Docker network.
+
+---
+
+## Recipe 2 — Clone a voice from an MP3 (openedai-speech / XTTS)
+
+**Kokoro can't clone voices** — it has a fixed set of ~50 built-in voices. OpenBrain
+#4 now also ships **openedai-speech** (`OPENEDAI_PORT`, default `8003`), an
+OpenAI-compatible TTS that wraps **XTTS-v2** and *can* clone a voice from a short
+sample. Keep Kokoro as the fast default; reach for openedai-speech when you want a
+cloned voice.
+
+> ⚠️ Only clone voices you have permission to use. XTTS is CPU-slow — enable **GPU
+> passthrough** on this project for usable speed.
+
+### A. Add your reference voice
+
+1. Get a **clean 10-30s WAV** of the target voice (one speaker, no music/noise).
+   Convert an mp3 if needed: `ffmpeg -i sample.mp3 -ar 24000 -ac 1 myvoice.wav`.
+2. Copy it into the **`openedai-voices`** volume, e.g. from the host:
+   ```bash
+   # find the volume mountpoint, then drop the wav in
+   docker cp myvoice.wav openbrain-voice-openedai-speech-1:/app/voices/myvoice.wav
+   ```
+3. Register it as a custom voice. Edit **`/app/config/voice_to_speaker.yaml`** in
+   the `openedai-config` volume (create it if missing) and add:
+   ```yaml
+   tts-1-hd:
+     myvoice:
+       model: xtts_v2.0.2
+       speaker: /app/voices/myvoice.wav
+   ```
+4. Restart the service: `docker restart openbrain-voice-openedai-speech-1`.
+
+### B. Use it — curl
+
+```bash
+curl -s http://HOST:8003/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"tts-1-hd","voice":"myvoice","input":"Hello, this is my cloned voice.","response_format":"mp3"}' \
+  --output cloned.mp3
+```
+
+### C. Use it — in Open WebUI
+
+**Settings → Audio → TTS**: engine **OpenAI**, base URL
+`http://openedai-speech:8000/v1` (internal) or `http://HOST:8003/v1`, model
+**`tts-1-hd`**, voice **`myvoice`**. Now the speaker button reads replies in the
+cloned voice. Switch the voice back to a Kokoro one (base URL
+`http://kokoro:8880/v1`, model `kokoro`) any time you want the fast default.
+
+### D. Clone + re-record (drop-in for Recipe 1)
+
+To make Recipe 1's `revoice.sh` output in the cloned voice, point step 3 at
+openedai-speech instead of Kokoro:
+
+```bash
+TTS_URL="http://HOST:8003/v1/audio/speech" TTS_MODEL="tts-1-hd" VOICE="myvoice" ./revoice.sh input.mp3 out.mp3
+```
+(adjust `revoice.sh` step 3 to use `$TTS_URL`/`$TTS_MODEL` — same JSON body).
+
+**Want just the cloning TTS, no full stack?** Deploy the standalone
+**openedai-speech (TTS + voice cloning)** template from the Stack Catalog.
 
 ---
 

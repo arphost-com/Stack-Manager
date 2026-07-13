@@ -1561,6 +1561,29 @@ volumes:
 			EnvContent: "TZ=Etc/UTC\nPUID=1000\nPGID=1000\nTDARR_WEBUI_PORT=8265\nTDARR_SERVER_PORT=8266\nMEDIA_DIR=./media\nTRANSCODE_DIR=./transcode\n",
 			Notes:      "For GPU transcoding, add GPU passthrough (Settings > GPU or the per-project Enable GPU). Point /media at your library.",
 		},
+		{
+			ID: "openedai-speech", Name: "openedai-speech (TTS + voice cloning)",
+			Description: "OpenAI-compatible text-to-speech: fast Piper voices plus XTTS-v2 voice cloning from a reference sample. Drop-in TTS for Open WebUI.",
+			Category:    "ai",
+			Subcategory: "voice-speech",
+			Source:      "docker-hub", Image: "ghcr.io/matatonic/openedai-speech:latest",
+			Tags: []string{"ai", "tts", "voice", "cloning", "xtts", "piper", "openai-compatible"},
+			ComposeContent: `services:
+  openedai-speech:
+    image: ghcr.io/matatonic/openedai-speech:latest
+    restart: unless-stopped
+    ports:
+      - "${TTS_PORT:-8000}:8000"
+    volumes:
+      - openedai-config:/app/config
+      - openedai-voices:/app/voices
+volumes:
+  openedai-config:
+  openedai-voices:
+`,
+			EnvContent: "TTS_PORT=8000\n",
+			Notes:      "OpenAI-compatible TTS at /v1/audio/speech (no homepage at /). Model tts-1 = fast Piper voices; tts-1-hd = XTTS-v2 (quality + voice cloning; GPU strongly recommended — enable GPU passthrough). To CLONE a voice: put a clean 10-30s WAV in the openedai-voices volume and add a custom voice in config/voice_to_speaker.yaml pointing at it, then request that voice name. In Open WebUI set Audio TTS to OpenAI, base URL http://<host>:TTS_PORT/v1 (or http://openedai-speech:8000/v1 from inside a network), model tts-1-hd, voice = your custom name. Only clone voices you have rights to use.",
+		},
 
 		// ---- Non-AI: monitoring +3 ----
 		{
