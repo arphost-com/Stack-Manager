@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { audit } from '../api/client';
+import { audit, system } from '../api/client';
 
 const emptyFilters = {
   node: '',
@@ -38,6 +38,28 @@ export default function AuditLog() {
   const [error, setError] = useState('');
   const [highlightId, setHighlightId] = useState('');
   const rowRefs = useRef({});
+
+  // Second tab: Stack Manager's OWN server container log.
+  const [view, setView] = useState('audit'); // 'audit' | 'applog'
+  const [appLog, setAppLog] = useState('');
+  const [appLogTail, setAppLogTail] = useState(500);
+  const [appLogContainer, setAppLogContainer] = useState('');
+  const [appLogLoading, setAppLogLoading] = useState(false);
+  const [appLogErr, setAppLogErr] = useState('');
+
+  const loadAppLog = useCallback(async (tail) => {
+    setAppLogLoading(true);
+    setAppLogErr('');
+    try {
+      const res = await system.appLog(tail);
+      setAppLog(res.data?.log || '');
+      setAppLogContainer(res.data?.container || '');
+    } catch (err) {
+      setAppLogErr(err.message);
+    } finally {
+      setAppLogLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async (nextFilters) => {
     setLoading(true);
@@ -107,6 +129,20 @@ export default function AuditLog() {
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setView('audit')}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${view === 'audit' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >Command Audit</button>
+        <button
+          type="button"
+          onClick={() => { setView('applog'); if (!appLog && !appLogLoading) loadAppLog(appLogTail); }}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${view === 'applog' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >Server Log</button>
+      </div>
+
+      {view === 'audit' && (<>
       <div className="section-panel">
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -232,6 +268,39 @@ export default function AuditLog() {
           </div>
         </div>
       </div>
+      </>)}
+
+      {view === 'applog' && (
+        <div className="section-panel">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-950">Server Log</h1>
+              <p className="text-sm text-gray-600">
+                Stack Manager's own server container log (startup, errors, scheduler, background metrics).
+                {appLogContainer && <span className="ml-1 font-mono text-xs text-gray-500">[{appLogContainer.slice(0, 12)}]</span>}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <label className="text-sm text-gray-700">
+                Lines
+                <select className="input ml-1" value={appLogTail} onChange={e => { const t = Number(e.target.value); setAppLogTail(t); loadAppLog(t); }}>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                  <option value={1000}>1000</option>
+                  <option value={2000}>2000</option>
+                </select>
+              </label>
+              <button type="button" className="btn-secondary" onClick={() => loadAppLog(appLogTail)} disabled={appLogLoading}>
+                {appLogLoading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          {appLogErr && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{appLogErr}</div>}
+          <pre className="max-h-[70vh] overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] leading-relaxed text-gray-100 whitespace-pre-wrap break-words">
+            {appLog || (appLogLoading ? 'Loading…' : 'No log output.')}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

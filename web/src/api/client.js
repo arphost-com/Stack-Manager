@@ -319,6 +319,7 @@ export const system = {
   setName: (name) => request('/system/info', { method: 'PUT', body: JSON.stringify({ server_name: name }) }),
   tzStatus: () => request('/system/tz'),
   setTz: (tz) => request('/system/tz', { method: 'POST', body: JSON.stringify({ tz }) }),
+  appLog: (tail = 500) => request(`/system/app-log?tail=${encodeURIComponent(tail)}`),
   prune: (mode = 'safe') => request('/prune', { method: 'POST', body: JSON.stringify({ mode }) }),
 };
 

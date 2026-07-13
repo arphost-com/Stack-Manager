@@ -185,6 +185,7 @@ func main() {
 	osUpdateHandler := handlers.NewOSUpdateHandler()
 	selfUpdateHandler := handlers.NewSelfUpdateHandler()
 	systemTZHandler := handlers.NewSystemTZHandler()
+	systemAppLogHandler := handlers.NewSystemAppLogHandler()
 	agentCheckinHandler := handlers.NewAgentCheckinHandler(appStore)
 	scheduleHandler := handlers.NewScheduleHandler(appStore, scheduler)
 	metricsHandler := handlers.NewMetricsHandler(appStore, metricsCollector)
@@ -366,6 +367,7 @@ func main() {
 			r.Post("/system/tz", systemTZHandler.Apply)
 			r.Get("/system/info", systemInfoHandler.Get)
 			r.Put("/system/info", systemInfoHandler.Save)
+			r.Get("/system/app-log", systemAppLogHandler.Get)
 
 			// Agent proxy — forward actions to inbound agents
 			r.HandleFunc("/agent-proxy/{agentId}/*", agentProxyHandler.Proxy)

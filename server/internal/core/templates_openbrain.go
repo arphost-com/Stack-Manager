@@ -389,10 +389,39 @@ networks:
         ollama pull ${EMBED_MODEL:-nomic-embed-text}
     networks: [openbrain]
 
+  # Pre-downloads the Whisper model with a CURRENT huggingface client, then exits.
+  # The faster-whisper-server image ships an old huggingface_hub that cannot fetch
+  # models migrated to HuggingFace's Xet storage (the download fails with an S3
+  # "AccessDenied"). This sidecar fetches the model into the shared cache first,
+  # so whisper finds it locally and never has to hit Xet with its old client.
+  whisper-init:
+    image: python:3.12-slim
+    restart: "no"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      WHISPER_MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-small}
+    volumes:
+      - whisper-cache:/root/.cache
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if find /root/.cache/huggingface/hub -name model.bin -size +1M 2>/dev/null | grep -q .; then
+          echo "whisper model already cached; skipping download"; exit 0
+        fi
+        echo "installing hf client + downloading ${WHISPER_MODEL} ..."
+        pip install --no-cache-dir -q "huggingface_hub[hf_xet]"
+        hf download "${WHISPER_MODEL}"
+        chmod -R a+rX /root/.cache/huggingface
+        echo "whisper model cached"
+    networks: [openbrain]
+
   # Speech-to-text: your voice recordings -> text. OpenAI-compatible /v1 API.
   whisper:
     image: fedirz/faster-whisper-server:latest-cpu
     restart: unless-stopped
+    depends_on:
+      whisper-init:
+        condition: service_completed_successfully
     ports:
       - "${WHISPER_PORT:-8001}:8000"
     environment:
