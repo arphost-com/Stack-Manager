@@ -342,8 +342,10 @@ func main() {
 
 			// Reverse proxy (NPM)
 			r.Get("/proxy/status", proxyHandler.Status)
+			r.Get("/proxy/forward-host", proxyHandler.ForwardHost)
 			r.Post("/proxy/deploy", proxyHandler.DeployNPM)
 			r.Post("/proxy/configure", proxyHandler.Configure)
+			r.Post("/proxy/disconnect", proxyHandler.Disconnect)
 			r.Get("/proxy/hosts", proxyHandler.ListHosts)
 			r.Post("/proxy/hosts", proxyHandler.CreateHost)
 			r.Delete("/proxy/hosts", proxyHandler.DeleteHost)

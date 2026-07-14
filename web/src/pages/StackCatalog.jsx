@@ -5,6 +5,7 @@ import { projects, stackTemplates, system } from '../api/client';
 const CATEGORY_LABELS = {
   ai: 'AI',
   automation: 'Automation',
+  chat: 'Chat',
   cms: 'CMS',
   database: 'Database',
   devtools: 'Dev Tools',
@@ -27,6 +28,7 @@ const CATEGORY_DESCRIPTIONS = {
   all: 'Every built-in stack. Use the search box or the category chips to narrow the list.',
   ai: 'AI/ML stacks: LLM inference, image and voice generation, vector databases, RAG workflows, search, code assistants, and personal agent gateways.',
   automation: 'Task automation, workflow engines, cron schedulers, and notification systems.',
+  chat: 'IRC servers and clients, Matrix and XMPP, team chat, and live-chat platforms.',
   cms: 'Content management systems, blog platforms, and e-commerce storefronts.',
   database: 'SQL, NoSQL, and graph databases with persistent volumes ready to be shared with other stacks.',
   devtools: 'Developer tools: CI/CD servers, Git forges, in-browser IDEs, code intelligence, and diagram editors.',

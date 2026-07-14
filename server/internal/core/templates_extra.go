@@ -2761,8 +2761,8 @@ configs:
 volumes:
   headscale_data:
 `,
-			EnvContent: "HEADSCALE_PORT=8080\nHEADSCALE_METRICS_PORT=9090\nHEADSCALE_UI_PORT=8081\nHEADSCALE_SERVER_URL=http://127.0.0.1:8080\n",
-			Notes:      "Control plane only (no NET_ADMIN). A minimal config.yaml is shipped via configs: — set HEADSCALE_SERVER_URL to the URL clients will reach (e.g. https://your-host) before deploying. Clients: tailscale up --login-server=<url>. Make a pre-auth key with: docker exec <ctr> headscale preauthkeys create --user <u>. The UI (HEADSCALE_UI_PORT 8081) needs an API key: headscale apikeys create.",
+			EnvContent: "HEADSCALE_PORT=8080\nHEADSCALE_METRICS_PORT=9090\nHEADSCALE_UI_PORT=8081\nHEADSCALE_SERVER_URL=http://SET-TO-HOST-LAN-OR-PUBLIC-IP:8080\n",
+			Notes:      "Control plane only (no NET_ADMIN). REQUIRED before deploy: set HEADSCALE_SERVER_URL to the host's own network IP that Tailscale clients will actually reach — the server's LAN IP (e.g. http://192.168.1.10:8080) or public IP/domain (e.g. https://vpn.example.com). Do NOT use 127.0.0.1/localhost and NOT a docker-internal IP (172.x/10.x bridge) — clients receive this URL and must connect to it. Clients join with: tailscale up --login-server=<that URL>. Pre-auth key: docker exec <ctr> headscale preauthkeys create --user <u>. The UI (HEADSCALE_UI_PORT 8081) needs an API key: headscale apikeys create.",
 		},
 		{
 			ID: "pritunl", Name: "Pritunl", Description: "Enterprise OpenVPN/WireGuard server with a web admin console (community Docker image + MongoDB).",
@@ -2912,6 +2912,466 @@ networks:
 `,
 			EnvContent: "PROXYFORGE_HTTP_PORT=8088\nPROXYFORGE_HTTPS_PORT=8443\nPROXYFORGE_SOCKS_PORT=1080\nPROXYFORGE_SQUID_HTTP_PORT=3128\nPROXYFORGE_SSL_MODE=disabled\nPROXYFORGE_PUBLIC_PROXY_HOST=\nDATA_FOLDER=./data\nPROXYFORGE_JWT_SECRET=change-me-openssl-rand-hex-32\nPROXYFORGE_BOOTSTRAP_ADMIN_EMAIL=admin@example.com\nPROXYFORGE_BOOTSTRAP_ADMIN_PASSWORD=change-me-on-first-login\n",
 			Notes:      "ARPHost product. No published images — Compose builds the 4 images from the public GitHub repo on first up (needs build tools + internet). Set PROXYFORGE_JWT_SECRET (openssl rand -hex 32) and the bootstrap admin email/password before deploy. Web admin on PROXYFORGE_HTTP_PORT (8088); SOCKS5 on 1080, HTTP-CONNECT on 3128.",
+		},
+
+		// ---- Chat: IRC, Matrix, XMPP, team chat ----
+		{
+			ID: "the-lounge", Name: "The Lounge", Description: "Self-hosted, always-on web IRC client with a built-in bouncer.",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "docker-hub", Image: "ghcr.io/thelounge/thelounge:latest",
+			Tags: []string{"chat", "irc", "web-client", "bouncer"},
+			ComposeContent: `services:
+  thelounge:
+    image: ghcr.io/thelounge/thelounge:latest
+    restart: unless-stopped
+    ports:
+      - "${THELOUNGE_PORT:-9000}:9000"
+    volumes:
+      - thelounge_data:/var/opt/thelounge
+volumes:
+  thelounge_data:
+`,
+			EnvContent: "THELOUNGE_PORT=9000\n",
+			Notes:      "Private mode by default. After first start, create a user: docker compose exec thelounge thelounge add <name>. Config + users persist in the volume. Front with TLS via a reverse proxy.",
+		},
+		{
+			ID: "ergo", Name: "Ergo", Description: "Modern all-in-one IRCd with bouncer, history, and account services built in.",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "docker-hub", Image: "ghcr.io/ergochat/ergo:stable",
+			Tags: []string{"chat", "irc", "ircd", "server"},
+			ComposeContent: `services:
+  ergo:
+    image: ghcr.io/ergochat/ergo:stable
+    restart: unless-stopped
+    ports:
+      - "${ERGO_PLAIN_PORT:-6667}:6667"
+      - "${ERGO_TLS_PORT:-6697}:6697"
+    volumes:
+      - ergo_data:/ircd
+volumes:
+  ergo_data:
+`,
+			EnvContent: "ERGO_PLAIN_PORT=6667\nERGO_TLS_PORT=6697\n",
+			Notes:      "On first run the entrypoint auto-generates ircd.yaml, self-signed TLS certs, and the DB in the volume — no config to ship. Edit the generated ircd.yaml (oper hash via 'ergo genpasswd') then restart to customize.",
+		},
+		{
+			ID: "znc", Name: "ZNC", Description: "Advanced IRC bouncer that stays connected and replays buffers to your client.",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "linuxserver", Image: "lscr.io/linuxserver/znc:latest",
+			Tags: []string{"chat", "irc", "bouncer"},
+			ComposeContent: `services:
+  znc:
+    image: lscr.io/linuxserver/znc:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    ports:
+      - "${ZNC_PORT:-6501}:6501"
+    volumes:
+      - znc_config:/config
+volumes:
+  znc_config:
+`,
+			EnvContent: "ZNC_PORT=6501\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "First boot generates config in /config. If no admin exists, run: docker compose exec znc znc --makeconf --datadir /config/data to create the admin user/port, then restart. Web UI + IRC share port 6501.",
+		},
+		{
+			ID: "soju", Name: "Soju", Description: "Advanced modern IRC bouncer with multi-user, history, and IRCv3 support.",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "docker-hub", Image: "ghcr.io/fourstepper/soju:latest",
+			Tags: []string{"chat", "irc", "bouncer"},
+			ComposeContent: `services:
+  soju:
+    image: ghcr.io/fourstepper/soju:latest
+    restart: unless-stopped
+    ports:
+      - "${SOJU_PORT:-6667}:6667"
+    volumes:
+      - soju_data:/var/lib/soju
+    configs:
+      - source: soju_config
+        target: /etc/soju/config
+configs:
+  soju_config:
+    content: |
+      listen irc+insecure://:6667
+      hostname localhost
+      db sqlite3 /var/lib/soju/main.db
+      message-store db
+volumes:
+  soju_data:
+`,
+			EnvContent: "SOJU_PORT=6667\n",
+			Notes:      "Upstream ships no official image — this is a community build. A minimal insecure-listener config is shipped via configs:. After start, create your user: docker compose exec soju sojuctl create-user <name> -admin. Add TLS (listen ircs://) with real certs for production.",
+		},
+		{
+			ID: "convos", Name: "Convos", Description: "Persistent, always-online IRC web client with a built-in bouncer, in your browser.",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "docker-hub", Image: "ghcr.io/convos-chat/convos:stable",
+			Tags: []string{"chat", "irc", "web-client", "bouncer"},
+			ComposeContent: `services:
+  convos:
+    image: ghcr.io/convos-chat/convos:stable
+    restart: unless-stopped
+    ports:
+      - "${CONVOS_PORT:-3000}:3000"
+    volumes:
+      - convos_data:/data
+volumes:
+  convos_data:
+`,
+			EnvContent: "CONVOS_PORT=3000\n",
+			Notes:      "First registered account becomes admin. Data (settings, connections) persists in /data. Put TLS in front via a reverse proxy.",
+		},
+		{
+			ID: "unrealircd", Name: "UnrealIRCd", Description: "Classic, widely-deployed open-source IRC server (UnrealIRCd 6).",
+			Category:    "chat",
+			Subcategory: "irc",
+			Source:      "docker-hub", Image: "ircd/unrealircd:latest",
+			Tags: []string{"chat", "irc", "ircd", "server"},
+			ComposeContent: `services:
+  unrealircd:
+    image: ircd/unrealircd:latest
+    restart: unless-stopped
+    ports:
+      - "${UNREAL_PLAIN_PORT:-6667}:6667"
+      - "${UNREAL_TLS_PORT:-6697}:6697"
+    volumes:
+      - unrealircd_data:/data
+volumes:
+  unrealircd_data:
+`,
+			EnvContent: "UNREAL_PLAIN_PORT=6667\nUNREAL_TLS_PORT=6697\n",
+			Notes:      "Requires unrealircd.conf in the /data/conf volume (set me{}, admin{}, cloak-keys via 'unrealircd gencloak', and an oper{} block). Copy examples/example.conf into the conf volume and edit, then restart. TLS certs auto-generate if absent.",
+		},
+		{
+			ID: "matrix-synapse", Name: "Matrix Synapse", Description: "Reference Matrix homeserver for federated, end-to-end-encrypted chat.",
+			Category:    "chat",
+			Subcategory: "matrix",
+			Source:      "docker-hub", Image: "matrixdotorg/synapse:latest",
+			Tags: []string{"chat", "matrix", "federated", "homeserver"},
+			ComposeContent: `services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-change-me}
+      - POSTGRES_DB=synapse
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    volumes:
+      - synapse_db:/var/lib/postgresql/data
+  synapse:
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-matrix.example.com}
+      - SYNAPSE_REPORT_STATS=no
+    ports:
+      - "${SYNAPSE_PORT:-8008}:8008"
+    volumes:
+      - ./data:/data
+volumes:
+  synapse_db:
+`,
+			EnvContent: "SYNAPSE_PORT=8008\nSYNAPSE_SERVER_NAME=matrix.example.com\nDB_PASSWORD=change-me\n",
+			Notes:      "One-time init generates homeserver.yaml into ./data: docker compose run --rm synapse generate. Edit the generated yaml to use the postgres block (host db, user/db synapse), then up -d. Create admin: docker compose exec synapse register_new_matrix_user -c /data/homeserver.yaml http://localhost:8008. TLS-terminate upstream.",
+		},
+		{
+			ID: "continuwuity", Name: "Continuwuity", Description: "Lightweight single-binary Matrix homeserver (community continuation of conduwuit).",
+			Category:    "chat",
+			Subcategory: "matrix",
+			Source:      "docker-hub", Image: "ghcr.io/continuwuity/continuwuity:latest",
+			Tags: []string{"chat", "matrix", "federated", "homeserver", "lightweight"},
+			ComposeContent: `services:
+  continuwuity:
+    image: ghcr.io/continuwuity/continuwuity:latest
+    restart: unless-stopped
+    environment:
+      - CONTINUWUITY_SERVER_NAME=${CONTINUWUITY_SERVER_NAME:-matrix.example.com}
+      - CONTINUWUITY_DATABASE_PATH=/var/lib/continuwuity
+      - CONTINUWUITY_PORT=8008
+      - CONTINUWUITY_ADDRESS=0.0.0.0
+      - CONTINUWUITY_ALLOW_REGISTRATION=false
+      - CONTINUWUITY_REGISTRATION_TOKEN=${CONTINUWUITY_REG_TOKEN:-change-me}
+    ports:
+      - "${CONTINUWUITY_PORT:-8008}:8008"
+    volumes:
+      - continuwuity_data:/var/lib/continuwuity
+volumes:
+  continuwuity_data:
+`,
+			EnvContent: "CONTINUWUITY_PORT=8008\nCONTINUWUITY_SERVER_NAME=matrix.example.com\nCONTINUWUITY_REG_TOKEN=change-me\n",
+			Notes:      "Drop-in successor to the abandoned conduwuit. Embedded RocksDB (no external DB). Set a real CONTINUWUITY_SERVER_NAME (immutable after first start). Enable registration only briefly (or use the token) to create the first admin.",
+		},
+		{
+			ID: "element-web", Name: "Element Web", Description: "Full-featured Matrix web client (static SPA) pointed at your homeserver.",
+			Category:    "chat",
+			Subcategory: "matrix",
+			Source:      "docker-hub", Image: "vectorim/element-web:latest",
+			Tags: []string{"chat", "matrix", "web-client"},
+			ComposeContent: `services:
+  element:
+    image: vectorim/element-web:latest
+    restart: unless-stopped
+    ports:
+      - "${ELEMENT_PORT:-8080}:80"
+    configs:
+      - source: element_config
+        target: /app/config.json
+configs:
+  element_config:
+    content: |
+      {
+        "default_server_config": {
+          "m.homeserver": {
+            "base_url": "https://matrix.example.com",
+            "server_name": "example.com"
+          }
+        },
+        "brand": "Element"
+      }
+`,
+			EnvContent: "ELEMENT_PORT=8080\n",
+			Notes:      "Stateless — edit the config.json (shipped via configs:) base_url/server_name to point at your homeserver. Serve behind TLS. No volume needed.",
+		},
+		{
+			ID: "mattermost", Name: "Mattermost", Description: "Self-hosted Slack alternative for team messaging (Team Edition, open source).",
+			Category:    "chat",
+			Subcategory: "team",
+			Source:      "docker-hub", Image: "mattermost/mattermost-team-edition:latest",
+			Tags: []string{"chat", "team", "slack-alternative"},
+			ComposeContent: `services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=mmuser
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-change-me}
+      - POSTGRES_DB=mattermost
+    volumes:
+      - mm_db:/var/lib/postgresql/data
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      - MM_SQLSETTINGS_DRIVERNAME=postgres
+      - MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:${DB_PASSWORD:-change-me}@db:5432/mattermost?sslmode=disable
+      - MM_SERVICESETTINGS_SITEURL=${MM_SITEURL:-http://localhost:8065}
+    ports:
+      - "${MATTERMOST_PORT:-8065}:8065"
+    volumes:
+      - mm_data:/mattermost/data
+      - mm_config:/mattermost/config
+      - mm_logs:/mattermost/logs
+      - mm_plugins:/mattermost/plugins
+volumes:
+  mm_db:
+  mm_data:
+  mm_config:
+  mm_logs:
+  mm_plugins:
+`,
+			EnvContent: "MATTERMOST_PORT=8065\nMM_SITEURL=http://localhost:8065\nDB_PASSWORD=change-me\n",
+			Notes:      "First user to sign up becomes system admin. Set MM_SERVICESETTINGS_SITEURL to your external URL and DB_PASSWORD before first boot. TLS-terminate upstream.",
+		},
+		{
+			ID: "rocket-chat", Name: "Rocket.Chat", Description: "Open-source team chat / Slack alternative with channels, voice, and integrations.",
+			Category:    "chat",
+			Subcategory: "team",
+			Source:      "docker-hub", Image: "registry.rocket.chat/rocketchat/rocket.chat:latest",
+			Tags: []string{"chat", "team", "slack-alternative"},
+			ComposeContent: `services:
+  mongo:
+    image: mongo:6.0
+    restart: unless-stopped
+    command: mongod --replSet rs0 --oplogSize 128 --bind_ip_all
+    volumes:
+      - rc_mongo:/data/db
+  mongo-init:
+    image: mongo:6.0
+    depends_on:
+      - mongo
+    restart: "no"
+    entrypoint:
+      - bash
+      - -c
+      - >
+        sleep 8 &&
+        mongosh --host mongo --eval
+        'try { rs.status() } catch(e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]}) }'
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    restart: unless-stopped
+    depends_on:
+      - mongo-init
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/rocketchat?replicaSet=rs0
+      - MONGO_OPLOG_URL=mongodb://mongo:27017/local?replicaSet=rs0
+      - ROOT_URL=${ROCKETCHAT_ROOT_URL:-http://localhost:3000}
+      - PORT=3000
+    ports:
+      - "${ROCKETCHAT_PORT:-3000}:3000"
+volumes:
+  rc_mongo:
+`,
+			EnvContent: "ROCKETCHAT_PORT=3000\nROCKETCHAT_ROOT_URL=http://localhost:3000\n",
+			Notes:      "MongoDB runs as a replica set; the mongo-init sidecar runs rs.initiate once then exits, and Rocket.Chat waits for it. First registered user is admin. Set ROOT_URL to your external URL.",
+		},
+		{
+			ID: "prosody", Name: "Prosody", Description: "Lightweight, modular XMPP/Jabber server (official Prosody image).",
+			Category:    "chat",
+			Subcategory: "xmpp",
+			Source:      "docker-hub", Image: "prosodyim/prosody:latest",
+			Tags: []string{"chat", "xmpp", "jabber", "server"},
+			ComposeContent: `services:
+  prosody:
+    image: prosodyim/prosody:latest
+    restart: unless-stopped
+    environment:
+      - LOCAL=${XMPP_ADMIN_USER:-admin}
+      - DOMAIN=${XMPP_DOMAIN:-example.com}
+      - PASSWORD=${XMPP_ADMIN_PASSWORD:-change-me}
+    ports:
+      - "${XMPP_C2S_PORT:-5222}:5222"
+      - "${XMPP_S2S_PORT:-5269}:5269"
+      - "${XMPP_HTTPS_PORT:-5281}:5281"
+    volumes:
+      - prosody_config:/etc/prosody
+      - prosody_data:/var/lib/prosody
+volumes:
+  prosody_config:
+  prosody_data:
+`,
+			EnvContent: "XMPP_C2S_PORT=5222\nXMPP_S2S_PORT=5269\nXMPP_HTTPS_PORT=5281\nXMPP_DOMAIN=example.com\nXMPP_ADMIN_USER=admin\nXMPP_ADMIN_PASSWORD=change-me\n",
+			Notes:      "The first account is created from LOCAL/DOMAIN/PASSWORD (admin JID = LOCAL@DOMAIN). Drop your own prosody.cfg.lua into the config volume for federation/TLS; provide certs under /etc/prosody/certs.",
+		},
+		{
+			ID: "ejabberd", Name: "ejabberd", Description: "Robust, massively-scalable XMPP server with web admin and MUC/PubSub.",
+			Category:    "chat",
+			Subcategory: "xmpp",
+			Source:      "docker-hub", Image: "ghcr.io/processone/ejabberd:latest",
+			Tags: []string{"chat", "xmpp", "jabber", "server"},
+			ComposeContent: `services:
+  ejabberd:
+    image: ghcr.io/processone/ejabberd:latest
+    restart: unless-stopped
+    environment:
+      - CTL_ON_CREATE=register admin ${EJABBERD_DOMAIN:-example.com} ${EJABBERD_ADMIN_PASSWORD:-change-me}
+    ports:
+      - "${EJABBERD_C2S_PORT:-5222}:5222"
+      - "${EJABBERD_S2S_PORT:-5269}:5269"
+      - "${EJABBERD_ADMIN_PORT:-5280}:5280"
+    volumes:
+      - ejabberd_data:/home/ejabberd/database
+      - ejabberd_conf:/home/ejabberd/conf
+volumes:
+  ejabberd_data:
+  ejabberd_conf:
+`,
+			EnvContent: "EJABBERD_C2S_PORT=5222\nEJABBERD_S2S_PORT=5269\nEJABBERD_ADMIN_PORT=5280\nEJABBERD_DOMAIN=example.com\nEJABBERD_ADMIN_PASSWORD=change-me\n",
+			Notes:      "Set EJABBERD_DOMAIN and register the admin (CTL_ON_CREATE handles it on first boot, or run: docker compose exec ejabberd ejabberdctl register admin <domain> <pw>). Web admin at :5280/admin.",
+		},
+		{
+			ID: "snikket", Name: "Snikket", Description: "All-in-one, opinionated self-hosted XMPP service (server + portal + push + TURN).",
+			Category:    "chat",
+			Subcategory: "xmpp",
+			Source:      "docker-hub", Image: "snikket/snikket:stable",
+			Tags: []string{"chat", "xmpp", "jabber", "all-in-one"},
+			ComposeContent: `services:
+  snikket:
+    image: snikket/snikket:stable
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - SNIKKET_DOMAIN=${SNIKKET_DOMAIN:-chat.example.com}
+      - SNIKKET_ADMIN_EMAIL=${SNIKKET_ADMIN_EMAIL:-admin@example.com}
+    volumes:
+      - snikket_data:/snikket
+  snikket_portal:
+    image: snikket/snikket-portal:stable
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - snikket
+volumes:
+  snikket_data:
+`,
+			EnvContent: "SNIKKET_DOMAIN=chat.example.com\nSNIKKET_ADMIN_EMAIL=admin@example.com\n",
+			Notes:      "ADVANCED: uses host networking (binds 80, 443, 5222, 5269, 5000, TURN 3478 + 49152-49172 on the host directly) and needs SNIKKET_DOMAIN with public DNS: A record chat.example.com plus CNAMEs groups. and share.. Ports 80/443 must be reachable for Let's Encrypt. Invite-based signup via the portal.",
+		},
+		{
+			ID: "chatwoot", Name: "Chatwoot", Description: "Open-source live-chat / customer-support platform (omnichannel help desk).",
+			Category:    "chat",
+			Subcategory: "team",
+			Source:      "docker-hub", Image: "chatwoot/chatwoot:latest",
+			Tags: []string{"chat", "livechat", "support", "helpdesk"},
+			ComposeContent: `services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=chatwoot
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-change-me}
+      - POSTGRES_DB=chatwoot_production
+    volumes:
+      - cw_pg:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-change-me}
+    volumes:
+      - cw_redis:/data
+  rails:
+    image: chatwoot/chatwoot:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment: &cw_env
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE:-change-me}
+      - FRONTEND_URL=${CHATWOOT_FRONTEND_URL:-http://localhost:3000}
+      - RAILS_ENV=production
+      - NODE_ENV=production
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USERNAME=chatwoot
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-change-me}
+      - POSTGRES_DATABASE=chatwoot_production
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-change-me}@redis:6379
+    entrypoint: docker/entrypoints/rails.sh
+    command: bundle exec rails s -b 0.0.0.0 -p 3000
+    ports:
+      - "${CHATWOOT_PORT:-3000}:3000"
+    volumes:
+      - cw_storage:/app/storage
+  sidekiq:
+    image: chatwoot/chatwoot:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment: *cw_env
+    command: bundle exec sidekiq -C config/sidekiq.yml
+    volumes:
+      - cw_storage:/app/storage
+volumes:
+  cw_pg:
+  cw_redis:
+  cw_storage:
+`,
+			EnvContent: "CHATWOOT_PORT=3000\nCHATWOOT_FRONTEND_URL=http://localhost:3000\nSECRET_KEY_BASE=change-me-openssl-rand-hex-64\nDB_PASSWORD=change-me\nREDIS_PASSWORD=change-me\n",
+			Notes:      "Set SECRET_KEY_BASE (openssl rand -hex 64) + DB/Redis passwords first. One-time DB init before first up: docker compose run --rm --entrypoint 'bundle exec rails db:chatwoot_prepare' rails. Same image runs rails (web) + sidekiq (worker). First signup creates the super admin.",
 		},
 
 		// ---- Non-AI: monitoring +3 ----

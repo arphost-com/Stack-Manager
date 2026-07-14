@@ -128,6 +128,75 @@ func (h *ProxyHandler) Configure(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Disconnect clears the stored NPM connection (URL, credentials, and token) so
+// the dashboard forgets it and shows the setup form again. NPM itself and any
+// proxy hosts it manages are left untouched — this only drops Stack Manager's
+// saved link to it.
+func (h *ProxyHandler) Disconnect(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	h.mu.Lock()
+	h.npmURL = ""
+	h.npmToken = ""
+	h.npmUser = ""
+	h.npmPass = ""
+	h.npmExp = time.Time{}
+	h.mu.Unlock()
+
+	if h.store != nil {
+		_ = h.store.SetSetting(context.Background(), npmSettingKey, "")
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"connected": false})
+}
+
+// npmContainerID finds the running Nginx Proxy Manager container by image name.
+func npmContainerID() string {
+	res, err := core.DockerExec("ps", "--format", "{{.ID}}\t{{.Image}}")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && strings.Contains(parts[1], "nginx-proxy-manager") {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	return ""
+}
+
+// npmGateway returns the Docker network gateway of the NPM container. That
+// address reaches host-published ports from *inside* the NPM container without
+// the public-IP hairpin that causes 504s, so it's the correct forward host when
+// proxying a service that runs on the same host as NPM.
+func npmGateway() string {
+	id := npmContainerID()
+	if id == "" {
+		return ""
+	}
+	res, err := core.DockerExec("inspect", "--format", "{{range .NetworkSettings.Networks}}{{.Gateway}} {{end}}", id)
+	if err != nil {
+		return ""
+	}
+	for _, gw := range strings.Fields(res.Stdout) {
+		if gw != "" {
+			return gw
+		}
+	}
+	return ""
+}
+
+// ForwardHost returns the recommended forward-host address for proxying a
+// same-host service through NPM (NPM's Docker gateway). The dashboard uses it to
+// prefill "Add to Proxy" targets instead of the host's public IP.
+func (h *ProxyHandler) ForwardHost(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"forward_host": npmGateway()})
+}
+
 // Status returns whether NPM is configured and reachable.
 func (h *ProxyHandler) Status(w http.ResponseWriter, r *http.Request) {
 	if !middleware.RequireAdmin(w, r) {
@@ -243,6 +312,11 @@ func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The NPM template references the shared stackmgr-net network as external, so
+	// it must exist before compose up (idempotent; normally already created for
+	// the Stack Manager stack by prepare-state.sh).
+	_, _ = core.DockerExec("network", "create", "stackmgr-net")
+
 	project, err := h.engine.GetProject(projectName)
 	if err != nil {
 		// Not present yet — create it from the template.
@@ -269,38 +343,47 @@ func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-initialize NPM's admin (set a real password) and wire the connection
-	// over localhost so it "just works" without the operator touching NPM's UI.
-	const localURL = "http://localhost:81"
-	email, pass, initErr := h.initNPMDefaults(dialURL(localURL))
+	// so it "just works" without the operator touching NPM's UI. Prefer the
+	// shared-network alias (admin :81 is bound to localhost on the host and only
+	// reachable over stackmgr-net); fall back to the host gateway for older NPM
+	// deployments that still publish :81 on the host.
+	npmURL := "http://stackmgr-npm:81"
+	email, pass, initErr := h.initNPMDefaults(npmURL)
 	if initErr != nil {
-		// NPM is up but auto-setup didn't run (already initialized, or slow to
-		// start). Fall back to manual connect.
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"deployed":         true,
-			"project":          projectName,
-			"auto_configured":  false,
-			"default_login":    "admin@example.com",
-			"default_password": "changeme",
-			"note":             "NPM deployed. Auto-setup skipped (" + initErr.Error() + "). Connect in Settings > Reverse Proxy with http://localhost:81 and your credentials.",
-		})
-		return
+		const fallbackURL = "http://localhost:81"
+		var fbErr error
+		email, pass, fbErr = h.initNPMDefaults(dialURL(fallbackURL))
+		if fbErr != nil {
+			// NPM is up but auto-setup didn't run (already initialized, or slow
+			// to start). Fall back to manual connect.
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"deployed":         true,
+				"project":          projectName,
+				"auto_configured":  false,
+				"default_login":    "admin@example.com",
+				"default_password": "changeme",
+				"note":             "NPM deployed. Auto-setup skipped (" + fbErr.Error() + "). Connect in Settings > Reverse Proxy.",
+			})
+			return
+		}
+		npmURL = fallbackURL
 	}
 	h.mu.Lock()
-	h.npmURL = localURL
+	h.npmURL = npmURL
 	h.npmToken = ""
 	h.npmUser = email
 	h.npmPass = pass
 	h.mu.Unlock()
-	h.persist(localURL, email, pass)
+	h.persist(npmURL, email, pass)
 	_, _, _ = h.ensureToken() // prime a token so the tab shows connected immediately
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"deployed":        true,
 		"project":         projectName,
 		"auto_configured": true,
-		"url":             localURL,
+		"url":             npmURL,
 		"login":           email,
 		"password":        pass,
-		"note":            "NPM deployed and auto-connected over localhost. Save this password — it's also the NPM admin UI login (admin@example.com). Change it in NPM when convenient.",
+		"note":            "NPM deployed and auto-connected over the shared network. Save this password — it's also the NPM admin UI login (admin@example.com). Change it in NPM when convenient. The admin port :81 is bound to localhost only (not internet-exposed).",
 	})
 }
 

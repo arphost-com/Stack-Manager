@@ -283,6 +283,8 @@ export const proxy = {
   status: () => request('/proxy/status'),
   deploy: () => request('/proxy/deploy', { method: 'POST' }),
   configure: (url, email, password) => request('/proxy/configure', { method: 'POST', body: JSON.stringify({ url, email, password }) }),
+  disconnect: () => request('/proxy/disconnect', { method: 'POST' }),
+  forwardHost: () => request('/proxy/forward-host'),
   listHosts: () => request('/proxy/hosts'),
   createHost: (body) => request('/proxy/hosts', { method: 'POST', body: JSON.stringify(body) }),
   deleteHost: (id) => request(`/proxy/hosts?id=${id}`, { method: 'DELETE' }),

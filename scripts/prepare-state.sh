@@ -341,6 +341,14 @@ if [ "${agent_mode}" -eq 0 ]; then
   mkdir -p "${state_dir}/mariadb" "${state_dir}/redis"
 fi
 
+# Shared integration network: Stack Manager and the services it integrates with
+# (Nginx Proxy Manager, etc.) join this so they can talk by container alias
+# without publishing admin ports to the host. docker-compose.yml references it as
+# external, so it must exist before `docker compose up`. Idempotent.
+if command -v docker >/dev/null 2>&1; then
+  docker network create stackmgr-net >/dev/null 2>&1 || true
+fi
+
 if [ "$(id -u)" -eq 0 ]; then
   chown "${state_uid}:${state_gid}" "${state_dir}"
   chown -R "${state_uid}:${state_gid}" "${state_dir}/hooks" "${state_dir}/backups" "${state_dir}/docker-config" "${state_dir}/jobs" "${state_dir}/ssl" "${backup_target_root}"

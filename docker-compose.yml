@@ -95,6 +95,13 @@ services:
     # connected "over localhost" without exposing NPM's admin port externally.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Join the shared Stack Manager integration network so the server reaches
+    # integrated services (e.g. Nginx Proxy Manager) by container alias over
+    # Docker's internal network — no host ports, no public exposure. 'default'
+    # is listed explicitly so the server still reaches mariadb and redis.
+    networks:
+      - default
+      - stackmgr-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Follow the host system timezone (set via Settings > Timezone /
@@ -210,3 +217,13 @@ services:
     environment:
       REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD required}"
     restart: unless-stopped
+
+# Shared, integration-only network. Stack Manager and the services it integrates
+# with (Nginx Proxy Manager, etc.) join this so they can talk by container alias
+# without publishing admin ports to the host. Created by scripts/prepare-state.sh
+# (docker network create stackmgr-net). It is NOT joined by managed user stacks —
+# only Stack Manager's own integrations.
+networks:
+  stackmgr-net:
+    external: true
+    name: stackmgr-net

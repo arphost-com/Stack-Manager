@@ -79,7 +79,7 @@ The main page shows every discovered Compose project with live state, image sour
 
 ### Stack Catalog (200+ Templates)
 
-Browse and deploy from a curated catalog organized into 18 categories and 10 AI subcategories:
+Browse and deploy from a curated catalog organized into 19 categories and 10 AI subcategories:
 
 | Category | Examples |
 |----------|----------|
@@ -99,6 +99,7 @@ Browse and deploy from a curated catalog organized into 18 categories and 10 AI 
 | **Productivity** | Karakeep, Linkwarden, Memos, Vikunja |
 | **Queue** | RabbitMQ, Apache ActiveMQ, Beanstalkd, Faktory |
 | **Automation** | n8n, Huginn, Cronicle, Changedetection.io, ntfy |
+| **Chat** | The Lounge, Ergo, ZNC, Convos (IRC), Matrix Synapse + Element, continuwuity, Mattermost, Rocket.Chat, Prosody, ejabberd (XMPP), Chatwoot |
 
 Templates load into an editable Create Project form — review ports, volumes, passwords, and env vars before deploying. Nothing deploys until you click Create. Templates that need a config file ship a working starter config embedded in the compose (via `configs:`), so they boot out of the box and you can edit the config any time from a project's Config tab.
 

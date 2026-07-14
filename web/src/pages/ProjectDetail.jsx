@@ -3,16 +3,26 @@ import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { projects, projectsForSource, agents as agentsApi, jobs, jobsForSource, debug as debugApi, security, backup, dbadmin, watch as watchApi, firewall as firewallApi, proxy as proxyApi, system } from '../api/client';
 
 // parsePublishedPorts pulls unique host-published TCP ports from a project's
-// containers (Docker port strings like "0.0.0.0:8080->80/tcp").
+// containers. Handles single mappings ("0.0.0.0:8080->80/tcp") and ranges
+// ("0.0.0.0:3000-3001->3000-3001/tcp", which webtop and others use) by expanding
+// the host range into its individual ports.
 function parsePublishedPorts(project) {
-  const ports = new Set();
+  const ports = [];
+  const seen = new Set();
   for (const c of project?.containers || []) {
     for (const mapping of (c.ports || '').split(',')) {
-      const m = mapping.trim().match(/:(\d+)->\d+\/tcp/);
-      if (m && m[1] !== '0') ports.add(m[1]);
+      const m = mapping.trim().match(/:(\d+)(?:-(\d+))?->\d+(?:-\d+)?\/tcp/);
+      if (!m) continue;
+      const start = Number(m[1]);
+      const end = m[2] ? Number(m[2]) : start;
+      if (!start) continue;
+      // Guard against absurd ranges flooding the list.
+      for (let p = start; p <= end && p - start < 64; p++) {
+        if (!seen.has(p)) { seen.add(p); ports.push(String(p)); }
+      }
     }
   }
-  return [...ports];
+  return ports;
 }
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { Terminal } from '@xterm/xterm';
@@ -816,13 +826,20 @@ function ContainerPorts({ ports, state }) {
   const internal = [];
   for (const raw of ports.split(',')) {
     const part = raw.trim();
-    // Published: "0.0.0.0:8080->80/tcp" or "[::]:8080->80/tcp"
-    const pub = part.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]):(\d+)->\d+\/(tcp|udp)/);
+    // Published: "0.0.0.0:8080->80/tcp", "[::]:8080->80/tcp", or a coalesced
+    // range like "0.0.0.0:3000-3001->3000-3001/tcp" (Docker merges consecutive
+    // ports) — expand the range into individual host ports.
+    const pub = part.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]):(\d+)(?:-(\d+))?->\d+(?:-\d+)?\/(tcp|udp)/);
     if (pub) {
-      const [, hostPort, proto] = pub;
-      if (publishedSeen.has(hostPort)) continue;
-      publishedSeen.add(hostPort);
-      published.push({ hostPort, proto });
+      const [, startS, endS, proto] = pub;
+      const start = Number(startS);
+      const end = endS ? Number(endS) : start;
+      for (let p = start; p <= end && p - start < 64; p++) {
+        const hostPort = String(p);
+        if (publishedSeen.has(hostPort)) continue;
+        publishedSeen.add(hostPort);
+        published.push({ hostPort, proto });
+      }
       continue;
     }
     // Exposed only: "5432/tcp" (reachable on the Docker network, not the host)

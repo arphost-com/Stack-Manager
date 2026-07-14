@@ -310,19 +310,30 @@ volumes:
     ports:
       - "${NPM_HTTP_PORT:-80}:80"
       - "${NPM_HTTPS_PORT:-443}:443"
-      - "${NPM_ADMIN_PORT:-81}:81"
+      # Admin UI is bound to localhost only — NOT exposed to the internet.
+      # Stack Manager reaches it over the shared stackmgr-net network by alias.
+      - "127.0.0.1:${NPM_ADMIN_PORT:-81}:81"
     volumes:
       - npm-data:/data
       - npm-letsencrypt:/etc/letsencrypt
+    networks:
+      default: {}
+      stackmgr-net:
+        aliases:
+          - stackmgr-npm
 volumes:
   npm-data:
   npm-letsencrypt:
+networks:
+  stackmgr-net:
+    external: true
+    name: stackmgr-net
 `,
 			EnvContent: `NPM_HTTP_PORT=80
 NPM_HTTPS_PORT=443
 NPM_ADMIN_PORT=81
 `,
-			Notes: "Default admin login: admin@example.com / changeme. Change it immediately after first login. If Stack Manager's web container also binds port 80, change WEB_HTTP_PORT in Stack Manager's .env to avoid a conflict, or set it to 0 to disable.",
+			Notes: "Default admin login: admin@example.com / changeme. Change it immediately after first login. The admin UI (:81) is bound to localhost only and is NOT internet-exposed; Stack Manager connects to it over the shared stackmgr-net network. To reach the admin UI in a browser, use Settings > Reverse Proxy > 'NPM admin (SSL)' to publish it on an HTTPS domain. If Stack Manager's web container also binds port 80, change WEB_HTTP_PORT in Stack Manager's .env to avoid a conflict, or set it to 0.",
 		},
 		{
 			ID:          "adminer",
@@ -3127,14 +3138,16 @@ func remoteDesktopTemplates() []StackTemplate {
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Etc/UTC}
+      - CUSTOM_USER=${WEBTOP_USER:-abc}
+      - PASSWORD=${WEBTOP_PASSWORD:-changeme}
     volumes:
       - webtop-config:/config
     shm_size: "1gb"
 volumes:
   webtop-config:
 `,
-			EnvContent: "WEBTOP_PORT=3000\nWEBTOP_HTTPS_PORT=3001\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
-			Notes:      "Access the desktop at the configured port. Other desktop variants available: alpine-kde, fedora-xfce, arch-xfce, etc. Change the image tag to switch.",
+			EnvContent: "WEBTOP_PORT=3000\nWEBTOP_HTTPS_PORT=3001\nWEBTOP_USER=abc\nWEBTOP_PASSWORD=changeme\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Web UI login is WEBTOP_USER / WEBTOP_PASSWORD (default abc / changeme — change WEBTOP_PASSWORD before exposing it). Two ports: WEBTOP_PORT (3000) is HTTP, WEBTOP_HTTPS_PORT (3001) is HTTPS — open http://<host>:3000 (or https://<host>:3001). Other desktop variants: alpine-kde, fedora-xfce, arch-xfce, etc. — change the image tag to switch.",
 		},
 		{
 			ID:          "firefox",

@@ -166,6 +166,9 @@ export default function Settings() {
   const [npmHosts, setNpmHosts] = useState([]);
   const [npmSuggestions, setNpmSuggestions] = useState([]);
   const [npmHostForm, setNpmHostForm] = useState({ domain: '', forward_host: '', forward_port: '', forward_scheme: 'http' });
+  // NPM's Docker gateway — the address that reaches host-published ports from
+  // inside NPM without the public-IP hairpin (504). Used to prefill forwards.
+  const [npmGateway, setNpmGateway] = useState('');
   const [totpEnrolling, setTotpEnrolling] = useState(false);
   const [totpEnrollData, setTotpEnrollData] = useState(null);
   const [totpVerifyCode, setTotpVerifyCode] = useState('');
@@ -379,9 +382,14 @@ export default function Settings() {
       const res = await proxyApi.status();
       setNpmStatus(res.data);
       if (res.data?.connected) {
-        const [hostsRes, sugRes] = await Promise.all([proxyApi.listHosts().catch(() => ({ data: [] })), proxyApi.suggestions().catch(() => ({ data: [] }))]);
+        const [hostsRes, sugRes, gwRes] = await Promise.all([
+          proxyApi.listHosts().catch(() => ({ data: [] })),
+          proxyApi.suggestions().catch(() => ({ data: [] })),
+          proxyApi.forwardHost().catch(() => ({ data: {} })),
+        ]);
         setNpmHosts(Array.isArray(hostsRes.data) ? hostsRes.data : hostsRes.data ? [hostsRes.data] : []);
         setNpmSuggestions(sugRes.data || []);
+        setNpmGateway(gwRes.data?.forward_host || '');
       }
     } catch (err) { showError(err); }
   };
@@ -391,6 +399,16 @@ export default function Settings() {
       await proxyApi.configure(npmForm.url, npmForm.email, npmForm.password);
       showMessage('Connected to Nginx Proxy Manager.');
       setNpmForm({ ...npmForm, password: '' });
+      loadProxyStatus();
+    } catch (err) { showError(err); }
+  };
+
+  const disconnectNpm = async () => {
+    if (!window.confirm('Disconnect Stack Manager from Nginx Proxy Manager? NPM and its proxy hosts are left untouched — this only forgets the saved connection here.')) return;
+    try {
+      await proxyApi.disconnect();
+      showMessage('Disconnected from Nginx Proxy Manager.');
+      setNpmForm({ url: '', email: 'admin@example.com', password: '' });
       loadProxyStatus();
     } catch (err) { showError(err); }
   };
@@ -422,11 +440,13 @@ export default function Settings() {
   const proxyThisUI = () => {
     setNpmHostForm({
       domain: '',
-      forward_host: window.location.hostname,
+      // Use NPM's Docker gateway (reaches this host's published ports from inside
+      // NPM without the public-IP hairpin), falling back to the hostname.
+      forward_host: npmGateway || window.location.hostname,
       forward_port: window.location.port || '8993',
       forward_scheme: 'https',
     });
-    showMessage('Filled the form to proxy this Stack Manager UI — enter the domain you want, then Create Proxy Host.');
+    showMessage('Filled the form to proxy this Stack Manager UI' + (npmGateway ? ` (forwarding via the Docker gateway ${npmGateway}, no hairpin)` : '') + '. Enter the domain you want, then Create Proxy Host.');
   };
 
   // Put NPM's own admin UI behind HTTPS via a subdomain, so you stop using the
@@ -2325,22 +2345,31 @@ export default function Settings() {
 
           <div className="section-panel space-y-3">
             <h3 className="text-base font-semibold text-gray-950">NPM Connection</h3>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <Field label="NPM Admin URL" hint="e.g. http://78.109.20.111:81">
-                <input className="input" value={npmForm.url} onChange={e => setNpmForm({ ...npmForm, url: e.target.value })} placeholder="http://localhost:81" />
-              </Field>
-              <Field label="Admin Email" hint="default: admin@example.com">
-                <input className="input" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} />
-              </Field>
-              <Field label="Password">
-                <input className="input" type="password" value={npmForm.password} onChange={e => setNpmForm({ ...npmForm, password: e.target.value })} placeholder={npmStatus?.connected ? 'connected' : 'changeme'} />
-              </Field>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="btn-primary" onClick={connectNpm}>Connect</button>
-              {npmStatus?.connected && <Badge tone="green">connected</Badge>}
-              {npmStatus && !npmStatus.connected && npmStatus.configured && <Badge tone="red">disconnected</Badge>}
-            </div>
+            {npmStatus?.connected ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone="green">connected</Badge>
+                {npmStatus?.url && <span className="font-mono text-sm text-gray-600">{npmStatus.url}</span>}
+                <button className="btn-danger" onClick={disconnectNpm} title="Forget the saved NPM connection here. NPM and its proxy hosts are left untouched.">Disconnect</button>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Field label="NPM Admin URL" hint="e.g. http://78.109.20.111:81">
+                    <input className="input" value={npmForm.url} onChange={e => setNpmForm({ ...npmForm, url: e.target.value })} placeholder="http://localhost:81" />
+                  </Field>
+                  <Field label="Admin Email" hint="default: admin@example.com">
+                    <input className="input" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} />
+                  </Field>
+                  <Field label="Password">
+                    <input className="input" type="password" value={npmForm.password} onChange={e => setNpmForm({ ...npmForm, password: e.target.value })} placeholder="changeme" />
+                  </Field>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button className="btn-primary" onClick={connectNpm}>Connect</button>
+                  {npmStatus && !npmStatus.connected && npmStatus.configured && <Badge tone="red">disconnected</Badge>}
+                </div>
+              </>
+            )}
           </div>
 
           {npmStatus?.connected && (
@@ -2380,7 +2409,7 @@ export default function Settings() {
                     {npmSuggestions.map(s => (
                       <button key={s.name} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-100" onClick={() => {
                         const portMatch = s.ports.match(/(\d+)->(\d+)/);
-                        setNpmHostForm({ forward_scheme: 'http', forward_host: window.location.hostname, forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
+                        setNpmHostForm({ forward_scheme: 'http', forward_host: npmGateway || window.location.hostname, forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
                       }} title={s.ports}>{s.name}</button>
                     ))}
                   </div>
@@ -2390,8 +2419,8 @@ export default function Settings() {
                   <Field label="Domain">
                     <input className="input" value={npmHostForm.domain} onChange={e => setNpmHostForm({ ...npmHostForm, domain: e.target.value })} placeholder="app.example.com" />
                   </Field>
-                  <Field label="Forward Host">
-                    <input className="input" value={npmHostForm.forward_host} onChange={e => setNpmHostForm({ ...npmHostForm, forward_host: e.target.value })} placeholder={window.location.hostname} />
+                  <Field label="Forward Host" hint={npmGateway ? `for this host use ${npmGateway} (Docker gateway), not the public IP` : 'for a service on this host, use the Docker gateway or a container name — not the public IP'}>
+                    <input className="input" value={npmHostForm.forward_host} onChange={e => setNpmHostForm({ ...npmHostForm, forward_host: e.target.value })} placeholder={npmGateway || window.location.hostname} />
                   </Field>
                   <Field label="Forward Port">
                     <input className="input" type="number" value={npmHostForm.forward_port} onChange={e => setNpmHostForm({ ...npmHostForm, forward_port: e.target.value })} placeholder="8080" />
