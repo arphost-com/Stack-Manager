@@ -215,7 +215,7 @@ export default function Login() {
           <div className="mt-4">
             {docsTab === 'stacks' && (
               <div className="section-panel space-y-3">
-                <h3 className="text-lg font-semibold">200+ one-click stacks across 16 categories</h3>
+                <h3 className="text-lg font-semibold">200+ one-click stacks across 18 categories</h3>
                 <p className="text-sm leading-6 text-gray-700">
                   AI/ML, media servers &amp; the *arr suite, databases, dev tools, CMS, monitoring, files, proxy, security, automation, and more. Each template loads an editable <code className="rounded bg-gray-100 px-1">compose.yml</code> + <code className="rounded bg-gray-100 px-1">.env</code> into the Create form — nothing deploys until you review it.
                 </p>

@@ -1945,6 +1945,975 @@ volumes:
 			Notes:      "Complete the setup wizard in the web UI (WIZARR_PORT 5690) to connect your media server (admin URL + API key), then hand out invitation links. Data persists in wizarr_data. Only set DISABLE_BUILTIN_AUTH=true when fronting with an external auth proxy.",
 		},
 
+		// ---- Cool & new: gaming, remote, utilities, finance, productivity ----
+		{
+			ID: "romm", Name: "RomM", Description: "Self-hosted ROM manager with EmulatorJS play-in-browser, metadata scraping, and save sync.",
+			Category:    "gaming",
+			Source:      "docker-hub", Image: "rommapp/romm:latest",
+			Tags: []string{"gaming", "roms", "emulation", "emulatorjs"},
+			ComposeContent: `services:
+  romm:
+    image: rommapp/romm:latest
+    restart: unless-stopped
+    environment:
+      - DB_HOST=romm-db
+      - DB_NAME=romm
+      - DB_USER=romm-user
+      - DB_PASSWD=${DB_PASSWD}
+      - ROMM_AUTH_SECRET_KEY=${ROMM_AUTH_SECRET_KEY}
+    volumes:
+      - romm_resources:/romm/resources
+      - romm_redis_data:/redis-data
+      - ./library:/romm/library
+      - ./assets:/romm/assets
+      - ./config:/romm/config
+    ports:
+      - "${ROMM_PORT:-8080}:8080"
+    depends_on:
+      romm-db:
+        condition: service_healthy
+        restart: true
+  romm-db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=romm
+      - MARIADB_USER=romm-user
+      - MARIADB_PASSWORD=${DB_PASSWD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 30s
+      start_interval: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  mysql_data:
+  romm_resources:
+  romm_redis_data:
+`,
+			EnvContent: "ROMM_PORT=8080\nDB_PASSWD=change-me-db-password\nMARIADB_ROOT_PASSWORD=change-me-root-password\nROMM_AUTH_SECRET_KEY=change-me-run-openssl-rand-hex-32\n",
+			Notes:      "Pairs with EmulatorJS to play in-browser. Set DB_PASSWD, MARIADB_ROOT_PASSWORD, and ROMM_AUTH_SECRET_KEY (openssl rand -hex 32) before first boot. Put ROMs under ./library. Optional IGDB/ScreenScraper/SteamGridDB keys improve metadata.",
+		},
+		{
+			ID: "neko", Name: "Neko", Description: "Self-hosted virtual browser streamed over WebRTC for shared/collaborative viewing.",
+			Category:    "remote",
+			Source:      "docker-hub", Image: "ghcr.io/m1k1o/neko/firefox:latest",
+			Tags: []string{"remote", "browser", "webrtc", "watch-party"},
+			ComposeContent: `services:
+  neko:
+    image: ghcr.io/m1k1o/neko/firefox:latest
+    restart: unless-stopped
+    shm_size: "2gb"
+    ports:
+      - "${NEKO_PORT:-8080}:8080"
+      - "52000-52100:52000-52100/udp"
+    environment:
+      NEKO_DESKTOP_SCREEN: 1920x1080@30
+      NEKO_MEMBER_MULTIUSER_USER_PASSWORD: ${NEKO_USER_PASSWORD}
+      NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD: ${NEKO_ADMIN_PASSWORD}
+      NEKO_WEBRTC_EPR: 52000-52100
+      NEKO_WEBRTC_ICELITE: 1
+`,
+			EnvContent: "NEKO_PORT=8080\nNEKO_USER_PASSWORD=change-me-user-password\nNEKO_ADMIN_PASSWORD=change-me-admin-password\n",
+			Notes:      "Swap the image flavor (/chromium, /brave, /kde, ...) for other apps. The UDP 52000-52100 range must be published and match NEKO_WEBRTC_EPR. Behind NAT/public IP add NEKO_NAT1TO1 with your public IP (or drop ICELITE). shm_size 2gb needed for the browser.",
+		},
+		{
+			ID: "guacamole", Name: "Apache Guacamole", Description: "Clientless RDP/VNC/SSH remote-desktop gateway accessed entirely from the browser.",
+			Category:    "remote",
+			Source:      "docker-hub", Image: "guacamole/guacamole:1.6.0",
+			Tags: []string{"remote", "rdp", "vnc", "ssh", "gateway"},
+			ComposeContent: `services:
+  guac-init:
+    image: guacamole/guacamole:1.6.0
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - test -s /init/initdb.sql || /opt/guacamole/bin/initdb.sh --postgresql > /init/initdb.sql
+    volumes:
+      - guac-init:/init
+    restart: "no"
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guacamole_db
+      POSTGRES_USER: guacamole_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - guac_pg:/var/lib/postgresql/data
+      - guac-init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      guac-init:
+        condition: service_completed_successfully
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    restart: unless-stopped
+    depends_on:
+      - guacd
+      - postgres
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USERNAME: guacamole_user
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${GUAC_PORT:-8080}:8080"
+volumes:
+  guac_pg:
+  guac-init:
+`,
+			EnvContent: "GUAC_PORT=8080\nPOSTGRES_PASSWORD=change-me-postgres-password\n",
+			Notes:      "Web UI is at /guacamole/ (e.g. http://host:8080/guacamole/). The guac-init sidecar generates the DB schema automatically before Postgres first-boots, so it is one-click. Default login guacadmin / guacadmin — change it immediately. Set POSTGRES_PASSWORD before first boot.",
+		},
+		{
+			ID: "rustdesk", Name: "RustDesk Server", Description: "Self-hosted RustDesk signal + relay server for private remote-desktop connections (TeamViewer alt).",
+			Category:    "remote",
+			Source:      "docker-hub", Image: "rustdesk/rustdesk-server:latest",
+			Tags: []string{"remote", "remote-desktop", "rustdesk"},
+			ComposeContent: `services:
+  hbbs:
+    image: rustdesk/rustdesk-server:latest
+    restart: unless-stopped
+    command: hbbs -r ${RUSTDESK_RELAY_HOST}:21117
+    ports:
+      - "21115:21115"
+      - "21116:21116"
+      - "21116:21116/udp"
+      - "21118:21118"
+    volumes:
+      - ./data:/root
+    depends_on:
+      - hbbr
+    networks:
+      - rustdesk-net
+  hbbr:
+    image: rustdesk/rustdesk-server:latest
+    restart: unless-stopped
+    command: hbbr
+    ports:
+      - "21117:21117"
+      - "21119:21119"
+    volumes:
+      - ./data:/root
+    networks:
+      - rustdesk-net
+networks:
+  rustdesk-net:
+`,
+			EnvContent: "RUSTDESK_RELAY_HOST=change-me-your-public-host-or-ip\n",
+			Notes:      "Headless (no web UI). Set RUSTDESK_RELAY_HOST to your public host/IP. On first boot hbbs writes a keypair to ./data — read ./data/id_ed25519.pub and enter it in RustDesk clients as the key. Ports 21115-21119 must be reachable; UDP 21116 is required for discovery.",
+		},
+		{
+			ID: "cobalt", Name: "Cobalt", Description: "Self-hosted social-media/video downloader backend exposing a clean JSON download API.",
+			Category:    "media",
+			Subcategory: "youtube",
+			Source:      "docker-hub", Image: "ghcr.io/imputnet/cobalt:11",
+			Tags: []string{"media", "downloader", "video", "api"},
+			ComposeContent: `services:
+  cobalt:
+    image: ghcr.io/imputnet/cobalt:11
+    init: true
+    read_only: true
+    restart: unless-stopped
+    ports:
+      - "${COBALT_PORT:-9000}:9000"
+    environment:
+      API_URL: "${API_URL}"
+`,
+			EnvContent: "COBALT_PORT=9000\nAPI_URL=http://localhost:9000/\n",
+			Notes:      "JSON API only (no bundled web UI). Set API_URL to the exact public URL the API is reached at (scheme+host, trailing slash) or downloads fail. No auth by default — put behind a reverse proxy/allowlist. For YouTube add the yt-session-generator helper.",
+		},
+		{
+			ID: "convertx", Name: "ConvertX", Description: "Self-hosted file converter supporting 1000+ formats (documents, images, video, audio).",
+			Category:    "files",
+			Source:      "docker-hub", Image: "ghcr.io/c4illin/convertx:main",
+			Tags: []string{"files", "converter", "utility"},
+			ComposeContent: `services:
+  convertx:
+    image: ghcr.io/c4illin/convertx:main
+    restart: unless-stopped
+    ports:
+      - "${CONVERTX_PORT:-3000}:3000"
+    environment:
+      JWT_SECRET: "${JWT_SECRET}"
+      ACCOUNT_REGISTRATION: "false"
+    volumes:
+      - ./data:/app/data
+`,
+			EnvContent: "CONVERTX_PORT=3000\nJWT_SECRET=change-me-long-random-jwt-secret\n",
+			Notes:      "First account created becomes admin. Set JWT_SECRET (long random string) before first boot. Set HTTP_ALLOWED=true only when serving over plain HTTP/localhost. Leave ACCOUNT_REGISTRATION=false after the first user to lock signups.",
+		},
+		{
+			ID: "cyberchef", Name: "CyberChef", Description: "The Cyber Swiss-army knife: encryption, encoding, compression, and data analysis in the browser.",
+			Category:    "devtools",
+			Source:      "docker-hub", Image: "ghcr.io/gchq/cyberchef:latest",
+			Tags: []string{"devtools", "security", "encoding", "utility"},
+			ComposeContent: `services:
+  cyberchef:
+    image: ghcr.io/gchq/cyberchef:latest
+    restart: unless-stopped
+    ports:
+      - "${CYBERCHEF_PORT:-8000}:8080"
+`,
+			EnvContent: "CYBERCHEF_PORT=8000\n",
+			Notes:      "Fully static/stateless — no DB, secrets, or volumes. Serves the SPA over HTTP on container port 8080; put behind your own TLS/reverse proxy. Nothing to configure on first run.",
+		},
+		{
+			ID: "karakeep", Name: "Karakeep", Description: "Self-hosted AI bookmarking (formerly Hoarder) with full-text search and auto-tagging.",
+			Category:    "productivity",
+			Source:      "docker-hub", Image: "ghcr.io/karakeep-app/karakeep:release",
+			Tags: []string{"productivity", "bookmarks", "ai", "search"},
+			ComposeContent: `services:
+  web:
+    image: ghcr.io/karakeep-app/karakeep:${KARAKEEP_VERSION:-release}
+    restart: unless-stopped
+    ports:
+      - "${KARAKEEP_PORT:-3000}:3000"
+    environment:
+      DATA_DIR: /data
+      MEILI_ADDR: http://meilisearch:7700
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
+      BROWSER_WEB_URL: http://chrome:9222
+      NEXTAUTH_URL: "${NEXTAUTH_URL}"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET}"
+    volumes:
+      - data:/data
+    depends_on:
+      - meilisearch
+      - chrome
+  chrome:
+    image: gcr.io/zenika-hub/alpine-chrome:124
+    restart: unless-stopped
+    command:
+      - --no-sandbox
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - --hide-scrollbars
+  meilisearch:
+    image: getmeili/meilisearch:v1.41.0
+    restart: unless-stopped
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
+    volumes:
+      - meilisearch:/meili_data
+volumes:
+  data:
+  meilisearch:
+`,
+			EnvContent: "KARAKEEP_PORT=3000\nKARAKEEP_VERSION=release\nNEXTAUTH_URL=http://localhost:3000\nNEXTAUTH_SECRET=change-me-openssl-rand-base64-36\nMEILI_MASTER_KEY=change-me-openssl-rand-base64-36\n",
+			Notes:      "Set NEXTAUTH_SECRET and MEILI_MASTER_KEY (both openssl rand -base64 36) and NEXTAUTH_URL to your server URL before first boot. Optional AI auto-tagging: add OPENAI_API_KEY, or point at your Ollama with OLLAMA_BASE_URL + INFERENCE_TEXT_MODEL (great with OpenBrain).",
+		},
+		{
+			ID: "linkwarden", Name: "Linkwarden", Description: "Self-hosted bookmark manager that archives full-page snapshots (screenshot/PDF/HTML) of links.",
+			Category:    "productivity",
+			Source:      "docker-hub", Image: "ghcr.io/linkwarden/linkwarden:latest",
+			Tags: []string{"productivity", "bookmarks", "archive"},
+			ComposeContent: `services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "${LINKWARDEN_PORT:-3000}:3000"
+    environment:
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000/api/v1/auth}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
+    volumes:
+      - ./data:/data/data
+volumes:
+  pgdata:
+`,
+			EnvContent: "LINKWARDEN_PORT=3000\nNEXTAUTH_URL=http://localhost:3000/api/v1/auth\nNEXTAUTH_SECRET=change-me-nextauth-secret\nPOSTGRES_PASSWORD=change-me-postgres-password\n",
+			Notes:      "Set NEXTAUTH_SECRET (openssl rand -base64 32) and POSTGRES_PASSWORD before first boot, and NEXTAUTH_URL to http://<host>:3000/api/v1/auth. Add Meilisearch (MEILI_MASTER_KEY + MEILI_HOST) for full-text search.",
+		},
+		{
+			ID: "memos", Name: "Memos", Description: "Lightweight, markdown-native self-hosted note-taking and microblog tool.",
+			Category:    "productivity",
+			Source:      "docker-hub", Image: "neosmemo/memos:stable",
+			Tags: []string{"productivity", "notes", "markdown"},
+			ComposeContent: `services:
+  memos:
+    image: neosmemo/memos:stable
+    restart: unless-stopped
+    ports:
+      - "${MEMOS_PORT:-5230}:5230"
+    environment:
+      MEMOS_DRIVER: sqlite
+      MEMOS_INSTANCE_URL: ${MEMOS_INSTANCE_URL:-http://localhost:5230}
+    volumes:
+      - memos_data:/var/opt/memos
+volumes:
+  memos_data:
+`,
+			EnvContent: "MEMOS_PORT=5230\nMEMOS_INSTANCE_URL=http://localhost:5230\n",
+			Notes:      "SQLite by default in /var/opt/memos (persisted). No required secrets — create the first admin account in the UI on first run. Set MEMOS_INSTANCE_URL to your public URL for correct links.",
+		},
+		{
+			ID: "vikunja", Name: "Vikunja", Description: "Self-hosted to-do list and project management (API + frontend in one image).",
+			Category:    "productivity",
+			Source:      "docker-hub", Image: "vikunja/vikunja:latest",
+			Tags: []string{"productivity", "todo", "tasks", "projects"},
+			ComposeContent: `services:
+  vikunja:
+    image: vikunja/vikunja:latest
+    restart: unless-stopped
+    ports:
+      - "${VIKUNJA_PORT:-3456}:3456"
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: ${VIKUNJA_PUBLICURL:-http://localhost:3456}
+      VIKUNJA_SERVICE_SECRET: ${VIKUNJA_SERVICE_SECRET}
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: db
+      VIKUNJA_DATABASE_DATABASE: ${DB_DATABASE:-vikunja}
+      VIKUNJA_DATABASE_USER: ${DB_USERNAME:-vikunja}
+      VIKUNJA_DATABASE_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./data/files:/app/vikunja/files
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-vikunja}
+      POSTGRES_USER: ${DB_USERNAME:-vikunja}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - vikunja_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U $$POSTGRES_USER"]
+      interval: 2s
+      start_period: 30s
+volumes:
+  vikunja_db:
+`,
+			EnvContent: "VIKUNJA_PORT=3456\nVIKUNJA_PUBLICURL=http://localhost:3456\nVIKUNJA_SERVICE_SECRET=change-me-random-jwt-secret\nDB_DATABASE=vikunja\nDB_USERNAME=vikunja\nDB_PASSWORD=change-me-db-password\n",
+			Notes:      "Single merged image serves both API and UI on 3456. Set VIKUNJA_SERVICE_PUBLICURL to your reachable URL and a strong VIKUNJA_SERVICE_SECRET (JWT signing), plus DB_PASSWORD, before first boot. Register the first user in the UI.",
+		},
+		{
+			ID: "dawarich", Name: "Dawarich", Description: "Self-hosted location-history tracker and Google Maps Timeline replacement.",
+			Category:    "productivity",
+			Source:      "docker-hub", Image: "freikin/dawarich:latest",
+			Tags: []string{"productivity", "location", "maps", "self-tracking"},
+			ComposeContent: `services:
+  dawarich_redis:
+    image: redis:7.4-alpine
+    command: redis-server
+    restart: unless-stopped
+    volumes:
+      - dawarich_shared:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      retries: 5
+  dawarich_db:
+    image: postgis/postgis:17-3.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${DATABASE_USERNAME:-postgres}"
+      POSTGRES_PASSWORD: "${DATABASE_PASSWORD}"
+      POSTGRES_DB: "${DATABASE_NAME:-dawarich_development}"
+    volumes:
+      - dawarich_db_data:/var/lib/postgresql/data
+      - dawarich_shared:/var/shared
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-postgres} -d ${DATABASE_NAME:-dawarich_development}"]
+      interval: 10s
+      retries: 5
+  dawarich_app:
+    image: freikin/dawarich:latest
+    entrypoint: web-entrypoint.sh
+    command: ["bin/rails", "server", "-p", "3000", "-b", "0.0.0.0"]
+    restart: unless-stopped
+    ports:
+      - "${DAWARICH_APP_PORT:-3000}:3000"
+    environment:
+      RAILS_ENV: production
+      DATABASE_HOST: dawarich_db
+      DATABASE_USERNAME: "${DATABASE_USERNAME:-postgres}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD}"
+      DATABASE_NAME: "${DATABASE_NAME:-dawarich_development}"
+      REDIS_URL: redis://dawarich_redis:6379/0
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
+      APPLICATION_HOSTS: "${APPLICATION_HOSTS:-localhost,127.0.0.1}"
+      TIME_ZONE: "${TIME_ZONE:-Europe/London}"
+    volumes:
+      - dawarich_public:/var/app/public
+      - dawarich_watched:/var/app/tmp/imports/watched
+      - dawarich_storage:/var/app/storage
+    depends_on:
+      dawarich_db:
+        condition: service_healthy
+      dawarich_redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO - http://127.0.0.1:3000/api/v1/health | grep -q ok"]
+      interval: 10s
+      retries: 5
+  dawarich_sidekiq:
+    image: freikin/dawarich:latest
+    entrypoint: sidekiq-entrypoint.sh
+    command: ["sidekiq"]
+    restart: unless-stopped
+    environment:
+      RAILS_ENV: production
+      DATABASE_HOST: dawarich_db
+      DATABASE_USERNAME: "${DATABASE_USERNAME:-postgres}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD}"
+      DATABASE_NAME: "${DATABASE_NAME:-dawarich_development}"
+      REDIS_URL: redis://dawarich_redis:6379/0
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
+      APPLICATION_HOSTS: "${APPLICATION_HOSTS:-localhost,127.0.0.1}"
+      TIME_ZONE: "${TIME_ZONE:-Europe/London}"
+    volumes:
+      - dawarich_public:/var/app/public
+      - dawarich_watched:/var/app/tmp/imports/watched
+      - dawarich_storage:/var/app/storage
+    depends_on:
+      dawarich_app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f sidekiq"]
+      interval: 10s
+      retries: 5
+volumes:
+  dawarich_db_data:
+  dawarich_shared:
+  dawarich_public:
+  dawarich_watched:
+  dawarich_storage:
+`,
+			EnvContent: "DAWARICH_APP_PORT=3000\nDATABASE_USERNAME=postgres\nDATABASE_PASSWORD=change-me-db-password\nDATABASE_NAME=dawarich_development\nAPPLICATION_HOSTS=localhost,127.0.0.1\nTIME_ZONE=Europe/London\nSECRET_KEY_BASE=change-me-openssl-rand-hex-64\n",
+			Notes:      "Set SECRET_KEY_BASE (openssl rand -hex 64), DATABASE_PASSWORD, and APPLICATION_HOSTS (your host/domain, or requests are rejected) before first boot. DB must be PostGIS. App + sidekiq share the same image/env, differing by entrypoint.",
+		},
+		{
+			ID: "ntfy", Name: "ntfy", Description: "Self-hosted pub-sub push-notification server with web UI, REST API, and mobile apps.",
+			Category:    "automation",
+			Source:      "docker-hub", Image: "binwiederhier/ntfy:v2.11.0",
+			Tags: []string{"automation", "notifications", "push", "api"},
+			ComposeContent: `services:
+  ntfy:
+    image: binwiederhier/ntfy:v2.11.0
+    command:
+      - serve
+    restart: unless-stopped
+    ports:
+      - "${NTFY_PORT:-8080}:80"
+    environment:
+      TZ: "${TZ:-UTC}"
+      NTFY_BASE_URL: "${NTFY_BASE_URL}"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+    volumes:
+      - cache:/var/cache/ntfy
+      - ./ntfy-config:/etc/ntfy
+volumes:
+  cache:
+`,
+			EnvContent: "NTFY_PORT=8080\nTZ=UTC\nNTFY_BASE_URL=http://localhost:8080\n",
+			Notes:      "Web UI + API both on container port 80. Set NTFY_BASE_URL to your public URL. Anonymous read/write by default; to lock down, add auth-default-access: deny-all to a server.yml in ./ntfy-config. NTFY_CACHE_FILE persists messages.",
+		},
+		{
+			ID: "scrutiny", Name: "Scrutiny", Description: "Hard-drive SMART monitoring dashboard with historical health/temperature tracking and alerts.",
+			Category:    "monitoring",
+			Source:      "docker-hub", Image: "ghcr.io/analogj/scrutiny:master-omnibus",
+			Tags: []string{"monitoring", "smart", "disk", "homelab"},
+			ComposeContent: `services:
+  scrutiny:
+    image: ghcr.io/analogj/scrutiny:master-omnibus
+    restart: unless-stopped
+    cap_add:
+      - SYS_RAWIO
+    ports:
+      - "${SCRUTINY_PORT:-8080}:8080"
+    volumes:
+      - scrutiny_config:/opt/scrutiny/config
+      - scrutiny_influxdb:/opt/scrutiny/influxdb
+      - /run/udev:/run/udev:ro
+    devices:
+      - "/dev/sda:/dev/sda"
+      - "/dev/sdb:/dev/sdb"
+volumes:
+  scrutiny_config:
+  scrutiny_influxdb:
+`,
+			EnvContent: "SCRUTINY_PORT=8080\n",
+			Notes:      "Requires privileged host access: cap_add SYS_RAWIO (add SYS_ADMIN for NVMe) and each drive passed via devices:. EDIT the devices: list to match your host's actual drives (/dev/sda, /dev/nvme0, ...) — it cannot be fully zero-config. InfluxDB is bundled (omnibus).",
+		},
+		{
+			ID: "speedtest-tracker", Name: "Speedtest Tracker", Description: "Scheduled internet speed-test logging with a web dashboard, history, and charts.",
+			Category:    "monitoring",
+			Source:      "linuxserver", Image: "lscr.io/linuxserver/speedtest-tracker:latest",
+			Tags: []string{"monitoring", "speedtest", "network"},
+			ComposeContent: `services:
+  speedtest-tracker:
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    restart: unless-stopped
+    ports:
+      - "${SPEEDTEST_PORT:-8765}:80"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Etc/UTC}
+      - APP_KEY=${APP_KEY}
+      - APP_URL=${APP_URL:-http://localhost:8765}
+      - DB_CONNECTION=sqlite
+      - SPEEDTEST_SCHEDULE=${SPEEDTEST_SCHEDULE:-}
+    volumes:
+      - speedtest_config:/config
+volumes:
+  speedtest_config:
+`,
+			EnvContent: "SPEEDTEST_PORT=8765\nTZ=Etc/UTC\nAPP_URL=http://localhost:8765\nSPEEDTEST_SCHEDULE=\nAPP_KEY=base64:change-me-generate-with-openssl-rand-base64-32\n",
+			Notes:      "Set APP_KEY: generate with echo \"base64:$(openssl rand -base64 32)\" and paste the full base64: value before first boot. Default login admin@example.com / password (change immediately). SQLite by default; set APP_URL to your access URL.",
+		},
+		{
+			ID: "actual-budget", Name: "Actual Budget", Description: "Self-hosted envelope/zero-based budgeting app with a fast local-first sync server.",
+			Category:    "finance",
+			Source:      "docker-hub", Image: "actualbudget/actual-server:latest",
+			Tags: []string{"finance", "budgeting", "money"},
+			ComposeContent: `services:
+  actual:
+    image: actualbudget/actual-server:latest
+    restart: unless-stopped
+    ports:
+      - "${ACTUAL_PORT:-5006}:5006"
+    volumes:
+      - ./data:/data
+`,
+			EnvContent: "ACTUAL_PORT=5006\n",
+			Notes:      "Single container, no external DB (data in /data). No required secret env — set a server password in the web UI on first launch. Optional HTTPS via ACTUAL_HTTPS_KEY/ACTUAL_HTTPS_CERT.",
+		},
+		{
+			ID: "wallos", Name: "Wallos", Description: "Open-source self-hosted personal subscription and recurring-expense tracker.",
+			Category:    "finance",
+			Source:      "docker-hub", Image: "bellamy/wallos:latest",
+			Tags: []string{"finance", "subscriptions", "budgeting"},
+			ComposeContent: `services:
+  wallos:
+    image: bellamy/wallos:latest
+    restart: unless-stopped
+    ports:
+      - "${WALLOS_PORT:-8282}:80"
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - ./data/db:/var/www/html/db
+      - ./data/logos:/var/www/html/images/uploads/logos
+`,
+			EnvContent: "WALLOS_PORT=8282\nTZ=Etc/UTC\n",
+			Notes:      "Bundled SQLite — no external DB. First run: open the port and register the first admin user in the UI. Persist ./data/db and ./data/logos or you lose data. OIDC/email notifications are optional.",
+		},
+		{
+			ID: "firefly-iii", Name: "Firefly III", Description: "Self-hosted personal finance manager with double-entry accounting, budgets, and reports.",
+			Category:    "finance",
+			Source:      "docker-hub", Image: "fireflyiii/core:latest",
+			Tags: []string{"finance", "accounting", "budgeting"},
+			ComposeContent: `services:
+  app:
+    image: fireflyiii/core:latest
+    restart: unless-stopped
+    ports:
+      - "${FF_PORT:-8080}:8080"
+    environment:
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      TZ: ${TZ:-Etc/UTC}
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-firefly}
+      DB_USERNAME: ${DB_USERNAME:-firefly}
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+    depends_on:
+      - db
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: ${DB_DATABASE:-firefly}
+      MYSQL_USER: ${DB_USERNAME:-firefly}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - firefly_db:/var/lib/mysql
+volumes:
+  firefly_upload:
+  firefly_db:
+`,
+			EnvContent: "FF_PORT=8080\nAPP_URL=http://localhost:8080\nTZ=Etc/UTC\nAPP_KEY=change-me-32-char-app-key-000000\nDB_DATABASE=firefly\nDB_USERNAME=firefly\nDB_PASSWORD=change-me-db-password\n",
+			Notes:      "APP_KEY must be EXACTLY 32 chars — generate: head /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32; echo. Keep it unchanged across upgrades (it encrypts stored data). Set APP_URL and DB_PASSWORD before first boot.",
+		},
+
+		// ---- VPN / proxy management (ARPHost products + WireGuard UIs) ----
+		{
+			ID: "arpvpn", Name: "ARPVPN", Description: "ARPHost's WireGuard VPN management web GUI — users, roles, live traffic graphs, and a full API.",
+			Category:    "security",
+			Subcategory: "vpn",
+			Source:      "official-github", Image: "10.10.10.96:5050/arphost/arpvpn:v2-latest",
+			Tags: []string{"security", "vpn", "wireguard", "arphost", "gui"},
+			ComposeContent: `services:
+  arpvpn:
+    image: ${ARPVPN_IMAGE:-10.10.10.96:5050/arphost/arpvpn:v2-latest}
+    user: "${ARPVPN_RUNTIME_USER:-arpvpn}"
+    environment:
+      ARPVPN_CONTAINER_NAME: "${ARPVPN_CONTAINER_NAME:-arpvpn}"
+      ARPVPN_COOKIE_SUFFIX: "${ARPVPN_COOKIE_SUFFIX:-}"
+      ARPVPN_SECURE_COOKIES: "${ARPVPN_SECURE_COOKIES:-0}"
+      ARPVPN_HTTP_PORT: "${ARPVPN_HTTP_PORT:-8085}"
+      ARPVPN_HTTPS_PORT: "${ARPVPN_HTTPS_PORT:-8086}"
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [ ! -w /data ]; then
+          echo "ERROR: /data is not writable by runtime user UID:GID $(id -u):$(id -g)."
+          ls -ld /data || true
+          exit 1
+        fi
+        if ! sudo -n /usr/bin/wg genkey >/dev/null 2>&1; then
+          echo "ERROR: WireGuard command preflight failed for $(id -u):$(id -g)."
+          echo "Use ARPVPN_RUNTIME_USER=arpvpn, or rebuild image with matching ARPVPN_UID/ARPVPN_GID."
+          exit 1
+        fi
+        if [ ! -f /data/uwsgi.yaml ] && [ -d /var/www/arpvpn/data ]; then
+          if find /var/www/arpvpn/data -mindepth 1 -maxdepth 1 | read -r _; then
+            cp -r /var/www/arpvpn/data/. /data/
+          fi
+        fi
+        if [ -f /data/uwsgi.yaml ]; then
+          sed -i -E 's|^([[:space:]]*pyargv:)[[:space:]]*data[[:space:]]*$|\1 /data|' /data/uwsgi.yaml || true
+          sed -i -E "s|^([[:space:]]*http-socket:)[[:space:]]*0\\.0\\.0\\.0:[0-9]+[[:space:]]*$|\\1 0.0.0.0:$${ARPVPN_HTTP_PORT}|" /data/uwsgi.yaml || true
+          sed -i -E "s|^([[:space:]]*https-socket:)[[:space:]]*0\\.0\\.0\\.0:[0-9]+(,.*)$|\\1 0.0.0.0:$${ARPVPN_HTTPS_PORT}\\2|" /data/uwsgi.yaml || true
+        fi
+        exec /usr/bin/uwsgi --yaml /data/uwsgi.yaml
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ${DATA_FOLDER:-./data}:/data
+    network_mode: host
+    restart: unless-stopped
+`,
+			EnvContent: "ARPVPN_IMAGE=10.10.10.96:5050/arphost/arpvpn:v2-latest\nARPVPN_RUNTIME_USER=arpvpn\nARPVPN_HTTP_PORT=8085\nARPVPN_HTTPS_PORT=8086\nARPVPN_SECURE_COOKIES=0\nDATA_FOLDER=./data\n",
+			Notes:      "ARPHost's own WireGuard GUI. Uses host networking + NET_ADMIN/NET_RAW; web UI on ARPVPN_HTTP_PORT (8085), HTTPS on 8086. The image lives on the ARPHost GitLab registry — run docker login 10.10.10.96:5050 first (Settings > Registry Login). Config persists under DATA_FOLDER. Default login is in the project docs.",
+		},
+		{
+			ID: "wg-easy", Name: "wg-easy", Description: "The simplest self-hosted WireGuard VPN with a clean web UI for managing peers.",
+			Category:    "security",
+			Subcategory: "vpn",
+			Source:      "docker-hub", Image: "ghcr.io/wg-easy/wg-easy:15",
+			Tags: []string{"security", "vpn", "wireguard", "gui"},
+			ComposeContent: `services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    restart: unless-stopped
+    environment:
+      - INIT_ENABLED=${WG_INIT_ENABLED:-false}
+      - INIT_HOST=${WG_HOST:-}
+      - INIT_PORT=${WG_PORT:-51820}
+      - INIT_USERNAME=${WG_ADMIN_USER:-admin}
+      - INIT_PASSWORD=${WG_ADMIN_PASSWORD:-}
+    volumes:
+      - etc_wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "${WG_PORT:-51820}:51820/udp"
+      - "${WG_UI_PORT:-51821}:51821/tcp"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+volumes:
+  etc_wireguard:
+`,
+			EnvContent: "WG_PORT=51820\nWG_UI_PORT=51821\nWG_INIT_ENABLED=false\nWG_HOST=vpn.example.com\nWG_ADMIN_USER=admin\nWG_ADMIN_PASSWORD=change-me-admin-pass\n",
+			Notes:      "v15: by default you complete a first-run setup wizard in the web UI (WG_UI_PORT 51821) — no secret env needed. For unattended setup, set WG_INIT_ENABLED=true plus WG_HOST/WG_ADMIN_PASSWORD. Needs NET_ADMIN + SYS_MODULE and ip_forward sysctls; UDP 51820 must be reachable. Pinned to tag 15 (not latest).",
+		},
+		{
+			ID: "wireguard-ui", Name: "WireGuard-UI", Description: "Web UI for WireGuard paired with the linuxserver/wireguard data-plane container.",
+			Category:    "security",
+			Subcategory: "vpn",
+			Source:      "docker-hub", Image: "ngoduykhanh/wireguard-ui:latest",
+			Tags: []string{"security", "vpn", "wireguard", "gui"},
+			ComposeContent: `services:
+  wireguard:
+    image: linuxserver/wireguard:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    volumes:
+      - wg_config:/config
+    ports:
+      - "${WGUI_PORT:-5000}:5000"
+      - "${WG_PORT:-51820}:51820/udp"
+  wireguard-ui:
+    image: ngoduykhanh/wireguard-ui:latest
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+    cap_add:
+      - NET_ADMIN
+    network_mode: service:wireguard
+    environment:
+      - SESSION_SECRET=${WGUI_SESSION_SECRET}
+      - WGUI_USERNAME=${WGUI_USERNAME:-admin}
+      - WGUI_PASSWORD=${WGUI_PASSWORD}
+      - WGUI_MANAGE_START=true
+      - WGUI_MANAGE_RESTART=true
+    volumes:
+      - wgui_db:/app/db
+      - wg_config:/etc/wireguard
+volumes:
+  wg_config:
+  wgui_db:
+`,
+			EnvContent: "WGUI_PORT=5000\nWG_PORT=51820\nWGUI_USERNAME=admin\nWGUI_PASSWORD=change-me-admin-pass\nWGUI_SESSION_SECRET=change-me-openssl-rand-hex-32\n",
+			Notes:      "The UI joins the wireguard container's network namespace, so BOTH the UI (WGUI_PORT 5000) and WG (51820/udp) ports are published on the wireguard service. Set WGUI_PASSWORD and SESSION_SECRET (openssl rand -hex 32) before first boot. The shared config volume is how the UI hands configs to the data plane.",
+		},
+		{
+			ID: "headscale", Name: "Headscale", Description: "Self-hosted, open-source implementation of the Tailscale control server for your own mesh.",
+			Category:    "security",
+			Subcategory: "vpn",
+			Source:      "docker-hub", Image: "headscale/headscale:0.29.2",
+			Tags: []string{"security", "vpn", "wireguard", "tailscale", "mesh"},
+			ComposeContent: `services:
+  headscale:
+    image: headscale/headscale:0.29.2
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "${HEADSCALE_PORT:-8080}:8080"
+      - "127.0.0.1:${HEADSCALE_METRICS_PORT:-9090}:9090"
+    configs:
+      - source: headscale_config
+        target: /etc/headscale/config.yaml
+    volumes:
+      - headscale_data:/var/lib/headscale
+  headscale-ui:
+    image: ghcr.io/gurucomputing/headscale-ui:latest
+    restart: unless-stopped
+    ports:
+      - "${HEADSCALE_UI_PORT:-8081}:80"
+configs:
+  headscale_config:
+    content: |
+      server_url: ${HEADSCALE_SERVER_URL:-http://127.0.0.1:8080}
+      listen_addr: 0.0.0.0:8080
+      metrics_listen_addr: 127.0.0.1:9090
+      grpc_listen_addr: 0.0.0.0:50443
+      grpc_allow_insecure: false
+      noise:
+        private_key_path: /var/lib/headscale/noise_private.key
+      prefixes:
+        v4: 100.64.0.0/10
+        v6: fd7a:115c:a1e0::/48
+        allocation: sequential
+      derp:
+        server:
+          enabled: false
+        urls:
+          - https://controlplane.tailscale.com/derpmap/default
+        auto_update_enabled: true
+        update_frequency: 24h
+      disable_check_updates: false
+      ephemeral_node_inactivity_timeout: 30m
+      database:
+        type: sqlite
+        sqlite:
+          path: /var/lib/headscale/db.sqlite
+      log:
+        level: info
+      dns:
+        magic_dns: true
+        base_domain: headscale.internal
+        nameservers:
+          global:
+            - 1.1.1.1
+volumes:
+  headscale_data:
+`,
+			EnvContent: "HEADSCALE_PORT=8080\nHEADSCALE_METRICS_PORT=9090\nHEADSCALE_UI_PORT=8081\nHEADSCALE_SERVER_URL=http://127.0.0.1:8080\n",
+			Notes:      "Control plane only (no NET_ADMIN). A minimal config.yaml is shipped via configs: — set HEADSCALE_SERVER_URL to the URL clients will reach (e.g. https://your-host) before deploying. Clients: tailscale up --login-server=<url>. Make a pre-auth key with: docker exec <ctr> headscale preauthkeys create --user <u>. The UI (HEADSCALE_UI_PORT 8081) needs an API key: headscale apikeys create.",
+		},
+		{
+			ID: "pritunl", Name: "Pritunl", Description: "Enterprise OpenVPN/WireGuard server with a web admin console (community Docker image + MongoDB).",
+			Category:    "security",
+			Subcategory: "vpn",
+			Source:      "docker-hub", Image: "ghcr.io/jippi/docker-pritunl:latest",
+			Tags: []string{"security", "vpn", "openvpn", "wireguard"},
+			ComposeContent: `services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+  pritunl:
+    image: ghcr.io/jippi/docker-pritunl:latest
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      - PRITUNL_MONGODB_URI=mongodb://mongo:27017/pritunl
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - pritunl_data:/var/lib/pritunl
+    ports:
+      - "${PRITUNL_HTTPS_PORT:-1443}:443/tcp"
+      - "${PRITUNL_HTTP_PORT:-1480}:80/tcp"
+      - "${PRITUNL_VPN_PORT:-1194}:1194/udp"
+      - "${PRITUNL_VPN_PORT:-1194}:1194/tcp"
+volumes:
+  mongo_data:
+  pritunl_data:
+`,
+			EnvContent: "PRITUNL_HTTPS_PORT=1443\nPRITUNL_HTTP_PORT=1480\nPRITUNL_VPN_PORT=1194\n",
+			Notes:      "Community image (no official Pritunl Docker image). Admin console on PRITUNL_HTTPS_PORT (1443). First run: docker exec <pritunl> pritunl setup-key (DB setup token) and docker exec <pritunl> pritunl default-password (initial admin login). Needs NET_ADMIN + /dev/net/tun.",
+		},
+		{
+			ID: "proxyforge", Name: "ProxyForge", Description: "ARPHost's multi-tenant web admin for SOCKS5 (Dante) + HTTP CONNECT (Squid) proxies, one credential for both.",
+			Category:    "proxy",
+			Source:      "official-github", Image: "proxyforge-frontend:local",
+			Tags: []string{"proxy", "socks5", "squid", "dante", "arphost", "multi-tenant"},
+			ComposeContent: `services:
+  init-data:
+    image: busybox:1
+    command: >-
+      sh -c "mkdir -p /data /certs &&
+             chown 1001:1001 /data /certs &&
+             chmod 0755 /data /certs"
+    user: "0:0"
+    volumes:
+      - ${DATA_FOLDER:-./data}:/data
+      - ./certs:/certs
+    restart: "no"
+  backend:
+    image: proxyforge-backend:local
+    build:
+      context: "https://github.com/arphost-com/proxyforge.git#main:backend"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PROXYFORGE_JWT_SECRET: ${PROXYFORGE_JWT_SECRET}
+      PROXYFORGE_BOOTSTRAP_ADMIN_EMAIL: ${PROXYFORGE_BOOTSTRAP_ADMIN_EMAIL}
+      PROXYFORGE_BOOTSTRAP_ADMIN_PASSWORD: ${PROXYFORGE_BOOTSTRAP_ADMIN_PASSWORD}
+      PROXYFORGE_COOKIE_SECURE: ${PROXYFORGE_COOKIE_SECURE:-false}
+      PROXYFORGE_SSL_MODE: ${PROXYFORGE_SSL_MODE:-disabled}
+      PROXYFORGE_DATA_DIR: /data
+      PROXYFORGE_DANTE_DIR: /etc/dante
+      PROXYFORGE_DANTE_PIDFILE: /etc/dante/danted.pid
+      PROXYFORGE_SQUID_PIDFILE: /etc/dante/squid.pid
+      PROXYFORGE_SQUID_HTTP_PORT: ${PROXYFORGE_SQUID_HTTP_PORT:-3128}
+      PROXYFORGE_PUBLIC_PROXY_HOST: ${PROXYFORGE_PUBLIC_PROXY_HOST:-}
+    volumes:
+      - ${DATA_FOLDER:-./data}:/data
+      - dante-config:/etc/dante
+      - proxyforge-logs:/var/log/proxyforge:ro
+      - ./certs:/etc/proxyforge/certs
+      - acme-challenge:/var/www/acme
+    networks:
+      - proxyforge
+    pid: "service:dante"
+    depends_on:
+      dante:
+        condition: service_started
+      squid:
+        condition: service_started
+      init-data:
+        condition: service_completed_successfully
+  dante:
+    image: proxyforge-dante:local
+    build:
+      context: "https://github.com/arphost-com/proxyforge.git#main:dante"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PROXYFORGE_SOCKS_PORT:-1080}:1080"
+    volumes:
+      - dante-config:/etc/dante
+    networks:
+      - proxyforge
+  squid:
+    image: proxyforge-squid:local
+    build:
+      context: "https://github.com/arphost-com/proxyforge.git#main:squid"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PROXYFORGE_SQUID_HTTP_PORT:-3128}:3128"
+    volumes:
+      - dante-config:/etc/dante
+      - proxyforge-logs:/var/log/proxyforge
+    networks:
+      - proxyforge
+    pid: "service:dante"
+    depends_on:
+      dante:
+        condition: service_started
+  frontend:
+    image: proxyforge-frontend:local
+    build:
+      context: "https://github.com/arphost-com/proxyforge.git#main:frontend"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PROXYFORGE_SSL_MODE: ${PROXYFORGE_SSL_MODE:-disabled}
+    ports:
+      - "${PROXYFORGE_HTTP_PORT:-8088}:8080"
+      - "${PROXYFORGE_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./certs:/etc/proxyforge/certs
+      - acme-challenge:/var/www/acme
+    networks:
+      - proxyforge
+    depends_on:
+      backend:
+        condition: service_healthy
+      init-data:
+        condition: service_completed_successfully
+volumes:
+  dante-config:
+  proxyforge-logs:
+  acme-challenge:
+networks:
+  proxyforge:
+    driver: bridge
+`,
+			EnvContent: "PROXYFORGE_HTTP_PORT=8088\nPROXYFORGE_HTTPS_PORT=8443\nPROXYFORGE_SOCKS_PORT=1080\nPROXYFORGE_SQUID_HTTP_PORT=3128\nPROXYFORGE_SSL_MODE=disabled\nPROXYFORGE_PUBLIC_PROXY_HOST=\nDATA_FOLDER=./data\nPROXYFORGE_JWT_SECRET=change-me-openssl-rand-hex-32\nPROXYFORGE_BOOTSTRAP_ADMIN_EMAIL=admin@example.com\nPROXYFORGE_BOOTSTRAP_ADMIN_PASSWORD=change-me-on-first-login\n",
+			Notes:      "ARPHost product. No published images — Compose builds the 4 images from the public GitHub repo on first up (needs build tools + internet). Set PROXYFORGE_JWT_SECRET (openssl rand -hex 32) and the bootstrap admin email/password before deploy. Web admin on PROXYFORGE_HTTP_PORT (8088); SOCKS5 on 1080, HTTP-CONNECT on 3128.",
+		},
+
 		// ---- Non-AI: monitoring +3 ----
 		{
 			ID: "cadvisor", Name: "cAdvisor", Description: "Container resource usage and performance metrics.",

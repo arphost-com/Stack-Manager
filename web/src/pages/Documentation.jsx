@@ -10,10 +10,12 @@ const CATEGORY_LABELS = {
   devtools: 'Dev Tools',
   docs: 'Docs',
   files: 'Files',
+  finance: 'Finance',
   gaming: 'Gaming',
   management: 'Management',
   media: 'Media',
   monitoring: 'Monitoring',
+  productivity: 'Productivity',
   proxy: 'Proxy',
   queue: 'Queue',
   remote: 'Remote',
@@ -30,10 +32,12 @@ const CATEGORY_DESCRIPTIONS = {
   devtools: 'Developer tools: CI/CD servers, Git forges, in-browser IDEs, code intelligence, and diagram editors.',
   docs: 'Wikis, technical documentation, and knowledge bases.',
   files: 'File sync, share, and object storage servers.',
+  finance: 'Personal finance: budgeting, subscription tracking, and accounting.',
   gaming: 'Game servers and game-hosting control panels.',
   management: 'Docker and infrastructure management dashboards.',
   media: 'Media servers, libraries, and download automation.',
   monitoring: 'Metrics, uptime, logging, and observability.',
+  productivity: 'Notes, bookmarks, to-dos, and personal knowledge tools.',
   proxy: 'Reverse proxies, load balancers, and forward proxies.',
   queue: 'Message queues, brokers, and workflow orchestrators.',
   remote: 'Remote desktop and remote-access gateways.',
@@ -41,7 +45,7 @@ const CATEGORY_DESCRIPTIONS = {
   web: 'Web servers and static hosting.',
 };
 
-const CATEGORY_ORDER = ['ai', 'web', 'proxy', 'cms', 'database', 'devtools', 'docs', 'files', 'gaming', 'management', 'media', 'monitoring', 'queue', 'remote', 'security', 'automation'];
+const CATEGORY_ORDER = ['ai', 'web', 'proxy', 'cms', 'database', 'devtools', 'docs', 'files', 'finance', 'gaming', 'management', 'media', 'monitoring', 'productivity', 'queue', 'remote', 'security', 'automation'];
 const PAGE_SIZES = [20, 40, 80, 199];
 
 const enhancedGuides = {

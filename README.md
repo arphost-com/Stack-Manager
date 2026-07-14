@@ -79,24 +79,26 @@ The main page shows every discovered Compose project with live state, image sour
 
 ### Stack Catalog (200+ Templates)
 
-Browse and deploy from a curated catalog organized into 16 categories and 10 AI subcategories:
+Browse and deploy from a curated catalog organized into 18 categories and 10 AI subcategories:
 
 | Category | Examples |
 |----------|----------|
 | **AI** | Ollama + Open WebUI, OpenBrain agent stacks (workflow / memory / visual builder), Voice Assistant (Ollama + Open WebUI + Kokoro TTS, voice pre-wired), LibreChat, AnythingLLM, ComfyUI, Whisper, Langfuse |
-| **Web & Proxy** | Nginx, Caddy, Traefik, Nginx Proxy Manager, Apache |
+| **Web & Proxy** | Nginx, Caddy, Traefik, Nginx Proxy Manager, Apache, ProxyForge (SOCKS5 + HTTP proxy admin) |
 | **CMS** | WordPress, Ghost, Strapi, Directus, Payload, Concrete CMS |
 | **Database** | PostgreSQL, MariaDB, Redis, MongoDB, CockroachDB, ClickHouse |
 | **Dev Tools** | Gitea, Forgejo, code-server, Jenkins, Drone CI, Draw.io |
 | **Monitoring** | Grafana + Prometheus, Uptime Kuma, Beszel, Netdata, cAdvisor |
 | **Docs** | BookStack, Docmost, DokuWiki, Wiki.js, Outline |
-| **Media** | Jellyfin, Plex, Radarr, Sonarr, Lidarr, Prowlarr, qBittorrent, Transmission, Overseerr |
-| **Gaming** | EmulatorJS, Sunshine (Moonlight game streaming) |
-| **Remote** | Webtop (full Linux desktop in browser), Firefox |
-| **Security** | Authelia, Keycloak, WireGuard, CrowdSec, Vaultwarden |
-| **Files** | Nextcloud, Seafile, MinIO, Paperless-ngx |
+| **Media** | Jellyfin, Plex, Radarr, Sonarr, Prowlarr, qBittorrent, Jellyseerr, Immich, Tube Archivist, ErsatzTV, Unpackerr |
+| **Gaming** | EmulatorJS, RomM, Sunshine (Moonlight game streaming) |
+| **Remote** | Webtop (full Linux desktop in browser), Neko (shared virtual browser), Apache Guacamole, RustDesk, Firefox |
+| **Security** | Authelia, Keycloak, CrowdSec, Vaultwarden, ARPVPN, wg-easy, WireGuard-UI, Headscale, Pritunl |
+| **Files** | Nextcloud, Seafile, MinIO, Paperless-ngx, ConvertX |
+| **Finance** | Actual Budget, Firefly III, Wallos |
+| **Productivity** | Karakeep, Linkwarden, Memos, Vikunja |
 | **Queue** | RabbitMQ, Apache ActiveMQ, Beanstalkd, Faktory |
-| **Automation** | n8n, Huginn, Cronicle, Changedetection.io |
+| **Automation** | n8n, Huginn, Cronicle, Changedetection.io, ntfy |
 
 Templates load into an editable Create Project form — review ports, volumes, passwords, and env vars before deploying. Nothing deploys until you click Create. Templates that need a config file ship a working starter config embedded in the compose (via `configs:`), so they boot out of the box and you can edit the config any time from a project's Config tab.
 
