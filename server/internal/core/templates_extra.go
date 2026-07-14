@@ -1585,6 +1585,366 @@ volumes:
 			Notes:      "OpenAI-compatible TTS at /v1/audio/speech (no homepage at /). Model tts-1 = fast Piper voices; tts-1-hd = XTTS-v2 (quality + voice cloning; GPU strongly recommended — enable GPU passthrough). To CLONE a voice: put a clean 10-30s WAV in the openedai-voices volume and add a custom voice in config/voice_to_speaker.yaml pointing at it, then request that voice name. In Open WebUI set Audio TTS to OpenAI, base URL http://<host>:TTS_PORT/v1 (or http://openedai-speech:8000/v1 from inside a network), model tts-1-hd, voice = your custom name. Only clone voices you have rights to use.",
 		},
 
+		// ---- Media: gaps filled (photos, YouTube, live-TV, arr companions, users, analytics) ----
+		{
+			ID: "immich", Name: "Immich", Description: "Self-hosted photo and video backup and management with mobile apps and ML search.",
+			Category:    "media",
+			Subcategory: "photos",
+			Source:      "docker-hub", Image: "ghcr.io/immich-app/immich-server:release",
+			Tags: []string{"media", "photos", "video", "backup", "google-photos-alternative"},
+			ComposeContent: `services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    ports:
+      - "${IMMICH_PORT:-2283}:2283"
+    volumes:
+      - ./media:/data
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME:-immich}
+      REDIS_HOSTNAME: redis
+    depends_on:
+      - redis
+      - database
+    restart: unless-stopped
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    volumes:
+      - model-cache:/cache
+    restart: unless-stopped
+  redis:
+    image: docker.io/valkey/valkey:9
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE_NAME:-immich}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  model-cache:
+  redis-data:
+  db-data:
+`,
+			EnvContent: "IMMICH_VERSION=release\nIMMICH_PORT=2283\nDB_USERNAME=postgres\nDB_DATABASE_NAME=immich\nDB_PASSWORD=change-me-immich-db-password\n",
+			Notes:      "Set DB_PASSWORD before first boot. The library lives under ./media (bind mount); DB/cache use named volumes. Web UI + mobile apps on IMMICH_PORT (2283) — create the admin account on first visit. Uses the current official Postgres (VectorChord) and Valkey images. GPU is optional but speeds up ML search/face recognition.",
+		},
+		{
+			ID: "metube", Name: "MeTube", Description: "Web GUI for yt-dlp to download video and audio from YouTube and many other sites.",
+			Category:    "media",
+			Subcategory: "youtube",
+			Source:      "docker-hub", Image: "ghcr.io/alexta69/metube:latest",
+			Tags: []string{"media", "youtube", "yt-dlp", "downloader"},
+			ComposeContent: `services:
+  metube:
+    image: ghcr.io/alexta69/metube:latest
+    ports:
+      - "${METUBE_PORT:-8081}:8081"
+    volumes:
+      - ./media:/downloads
+    environment:
+      UID: ${METUBE_UID:-1000}
+      GID: ${METUBE_GID:-1000}
+    restart: unless-stopped
+`,
+			EnvContent: "METUBE_PORT=8081\nMETUBE_UID=1000\nMETUBE_GID=1000\n",
+			Notes:      "No dependencies or secrets. Paste a URL in the web UI (METUBE_PORT) and files land under ./media. Optional YTDL_OPTIONS env (JSON) for format/quality defaults.",
+		},
+		{
+			ID: "pinchflat", Name: "Pinchflat", Description: "Self-hosted YouTube channel/playlist DVR that auto-downloads and archives new videos.",
+			Category:    "media",
+			Subcategory: "youtube",
+			Source:      "docker-hub", Image: "ghcr.io/kieraneglin/pinchflat:latest",
+			Tags: []string{"media", "youtube", "dvr", "archive", "yt-dlp"},
+			ComposeContent: `services:
+  pinchflat:
+    image: ghcr.io/kieraneglin/pinchflat:latest
+    restart: unless-stopped
+    ports:
+      - "${PINCHFLAT_PORT:-8945}:8945"
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - pinchflat_config:/config
+      - ./media:/downloads
+volumes:
+  pinchflat_config:
+`,
+			EnvContent: "PINCHFLAT_PORT=8945\nTZ=Etc/UTC\n",
+			Notes:      "Subscribe to channels/playlists in the web UI (PINCHFLAT_PORT 8945) and it downloads new uploads on a schedule into ./media. Set TZ for correct scheduling. No built-in auth — put behind a reverse proxy if exposed.",
+		},
+		{
+			ID: "tube-archivist", Name: "Tube Archivist", Description: "Self-hosted YouTube media server: subscribe, download, index and stream channels with search.",
+			Category:    "media",
+			Subcategory: "youtube",
+			Source:      "docker-hub", Image: "bbilly1/tubearchivist:latest",
+			Tags: []string{"media", "youtube", "archive", "search", "jellyfin"},
+			ComposeContent: `services:
+  tubearchivist:
+    image: bbilly1/tubearchivist:latest
+    ports:
+      - "${TA_PORT:-8000}:8000"
+    volumes:
+      - ./media:/youtube
+      - cache:/cache
+    environment:
+      ES_URL: http://archivist-es:9200
+      REDIS_CON: redis://archivist-redis:6379
+      HOST_UID: ${HOST_UID:-1000}
+      HOST_GID: ${HOST_GID:-1000}
+      TA_HOST: ${TA_HOST}
+      TA_USERNAME: ${TA_USERNAME}
+      TA_PASSWORD: ${TA_PASSWORD}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      TZ: ${TZ:-Etc/UTC}
+    depends_on:
+      - archivist-es
+      - archivist-redis
+    restart: unless-stopped
+  archivist-redis:
+    image: redis:latest
+    volumes:
+      - redis:/data
+    depends_on:
+      - archivist-es
+    restart: unless-stopped
+  archivist-es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es:/usr/share/elasticsearch/data
+    restart: unless-stopped
+volumes:
+  cache:
+  redis:
+  es:
+`,
+			EnvContent: "TA_PORT=8000\nTA_HOST=http://localhost:8000\nHOST_UID=1000\nHOST_GID=1000\nTZ=Etc/UTC\nTA_USERNAME=tubearchivist\nTA_PASSWORD=change-me-ta-password\nELASTIC_PASSWORD=change-me-elastic-password\n",
+			Notes:      "Heavier: bundles Elasticsearch + Redis. Set TA_HOST to the actual browser URL/IP (e.g. http://192.168.1.10:8000), and change TA_PASSWORD + ELASTIC_PASSWORD before first boot. First login uses TA_USERNAME/TA_PASSWORD. Integrates with Jellyfin.",
+		},
+		{
+			ID: "jellystat", Name: "Jellystat", Description: "Statistics and watch-history dashboard for a Jellyfin server (a Tautulli for Jellyfin).",
+			Category:    "media",
+			Subcategory: "monitoring",
+			Source:      "docker-hub", Image: "cyfershepard/jellystat:latest",
+			Tags: []string{"media", "jellyfin", "stats", "analytics", "monitoring"},
+			ComposeContent: `services:
+  jellystat-db:
+    image: postgres:18.1
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-jellystat}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me-db-password}
+    volumes:
+      - jellystat_pgdata:/var/lib/postgresql
+  jellystat:
+    image: cyfershepard/jellystat:latest
+    restart: unless-stopped
+    depends_on:
+      - jellystat-db
+    ports:
+      - "${JELLYSTAT_PORT:-3000}:3000"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-jellystat}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me-db-password}
+      - POSTGRES_IP=jellystat-db
+      - POSTGRES_PORT=5432
+      - JWT_SECRET=${JWT_SECRET:-change-me-jwt-secret}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - jellystat_backup:/app/backend/backup-data
+volumes:
+  jellystat_pgdata:
+  jellystat_backup:
+`,
+			EnvContent: "JELLYSTAT_PORT=3000\nPOSTGRES_USER=jellystat\nPOSTGRES_PASSWORD=change-me-db-password\nJWT_SECRET=change-me-jwt-secret\nTZ=Etc/UTC\n",
+			Notes:      "Change POSTGRES_PASSWORD and JWT_SECRET before first boot. Create the admin account on first login (JELLYSTAT_PORT 3000), then add your Jellyfin server URL + API key in the UI.",
+		},
+		{
+			ID: "unpackerr", Name: "Unpackerr", Description: "Headless daemon that auto-extracts compressed downloads for Sonarr/Radarr/Lidarr/Readarr.",
+			Category:    "media",
+			Subcategory: "automation",
+			Source:      "docker-hub", Image: "golift/unpackerr:latest",
+			Tags: []string{"media", "arr", "automation", "companion"},
+			ComposeContent: `services:
+  unpackerr:
+    image: golift/unpackerr:latest
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      - ./media:/downloads
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+      - UN_LOG_FILE=/downloads/unpackerr.log
+      - UN_SONARR_0_URL=${UN_SONARR_0_URL:-http://sonarr:8989}
+      - UN_SONARR_0_API_KEY=${UN_SONARR_0_API_KEY:-change-me-sonarr-api-key}
+      - UN_RADARR_0_URL=${UN_RADARR_0_URL:-http://radarr:7878}
+      - UN_RADARR_0_API_KEY=${UN_RADARR_0_API_KEY:-change-me-radarr-api-key}
+`,
+			EnvContent: "PUID=1000\nPGID=1000\nTZ=Etc/UTC\nUN_SONARR_0_URL=http://sonarr:8989\nUN_SONARR_0_API_KEY=change-me-sonarr-api-key\nUN_RADARR_0_URL=http://radarr:7878\nUN_RADARR_0_API_KEY=change-me-radarr-api-key\n",
+			Notes:      "No web UI — a background helper. Fill in your Sonarr/Radarr API keys and make sure ./media matches the same download path Sonarr/Radarr use, so it can see and extract completed archives. Add UN_LIDARR_0_* / UN_READARR_0_* as needed.",
+		},
+		{
+			ID: "recyclarr", Name: "Recyclarr", Description: "Syncs TRaSH-Guides custom formats and quality profiles into Sonarr and Radarr on a schedule.",
+			Category:    "media",
+			Subcategory: "automation",
+			Source:      "docker-hub", Image: "ghcr.io/recyclarr/recyclarr:8",
+			Tags: []string{"media", "arr", "automation", "trash-guides"},
+			ComposeContent: `services:
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:8
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+      - CRON_SCHEDULE=${RECYCLARR_CRON:-@daily}
+    volumes:
+      - recyclarr_config:/config
+volumes:
+  recyclarr_config:
+`,
+			EnvContent: "TZ=Etc/UTC\nRECYCLARR_CRON=@daily\n",
+			Notes:      "No web UI — runs on a cron (default daily). REQUIRED post-deploy step: create /config/recyclarr.yml in the recyclarr_config volume with your Sonarr/Radarr base_url + api_key (see recyclarr.dev), or it does nothing.",
+		},
+		{
+			ID: "autobrr", Name: "autobrr", Description: "Real-time IRC/RSS filter that grabs torrents and hands releases to your download client.",
+			Category:    "media",
+			Subcategory: "automation",
+			Source:      "docker-hub", Image: "ghcr.io/autobrr/autobrr:latest",
+			Tags: []string{"media", "torrent", "automation", "irc", "rss"},
+			ComposeContent: `services:
+  autobrr:
+    image: ghcr.io/autobrr/autobrr:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - autobrr_config:/config
+    ports:
+      - "${AUTOBRR_PORT:-7474}:7474"
+volumes:
+  autobrr_config:
+`,
+			EnvContent: "TZ=Etc/UTC\nAUTOBRR_PORT=7474\n",
+			Notes:      "Single container (SQLite, no external DB). Open the web UI (AUTOBRR_PORT 7474) to create the admin user, then add indexers, IRC networks, and filters. Config persists in autobrr_config.",
+		},
+		{
+			ID: "ersatztv", Name: "ErsatzTV", Description: "Builds custom live-TV channels from your library, streamed to Plex/Jellyfin/Emby via HDHR/M3U.",
+			Category:    "media",
+			Subcategory: "live-tv",
+			Source:      "docker-hub", Image: "ghcr.io/ersatztv/legacy:latest",
+			Tags: []string{"media", "live-tv", "iptv", "plex", "jellyfin"},
+			ComposeContent: `services:
+  ersatztv:
+    image: ghcr.io/ersatztv/legacy:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+    ports:
+      - "${ERSATZTV_PORT:-8409}:8409"
+    volumes:
+      - ersatztv_config:/config
+      - ./media:/data:ro
+    tmpfs:
+      - /transcode
+volumes:
+  ersatztv_config:
+`,
+			EnvContent: "TZ=Etc/UTC\nERSATZTV_PORT=8409\n",
+			Notes:      "Add ./media as a Local library in the UI (ERSATZTV_PORT 8409), then build channels/schedules. Point Plex/Jellyfin/Emby Live TV at ErsatzTV's HDHR or M3U URL. For hardware transcoding pass /dev/dri (VAAPI/QSV) or an NVIDIA GPU.",
+		},
+		{
+			ID: "threadfin", Name: "Threadfin", Description: "IPTV/M3U proxy and EPG manager that feeds live TV into Plex, Jellyfin, and Emby.",
+			Category:    "media",
+			Subcategory: "live-tv",
+			Source:      "docker-hub", Image: "fyb3roptik/threadfin:latest",
+			Tags: []string{"media", "live-tv", "iptv", "m3u", "epg"},
+			ComposeContent: `services:
+  threadfin:
+    image: fyb3roptik/threadfin:latest
+    restart: unless-stopped
+    ports:
+      - "${THREADFIN_PORT:-34400}:34400"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - threadfin_conf:/home/threadfin/conf
+      - threadfin_temp:/tmp/threadfin
+volumes:
+  threadfin_conf:
+  threadfin_temp:
+`,
+			EnvContent: "THREADFIN_PORT=34400\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Open the web UI (THREADFIN_PORT 34400), add an M3U playlist URL and an XMLTV EPG, then map/filter channels. Point your media server's Live TV/DVR at Threadfin's M3U + EPG endpoints.",
+		},
+		{
+			ID: "maintainerr", Name: "Maintainerr", Description: "Rule-based library maintenance that finds and cleans up stale media in Plex/Jellyfin/Emby.",
+			Category:    "media",
+			Subcategory: "automation",
+			Source:      "docker-hub", Image: "ghcr.io/maintainerr/maintainerr:latest",
+			Tags: []string{"media", "plex", "cleanup", "automation", "overseerr"},
+			ComposeContent: `services:
+  maintainerr:
+    image: ghcr.io/maintainerr/maintainerr:latest
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "${MAINTAINERR_PORT:-6246}:6246"
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - maintainerr_data:/opt/data
+volumes:
+  maintainerr_data:
+`,
+			EnvContent: "MAINTAINERR_PORT=6246\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Open the web UI (MAINTAINERR_PORT 6246), connect Plex and Overseerr/Jellyseerr, then build rules (e.g. delete watched content older than N days). Data persists in maintainerr_data.",
+		},
+		{
+			ID: "wizarr", Name: "Wizarr", Description: "Invitation and user-management portal for onboarding users to Jellyfin, Plex, and Emby.",
+			Category:    "media",
+			Subcategory: "users",
+			Source:      "docker-hub", Image: "ghcr.io/wizarrrr/wizarr:latest",
+			Tags: []string{"media", "users", "invitations", "jellyfin", "plex"},
+			ComposeContent: `services:
+  wizarr:
+    image: ghcr.io/wizarrrr/wizarr:latest
+    restart: unless-stopped
+    ports:
+      - "${WIZARR_PORT:-5690}:5690"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+      - DISABLE_BUILTIN_AUTH=${DISABLE_BUILTIN_AUTH:-false}
+    volumes:
+      - wizarr_data:/data
+volumes:
+  wizarr_data:
+`,
+			EnvContent: "WIZARR_PORT=5690\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\nDISABLE_BUILTIN_AUTH=false\n",
+			Notes:      "Complete the setup wizard in the web UI (WIZARR_PORT 5690) to connect your media server (admin URL + API key), then hand out invitation links. Data persists in wizarr_data. Only set DISABLE_BUILTIN_AUTH=true when fronting with an external auth proxy.",
+		},
+
 		// ---- Non-AI: monitoring +3 ----
 		{
 			ID: "cadvisor", Name: "cAdvisor", Description: "Container resource usage and performance metrics.",
