@@ -1,0 +1,31 @@
+# Gitleaks config for stack-manager.
+#
+# The CI job `security:gitleaks` runs `gitleaks detect --source .`, which
+# auto-loads this file from the repo root. We keep the full default ruleset
+# and only add an allowlist for the obvious NON-secret placeholder values that
+# ship inside the service catalog templates (server/internal/core/templates*.go)
+# and *.env.example files. These are deliberately fake defaults the operator is
+# told to replace before deploy (e.g. `APP_SECRET=change-me-to-a-random-string`,
+# `HOMARR_SECRET_ENCRYPTION_KEY=replace-with-64-hex-chars`). Without this, the
+# built-in `generic-api-key` rule flags any high-entropy placeholder that sits
+# next to a KEY/SECRET/TOKEN identifier.
+#
+# The allowlist is matched against the detected secret VALUE only, and is
+# limited to well-known placeholder prefixes — a real leaked credential will
+# not start with `change-me`/`replace-with`/`your-`, so this does not weaken
+# detection of genuine secrets.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Catalog template placeholder secrets (documented fake defaults, not real credentials)"
+regexTarget = "secret"
+regexes = [
+  '''(?i)^change-me[a-z0-9._-]*$''',
+  '''(?i)^change-this[a-z0-9._-]*$''',
+  '''(?i)^replace-with-[a-z0-9._-]+$''',
+  '''(?i)^replace-me[a-z0-9._-]*$''',
+  '''(?i)^your-[a-z0-9._-]+$''',
+  '''(?i)^example[a-z0-9._-]*$''',
+]

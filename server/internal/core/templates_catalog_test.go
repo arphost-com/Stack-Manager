@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuiltinStackTemplatesFullCatalog(t *testing.T) {
 	templates := BuiltinStackTemplates()
-	if len(templates) != 264 {
-		t.Fatalf("BuiltinStackTemplates() count = %d, want 264", len(templates))
+	if len(templates) != 275 {
+		t.Fatalf("BuiltinStackTemplates() count = %d, want 275", len(templates))
 	}
 	categories := map[string]bool{}
 	for _, template := range templates {

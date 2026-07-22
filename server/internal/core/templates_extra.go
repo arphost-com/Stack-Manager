@@ -1903,10 +1903,22 @@ volumes:
 			Source:      "docker-hub", Image: "ghcr.io/maintainerr/maintainerr:latest",
 			Tags: []string{"media", "plex", "cleanup", "automation", "overseerr"},
 			ComposeContent: `services:
+  maintainerr-init:
+    image: busybox:1
+    command: >-
+      sh -c "mkdir -p /opt/data &&
+             chown -R ${PUID:-1000}:${PGID:-1000} /opt/data"
+    user: "0:0"
+    volumes:
+      - maintainerr_data:/opt/data
+    restart: "no"
   maintainerr:
     image: ghcr.io/maintainerr/maintainerr:latest
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      maintainerr-init:
+        condition: service_completed_successfully
     ports:
       - "${MAINTAINERR_PORT:-6246}:6246"
     environment:
@@ -1917,7 +1929,414 @@ volumes:
   maintainerr_data:
 `,
 			EnvContent: "MAINTAINERR_PORT=6246\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
-			Notes:      "Open the web UI (MAINTAINERR_PORT 6246), connect Plex and Overseerr/Jellyseerr, then build rules (e.g. delete watched content older than N days). Data persists in maintainerr_data.",
+			Notes:      "Open the web UI (MAINTAINERR_PORT 6246), connect Plex and Overseerr/Jellyseerr, then build rules (e.g. delete watched content older than N days). Data persists in maintainerr_data. Maintainerr v2.0.0+ runs as a non-root user (default UID:GID 1000:1000) and writes to /opt/data, so the maintainerr-init container chowns the volume to PUID:PGID before startup — this also fixes the 'Could not create or access (files in) the data directory' error when upgrading from a v1 (root-owned) volume. If you changed PUID/PGID, keep them consistent so the init chown matches the runtime user.",
+		},
+		{
+			ID: "bambuddy", Name: "Bambuddy", Description: "Self-hosted command center and print archive for Bambu Lab 3D printers — no cloud, from one A1 to a 40-printer farm.",
+			Category:    "management",
+			Subcategory: "3d-printing",
+			Source:      "docker-hub", Image: "ghcr.io/maziggy/bambuddy:latest",
+			Tags: []string{"3d-printing", "bambu-lab", "printer", "self-hosted", "iot"},
+			ComposeContent: `services:
+  bambuddy:
+    image: ghcr.io/maziggy/bambuddy:latest
+    restart: unless-stopped
+    # Entrypoint chowns /app/data and /app/logs to PUID:PGID, then drops
+    # privileges via gosu — no init container or manual chown needed.
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "${BAMBUDDY_PORT:-8000}:8000"
+      # Virtual-printer ports (bridge mode). Widen the 50000-50029 slice
+      # for >3 virtual printers, or switch to network_mode: host if you
+      # need SSDP printer auto-discovery on the LAN.
+      - "3000:3000"
+      - "3002:3002"
+      - "8883:8883"
+      - "990:990"
+      - "6000:6000"
+      - "322:322"
+      - "2024-2026:2024-2026"
+      - "50000-50029:50000-50029"
+    environment:
+      - TZ=${TZ:-Etc/UTC}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - PORT=8000
+    volumes:
+      - bambuddy_data:/app/data
+      - bambuddy_logs:/app/logs
+volumes:
+  bambuddy_data:
+  bambuddy_logs:
+`,
+			EnvContent: "BAMBUDDY_PORT=8000\nPUID=1000\nPGID=1000\nTZ=Etc/UTC\n",
+			Notes:      "Open the web UI (BAMBUDDY_PORT 8000) and add your printer (enable Developer/LAN mode on the printer, same subnet). This entry uses bridge mode (port mappings) — the right default for a multi-tenant Docker host. SSDP auto-discovery needs L2 multicast, which bridge mode can't do, so add printers by IP; if you want discovery and the host has no port conflicts, replace the ports: block with 'network_mode: host'. Virtual-printer FTPS/RTSP need the NET_BIND_SERVICE cap (already set). SQLite by default (in bambuddy_data); set DATABASE_URL for external Postgres. Optional OrcaSlicer sidecar via SLICER_API_URL. Data/logs persist in named volumes and are chowned to PUID:PGID by the entrypoint.",
+		},
+		{
+			ID: "umami", Name: "Umami", Description: "Privacy-friendly, self-hosted web analytics — a lightweight Google Analytics replacement.",
+			Category:    "monitoring",
+			Subcategory: "analytics",
+			Source:      "docker-hub", Image: "ghcr.io/umami-software/umami:postgresql-latest",
+			Tags: []string{"analytics", "web-analytics", "privacy", "metrics", "self-hosted"},
+			ComposeContent: `services:
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    restart: unless-stopped
+    ports:
+      - "${UMAMI_PORT:-3000}:3000"
+    environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-umami}@umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-change-me-to-a-random-string}
+    depends_on:
+      umami-db:
+        condition: service_healthy
+  umami-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:-umami}
+    volumes:
+      - umami_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  umami_db:
+`,
+			EnvContent: "UMAMI_PORT=3000\nUMAMI_DB_PASSWORD=umami\nUMAMI_APP_SECRET=change-me-to-a-random-string\n",
+			Notes:      "REQUIRED before deploy: set UMAMI_APP_SECRET (openssl rand -hex 32) and change UMAMI_DB_PASSWORD. Open the web UI (UMAMI_PORT 3000) and log in with the default admin / umami — change that password immediately. Add a website in Settings to get the tracking snippet. Data persists in umami_db.",
+		},
+		{
+			ID: "stalwart", Name: "Stalwart Mail Server", Description: "All-in-one self-hosted mail server (SMTP, IMAP, POP3, JMAP, ManageSieve) with a web admin.",
+			Category:    "mail",
+			Source:      "docker-hub", Image: "stalwartlabs/stalwart:latest",
+			Tags: []string{"mail", "email", "smtp", "imap", "jmap", "self-hosted"},
+			ComposeContent: `services:
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    restart: unless-stopped
+    hostname: ${STALWART_HOSTNAME:-mail.example.com}
+    ports:
+      - "${STALWART_ADMIN_PORT:-8080}:8080"
+      - "${STALWART_HTTPS_PORT:-8443}:443"
+      - "25:25"
+      - "587:587"
+      - "465:465"
+      - "143:143"
+      - "993:993"
+      - "110:110"
+      - "995:995"
+      - "4190:4190"
+    environment:
+      - STALWART_RECOVERY_ADMIN=${STALWART_ADMIN_USER:-admin}:${STALWART_ADMIN_PASSWORD:-change-me}
+    volumes:
+      - stalwart_etc:/etc/stalwart
+      - stalwart_data:/var/lib/stalwart
+volumes:
+  stalwart_etc:
+  stalwart_data:
+`,
+			EnvContent: "STALWART_HOSTNAME=mail.example.com\nSTALWART_ADMIN_PORT=8080\nSTALWART_HTTPS_PORT=8443\nSTALWART_ADMIN_USER=admin\nSTALWART_ADMIN_PASSWORD=change-me\n",
+			Notes:      "REQUIRED: set STALWART_HOSTNAME to your real mail FQDN and change STALWART_ADMIN_PASSWORD before deploy. Web admin on STALWART_ADMIN_PORT (8080). Mail ports 25/587/465/143/993/110/995 and ManageSieve 4190 are published directly — port 25 must be reachable from the internet and NOT blocked by the host/provider for inbound mail. You still need public DNS: A/AAAA for the hostname, MX, plus SPF/DKIM/DMARC (Stalwart generates DKIM keys in the admin UI) and ideally a PTR/rDNS record. STALWART_RECOVERY_ADMIN seeds the fallback admin login; config + data persist in named volumes.",
+		},
+		{
+			ID: "freshrss", Name: "FreshRSS", Description: "Self-hosted RSS/Atom feed aggregator — fast, multi-user, with an extension system and mobile API.",
+			Category:    "productivity",
+			Subcategory: "rss",
+			Source:      "docker-hub", Image: "freshrss/freshrss:latest",
+			Tags: []string{"rss", "atom", "feed-reader", "news", "self-hosted"},
+			ComposeContent: `services:
+  freshrss:
+    image: freshrss/freshrss:latest
+    restart: unless-stopped
+    ports:
+      - "${FRESHRSS_PORT:-8080}:80"
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      CRON_MIN: "${FRESHRSS_CRON_MIN:-*/20}"
+    volumes:
+      - freshrss_data:/var/www/FreshRSS/data
+      - freshrss_extensions:/var/www/FreshRSS/extensions
+volumes:
+  freshrss_data:
+  freshrss_extensions:
+`,
+			EnvContent: "FRESHRSS_PORT=8080\nFRESHRSS_CRON_MIN=*/20\nTZ=Etc/UTC\n",
+			Notes:      "Open the web UI (FRESHRSS_PORT 8080) and complete the install wizard — SQLite is the zero-config default (choose it unless you want an external MySQL/PostgreSQL). CRON_MIN controls how often feeds auto-refresh (default every 20 min). Enable the mobile/Google-Reader API under Settings → Authentication for apps like Reeder/FeedMe. Data and extensions persist in named volumes.",
+		},
+		{
+			ID: "authentik", Name: "Authentik", Description: "Modern identity provider / SSO — SAML, OAuth2/OIDC, LDAP, and forward-auth for reverse proxies.",
+			Category:    "security",
+			Subcategory: "identity",
+			Source:      "docker-hub", Image: "ghcr.io/goauthentik/server:latest",
+			Tags: []string{"sso", "identity", "oauth2", "oidc", "saml", "ldap", "auth"},
+			ComposeContent: `services:
+  authentik-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:-change-me-db}
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:-change-me-db}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change-me-to-a-long-random-string}
+    ports:
+      - "${AUTHENTIK_HTTP_PORT:-9000}:9000"
+      - "${AUTHENTIK_HTTPS_PORT:-9443}:9443"
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    restart: unless-stopped
+    command: worker
+    user: root
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:-change-me-db}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change-me-to-a-long-random-string}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - authentik_media:/media
+      - authentik_templates:/templates
+      - authentik_certs:/certs
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+volumes:
+  authentik_db:
+  authentik_media:
+  authentik_templates:
+  authentik_certs:
+`,
+			EnvContent: "AUTHENTIK_HTTP_PORT=9000\nAUTHENTIK_HTTPS_PORT=9443\nAUTHENTIK_DB_PASSWORD=change-me-db\nAUTHENTIK_SECRET_KEY=change-me-to-a-long-random-string\n",
+			Notes:      "REQUIRED before deploy: set AUTHENTIK_SECRET_KEY (openssl rand -base64 60) and change AUTHENTIK_DB_PASSWORD. Current Authentik bundles its cache/broker in the server image, so no separate Redis service is needed. After 'up', finish setup at http://HOST:${AUTHENTIK_HTTP_PORT}/if/flow/initial-setup/ to create the akadmin superuser. The worker mounts the Docker socket for its outpost/embedded-proxy integration. HTTPS on AUTHENTIK_HTTPS_PORT (9443). All state persists in named volumes.",
+		},
+		{
+			ID: "shlink", Name: "Shlink", Description: "Self-hosted, API-driven URL shortener with detailed click analytics and QR codes.",
+			Category:    "web",
+			Subcategory: "url-shortener",
+			Source:      "docker-hub", Image: "shlinkio/shlink:stable",
+			Tags: []string{"url-shortener", "links", "analytics", "api", "self-hosted"},
+			ComposeContent: `services:
+  shlink:
+    image: shlinkio/shlink:stable
+    restart: unless-stopped
+    ports:
+      - "${SHLINK_PORT:-8080}:8080"
+    environment:
+      DEFAULT_DOMAIN: ${SHLINK_DEFAULT_DOMAIN:-s.example.com}
+      IS_HTTPS_ENABLED: ${SHLINK_HTTPS:-false}
+      INITIAL_API_KEY: ${SHLINK_API_KEY:-change-me-initial-api-key}
+      TIMEZONE: ${TZ:-Etc/UTC}
+    volumes:
+      - shlink_data:/etc/shlink/data
+volumes:
+  shlink_data:
+`,
+			EnvContent: "SHLINK_PORT=8080\nSHLINK_DEFAULT_DOMAIN=s.example.com\nSHLINK_HTTPS=false\nSHLINK_API_KEY=change-me-initial-api-key\nTZ=Etc/UTC\n",
+			Notes:      "REQUIRED: set SHLINK_DEFAULT_DOMAIN to the real short domain you'll point at this service, and set a strong SHLINK_API_KEY before deploy. Set SHLINK_HTTPS=true once TLS terminates in front of it (reverse proxy). Shlink is API/CLI-first with no bundled UI — manage links with the INITIAL_API_KEY via the REST API, the Shlink CLI (docker exec), or the separate shlink-web-client app. SQLite is the default store (in shlink_data); add DB_DRIVER/DB_* env for external MySQL/MariaDB/PostgreSQL under real load.",
+		},
+		{
+			ID: "adguardhome", Name: "AdGuard Home", Description: "Network-wide DNS ad/tracker blocker with DoH/DoT, DHCP, and per-client filtering — a Pi-hole alternative.",
+			Category:    "security",
+			Subcategory: "dns",
+			Source:      "docker-hub", Image: "adguard/adguardhome:latest",
+			Tags: []string{"dns", "adblock", "privacy", "pihole-alternative", "self-hosted"},
+			ComposeContent: `services:
+  adguardhome:
+    image: adguard/adguardhome:latest
+    restart: unless-stopped
+    ports:
+      - "${ADGUARD_DNS_PORT:-53}:53/tcp"
+      - "${ADGUARD_DNS_PORT:-53}:53/udp"
+      - "${ADGUARD_SETUP_PORT:-3000}:3000/tcp"
+      - "${ADGUARD_HTTP_PORT:-8083}:80/tcp"
+      - "${ADGUARD_HTTPS_PORT:-8443}:443/tcp"
+    volumes:
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
+volumes:
+  adguard_work:
+  adguard_conf:
+`,
+			EnvContent: "ADGUARD_DNS_PORT=53\nADGUARD_SETUP_PORT=3000\nADGUARD_HTTP_PORT=8083\nADGUARD_HTTPS_PORT=8443\n",
+			Notes:      "First run: open the setup wizard on ADGUARD_SETUP_PORT (3000). In the wizard set the Admin Web Interface to port 80 (the container-internal port) so the UI is reachable afterward on ADGUARD_HTTP_PORT (8083), and leave the DNS port at 53. Heads-up: DNS port 53 often collides with the host's systemd-resolved/dnsmasq — free it on the host or remap ADGUARD_DNS_PORT. Point your router's or clients' DNS at this host to filter the whole network. Config and query data persist in named volumes.",
+		},
+		{
+			ID: "photoprism", Name: "PhotoPrism", Description: "AI-powered self-hosted photo library — automatic tagging, faces, places, and RAW support.",
+			Category:    "media",
+			Subcategory: "photos",
+			Source:      "docker-hub", Image: "photoprism/photoprism:latest",
+			Tags: []string{"photos", "gallery", "ai", "immich-alternative", "self-hosted"},
+			ComposeContent: `services:
+  photoprism:
+    image: photoprism/photoprism:latest
+    restart: unless-stopped
+    depends_on:
+      photoprism-db:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    ports:
+      - "${PHOTOPRISM_PORT:-2342}:2342"
+    environment:
+      PHOTOPRISM_ADMIN_USER: ${PHOTOPRISM_ADMIN_USER:-admin}
+      PHOTOPRISM_ADMIN_PASSWORD: ${PHOTOPRISM_ADMIN_PASSWORD:-change-me-min-8-chars}
+      PHOTOPRISM_AUTH_MODE: password
+      PHOTOPRISM_SITE_URL: ${PHOTOPRISM_SITE_URL:-http://localhost:2342/}
+      PHOTOPRISM_DATABASE_DRIVER: mysql
+      PHOTOPRISM_DATABASE_SERVER: photoprism-db:3306
+      PHOTOPRISM_DATABASE_NAME: photoprism
+      PHOTOPRISM_DATABASE_USER: photoprism
+      PHOTOPRISM_DATABASE_PASSWORD: ${PHOTOPRISM_DB_PASSWORD:-change-me-db}
+    working_dir: "/photoprism"
+    volumes:
+      - photoprism_originals:/photoprism/originals
+      - photoprism_storage:/photoprism/storage
+  photoprism-db:
+    image: mariadb:11
+    restart: unless-stopped
+    command: --innodb-buffer-pool-size=512M --transaction-isolation=READ-COMMITTED --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=512 --innodb-rollback-on-timeout=OFF --innodb-lock-wait-timeout=120
+    environment:
+      MARIADB_AUTO_UPGRADE: "1"
+      MARIADB_INITDB_SKIP_TZINFO: "1"
+      MARIADB_DATABASE: photoprism
+      MARIADB_USER: photoprism
+      MARIADB_PASSWORD: ${PHOTOPRISM_DB_PASSWORD:-change-me-db}
+      MARIADB_ROOT_PASSWORD: ${PHOTOPRISM_DB_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - photoprism_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+volumes:
+  photoprism_originals:
+  photoprism_storage:
+  photoprism_db:
+`,
+			EnvContent: "PHOTOPRISM_PORT=2342\nPHOTOPRISM_ADMIN_USER=admin\nPHOTOPRISM_ADMIN_PASSWORD=change-me-min-8-chars\nPHOTOPRISM_SITE_URL=http://localhost:2342/\nPHOTOPRISM_DB_PASSWORD=change-me-db\nPHOTOPRISM_DB_ROOT_PASSWORD=change-me-root\n",
+			Notes:      "REQUIRED before deploy: change PHOTOPRISM_ADMIN_PASSWORD (min 8 chars) and both DB passwords, and set PHOTOPRISM_SITE_URL to the URL users hit. Open the web UI (PHOTOPRISM_PORT 2342), then Library → Index to scan your photos. Put photos in the photoprism_originals volume (or swap it for a bind mount to an existing photo directory). The security_opt unconfined lines are required by upstream for TensorFlow. First index is CPU/RAM heavy. Originals, thumbnails/sidecars, and the DB persist in named volumes.",
+		},
+		{
+			ID: "homarr", Name: "Homarr", Description: "Modern, drag-and-drop dashboard for your self-hosted services with 40+ live integrations.",
+			Category:    "management",
+			Subcategory: "dashboard",
+			Source:      "docker-hub", Image: "ghcr.io/homarr-labs/homarr:latest",
+			Tags: []string{"dashboard", "homelab", "start-page", "homepage-alternative", "self-hosted"},
+			ComposeContent: `services:
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:latest
+    restart: unless-stopped
+    ports:
+      - "${HOMARR_PORT:-7575}:7575"
+    environment:
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_ENCRYPTION_KEY:-replace-with-64-hex-chars}
+    volumes:
+      - homarr_data:/appdata
+      # Optional: enables the Docker integration widget (read-only).
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  homarr_data:
+`,
+			EnvContent: "HOMARR_PORT=7575\nHOMARR_SECRET_ENCRYPTION_KEY=replace-with-64-hex-chars\n",
+			Notes:      "REQUIRED before deploy: set HOMARR_SECRET_ENCRYPTION_KEY to 64 hex chars (openssl rand -hex 32) — Homarr encrypts saved integration credentials with it, and changing it later invalidates them. Open the web UI (HOMARR_PORT 7575) and create the admin account on first visit. To use the Docker widget, uncomment the docker.sock mount (read-only). All config/data persist in homarr_data.",
+		},
+		{
+			ID: "excalidraw", Name: "Excalidraw", Description: "Virtual hand-drawn-style whiteboard for sketching diagrams and wireframes.",
+			Category:    "devtools",
+			Subcategory: "whiteboard",
+			Source:      "docker-hub", Image: "excalidraw/excalidraw:latest",
+			Tags: []string{"whiteboard", "diagrams", "drawing", "wireframe", "self-hosted"},
+			ComposeContent: `services:
+  excalidraw:
+    image: excalidraw/excalidraw:latest
+    restart: unless-stopped
+    ports:
+      - "${EXCALIDRAW_PORT:-8080}:80"
+`,
+			EnvContent: "EXCALIDRAW_PORT=8080\n",
+			Notes:      "Open the web UI (EXCALIDRAW_PORT 8080) and start drawing. This is the standalone client: drawings are kept in the browser's local storage, not on the server, so there are no volumes and nothing to back up server-side. Users can still Save-to-file / Open, or use Excalidraw's share links. For real-time multi-user collaboration you'd additionally run the excalidraw-room server — not included here.",
+		},
+		{
+			ID: "planka", Name: "Planka", Description: "Self-hosted Trello-style kanban board for project management with real-time collaboration.",
+			Category:    "productivity",
+			Subcategory: "kanban",
+			Source:      "docker-hub", Image: "ghcr.io/plankanban/planka:latest",
+			Tags: []string{"kanban", "project-management", "trello-alternative", "boards", "self-hosted"},
+			ComposeContent: `services:
+  planka:
+    image: ghcr.io/plankanban/planka:latest
+    restart: unless-stopped
+    ports:
+      - "${PLANKA_PORT:-3000}:1337"
+    environment:
+      - BASE_URL=${PLANKA_BASE_URL:-http://localhost:3000}
+      - DATABASE_URL=postgresql://postgres@planka-db/planka
+      - SECRET_KEY=${PLANKA_SECRET_KEY:-change-me-to-a-random-string}
+      - DEFAULT_ADMIN_EMAIL=${PLANKA_ADMIN_EMAIL:-admin@example.com}
+      - DEFAULT_ADMIN_PASSWORD=${PLANKA_ADMIN_PASSWORD:-change-me}
+      - DEFAULT_ADMIN_NAME=Admin
+      - DEFAULT_ADMIN_USERNAME=admin
+    volumes:
+      - planka_favicons:/app/public/favicons
+      - planka_user_avatars:/app/public/user-avatars
+      - planka_background_images:/app/public/background-images
+      - planka_attachments:/app/private/attachments
+    depends_on:
+      planka-db:
+        condition: service_healthy
+  planka-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=planka
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - planka_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d planka"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  planka_favicons:
+  planka_user_avatars:
+  planka_background_images:
+  planka_attachments:
+  planka_db:
+`,
+			EnvContent: "PLANKA_PORT=3000\nPLANKA_BASE_URL=http://localhost:3000\nPLANKA_SECRET_KEY=change-me-to-a-random-string\nPLANKA_ADMIN_EMAIL=admin@example.com\nPLANKA_ADMIN_PASSWORD=change-me\n",
+			Notes:      "REQUIRED before deploy: set PLANKA_SECRET_KEY (openssl rand -hex 64), set PLANKA_BASE_URL to the exact URL users hit (scheme + host + port), and change PLANKA_ADMIN_PASSWORD. Web UI on PLANKA_PORT (host 3000 → container 1337). The DEFAULT_ADMIN_* vars seed the first admin on initial DB creation only. Postgres uses trust auth on the internal network (not exposed). Boards, attachments, avatars, and the DB persist in named volumes.",
 		},
 		{
 			ID: "wizarr", Name: "Wizarr", Description: "Invitation and user-management portal for onboarding users to Jellyfin, Plex, and Emby.",

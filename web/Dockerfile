@@ -12,7 +12,10 @@ RUN npm run build
 
 ARG BASE_IMAGE_PREFIX=
 FROM ${BASE_IMAGE_PREFIX}alpine:3.22
-RUN apk add --no-cache nginx openssl && \
+# nginx pinned to >=1.28.3-r6 to force in the fix for CVE-2026-42533; the
+# explicit floor also busts Docker's layer cache so `apk upgrade` actually
+# re-pulls the patched package instead of reusing a stale cached layer.
+RUN apk add --no-cache 'nginx>=1.28.3-r6' openssl && \
     apk upgrade --no-cache && \
     mkdir -p /run/nginx /var/lib/nginx/tmp/client_body /var/log/nginx /usr/share/nginx/html /etc/nginx/ssl /etc/nginx/ssl/acme-webroot && \
     chmod -R 0777 /run/nginx /var/lib/nginx /var/log/nginx /etc/nginx/ssl && \
