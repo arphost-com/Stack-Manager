@@ -262,6 +262,11 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "missing user")
 		return
 	}
+	// The session carries a snapshot of the user captured at login, but TOTP
+	// can be enabled or disabled mid-session. Reflect the live DB state so the
+	// Settings UI shows "enabled" immediately after enrollment instead of the
+	// stale flag (which made 2FA look like it never saved).
+	user.TOTPEnabled = h.Store.HasTOTP(user.Username)
 	writeJSON(w, http.StatusOK, user)
 }
 

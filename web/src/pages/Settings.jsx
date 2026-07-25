@@ -172,6 +172,7 @@ export default function Settings() {
   const [totpEnrolling, setTotpEnrolling] = useState(false);
   const [totpEnrollData, setTotpEnrollData] = useState(null);
   const [totpVerifyCode, setTotpVerifyCode] = useState('');
+  const [totpBackupSaved, setTotpBackupSaved] = useState(false);
   const [totpDisablePassword, setTotpDisablePassword] = useState('');
 
   const admin = me?.role === 'admin';
@@ -730,7 +731,7 @@ export default function Settings() {
 
   const showError = (err) => {
     setMessage('');
-    setError(err.message || String(err));
+    setError(err?.response?.data?.error || err?.response?.data?.message || err?.message || String(err));
   };
 
   const logout = async () => {
@@ -1328,20 +1329,28 @@ export default function Settings() {
                     {totpEnrollData.backup_codes?.map(code => <div key={code} className="rounded bg-white px-2 py-1 text-center">{code}</div>)}
                   </div>
                   <div className="mt-2 text-xs">Each backup code can be used once if you lose access to your authenticator app.</div>
+                  <label className="mt-3 flex items-start gap-2 text-xs font-medium">
+                    <input type="checkbox" className="mt-0.5" checked={totpBackupSaved} onChange={e => setTotpBackupSaved(e.target.checked)} />
+                    <span>I have saved these backup codes somewhere safe. I understand they are shown only once and cannot be retrieved later.</span>
+                  </label>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <input className="input text-center text-lg tracking-widest" maxLength={6} inputMode="numeric" placeholder="Enter 6-digit code to verify" value={totpVerifyCode} onChange={e => setTotpVerifyCode(e.target.value.replace(/\D/g, ''))} />
-                  <button className="btn-primary" disabled={totpVerifyCode.length !== 6} onClick={async () => {
+                <div className="flex flex-wrap items-center gap-2">
+                  <input className="input w-40 text-center text-lg tracking-widest" maxLength={6} inputMode="numeric" placeholder="000000" value={totpVerifyCode} onChange={e => setTotpVerifyCode(e.target.value.replace(/\D/g, ''))} />
+                  <button className="btn-primary" disabled={totpVerifyCode.length !== 6 || !totpBackupSaved} title={!totpBackupSaved ? 'Confirm you have saved your backup codes first' : undefined} onClick={async () => {
                     try {
                       await totpApi.verify(totpVerifyCode);
                       showMessage('TOTP enabled! Your account now requires a code at login.');
                       setTotpEnrollData(null);
                       setTotpVerifyCode('');
+                      setTotpBackupSaved(false);
                       load();
                     } catch (err) { showError(err); }
                   }}>Verify and Enable</button>
                 </div>
-                <button type="button" className="btn-secondary" onClick={() => { setTotpEnrollData(null); setTotpVerifyCode(''); }}>Cancel</button>
+                {!totpBackupSaved && (
+                  <div className="text-xs text-amber-700">Confirm you have saved your backup codes to continue.</div>
+                )}
+                <button type="button" className="btn-secondary" onClick={() => { setTotpEnrollData(null); setTotpVerifyCode(''); setTotpBackupSaved(false); }}>Cancel</button>
               </div>
             )}
           </div>

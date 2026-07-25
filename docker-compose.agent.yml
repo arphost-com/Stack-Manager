@@ -47,13 +47,19 @@ services:
       AGENT_CONTROLLER_URL: "${AGENT_CONTROLLER_URL:-}"
       AGENT_CHECKIN_SECONDS: "${AGENT_CHECKIN_SECONDS:-60}"
       BASE_IMAGE_PREFIX: "${BASE_IMAGE_PREFIX:-}"
+      # Reach the daemon via the mounted /run DIRECTORY (see volumes) so a
+      # docker-ce upgrade / daemon restart that recreates the socket inode does
+      # not strand this agent on a dead socket. See docker-compose.yml.
+      DOCKER_HOST: "unix:///host-run/docker.sock"
     user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     group_add:
       - "${DOCKER_GID:-0}"
     ports:
       - "${AGENT_PORT:-8192}:${AGENT_PORT:-8192}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Directory mount (not the socket file) so the path resolves live across
+      # daemon restarts. Paired with DOCKER_HOST=unix:///host-run/docker.sock.
+      - /var/run:/host-run
       # Bind DOCKER_ROOT at the same host path so relative `./file.conf`
       # bind mounts inside child compose files resolve to real host files.
       - type: bind

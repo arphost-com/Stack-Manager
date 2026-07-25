@@ -87,6 +87,13 @@ services:
       EXTRA_DOCKER_ROOTS: "${EXTRA_DOCKER_ROOTS:-}"
       TZ: "${TZ:-UTC}"
       FRONTEND_EXTERNAL: "true"
+      # Talk to the daemon through the mounted /run DIRECTORY (see volumes),
+      # not a pinned socket-file inode. A docker-ce package upgrade or daemon
+      # restart replaces /var/run/docker.sock with a NEW inode; a file bind
+      # mount keeps pointing at the old, dead inode and the server reports
+      # "Cannot connect to the Docker daemon" until it is recreated. Resolving
+      # the path live through a directory mount survives daemon restarts.
+      DOCKER_HOST: "unix:///host-run/docker.sock"
     user: "${SERVER_USER:?SERVER_USER required, set to the host service UID:GID such as 1000:1000}"
     group_add:
       - "${DOCKER_GID:-0}"
@@ -103,7 +110,13 @@ services:
       - default
       - stackmgr-net
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the /run DIRECTORY (contains docker.sock) rather than the socket
+      # file itself, and point DOCKER_HOST at /host-run/docker.sock. Directory
+      # mounts resolve the socket path live on every connection, so a docker
+      # daemon restart or docker-ce upgrade that recreates the socket inode
+      # does NOT strand this container on a dead socket (the bug that made the
+      # UI falsely report "docker not started / all containers down").
+      - /var/run:/host-run
       # Follow the host system timezone (set via Settings > Timezone /
       # timedatectl) so logs, audit entries, backup filenames and schedule
       # times use the host's local time. Applied on the next container restart.
