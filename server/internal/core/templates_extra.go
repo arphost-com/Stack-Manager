@@ -2995,12 +2995,24 @@ volumes:
 			Source:      "official-github", Image: "arpvpn:local",
 			Tags: []string{"security", "vpn", "wireguard", "arphost", "gui"},
 			ComposeContent: `services:
+  arpvpn-init:
+    image: busybox:1
+    command: >-
+      sh -c "mkdir -p /data &&
+             chown -R ${ARPVPN_UID:-1000}:${ARPVPN_GID:-1000} /data"
+    user: "0:0"
+    volumes:
+      - ${DATA_FOLDER:-./data}:/data
+    restart: "no"
   arpvpn:
     build:
       context: ${ARPVPN_BUILD_CONTEXT:-https://github.com/arphost-com/ARPVPN.git#main}
       dockerfile: docker/Dockerfile
     image: ${ARPVPN_IMAGE:-arpvpn:local}
     user: "${ARPVPN_RUNTIME_USER:-arpvpn}"
+    depends_on:
+      arpvpn-init:
+        condition: service_completed_successfully
     environment:
       ARPVPN_CONTAINER_NAME: "${ARPVPN_CONTAINER_NAME:-arpvpn}"
       ARPVPN_COOKIE_SUFFIX: "${ARPVPN_COOKIE_SUFFIX:-}"
@@ -3041,8 +3053,8 @@ volumes:
     network_mode: host
     restart: unless-stopped
 `,
-			EnvContent: "ARPVPN_BUILD_CONTEXT=https://github.com/arphost-com/ARPVPN.git#main\nARPVPN_IMAGE=arpvpn:local\nARPVPN_RUNTIME_USER=arpvpn\nARPVPN_HTTP_PORT=8085\nARPVPN_HTTPS_PORT=8086\nARPVPN_SECURE_COOKIES=0\nDATA_FOLDER=./data\n",
-			Notes:      "ARPHost's own WireGuard GUI. Builds from the public GitHub repo (arphost-com/ARPVPN) on first 'up' — no registry login needed; the host just needs outbound access to github.com. Uses host networking + NET_ADMIN/NET_RAW; web UI on ARPVPN_HTTP_PORT (8085), HTTPS on 8086. DATA_FOLDER must be writable by UID 1000 (the in-container arpvpn user) — the first boot fails fast if it is not. To build from the private registry image instead, set ARPVPN_IMAGE and remove the build block. Default login is in the project docs.",
+			EnvContent: "ARPVPN_BUILD_CONTEXT=https://github.com/arphost-com/ARPVPN.git#main\nARPVPN_IMAGE=arpvpn:local\nARPVPN_RUNTIME_USER=arpvpn\nARPVPN_UID=1000\nARPVPN_GID=1000\nARPVPN_HTTP_PORT=8085\nARPVPN_HTTPS_PORT=8086\nARPVPN_SECURE_COOKIES=0\nDATA_FOLDER=./data\n",
+			Notes:      "ARPHost's own WireGuard GUI. Builds from the public GitHub repo (arphost-com/ARPVPN) on first 'up' — no registry login needed; the host just needs outbound access to github.com. Uses host networking + NET_ADMIN/NET_RAW; web UI on ARPVPN_HTTP_PORT (8085), HTTPS on 8086. DATA_FOLDER must be writable by the in-container arpvpn user (UID:GID 1000:1000) — a root arpvpn-init container chowns the bind-mounted data dir to ARPVPN_UID:ARPVPN_GID before startup, which fixes the 'ERROR: /data is not writable by runtime user' failure when Docker creates the host folder as root. If you rebuilt the image with a different ARPVPN_UID/ARPVPN_GID, set them here so the init chown matches the runtime user. To build from the private registry image instead, set ARPVPN_IMAGE and remove the build block. Default login is in the project docs.",
 		},
 		{
 			ID: "wg-easy", Name: "wg-easy", Description: "The simplest self-hosted WireGuard VPN with a clean web UI for managing peers.",
