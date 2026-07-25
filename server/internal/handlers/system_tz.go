@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 )
 
@@ -53,7 +54,7 @@ func (h *SystemTZHandler) runHelper(ctx context.Context, args ...string) (string
 		tzHelperPath,
 	}, args...)
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...) //nolint:gosec // helper path is constant; tz arg is regex-validated
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	cmd.Env = core.HostHelperEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

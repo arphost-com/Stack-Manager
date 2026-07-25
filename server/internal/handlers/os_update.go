@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
 )
 
@@ -54,7 +55,7 @@ func (h *OSUpdateHandler) runHelper(ctx context.Context, timeout time.Duration, 
 	}
 	dockerArgs = append(dockerArgs, args...)
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...) //nolint:gosec // helper path is a constant; token args are validated
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	cmd.Env = core.HostHelperEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

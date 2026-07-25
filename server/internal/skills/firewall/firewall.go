@@ -634,7 +634,7 @@ func (s *Skill) runHelper(ctx context.Context, timeout time.Duration, stdin io.R
 	dockerArgs = append(dockerArgs, args...)
 
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...) //nolint:gosec // helper path is a hardcoded default; sub+args validated by the helper
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	cmd.Env = core.HostHelperEnv()
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}

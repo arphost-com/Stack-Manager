@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/arphost-com/Stack-Manager/server/internal/core"
 )
 
 // GPU setup runs the host helper script (scripts/stack-manager-gpu.sh, installed
@@ -51,7 +53,7 @@ func (h *GPUSetupHandler) runHelper(ctx context.Context, timeout time.Duration, 
 		gpuHelperPath, sub,
 	}
 	cmd := exec.CommandContext(ctx, "docker", dockerArgs...) //nolint:gosec // helper path + sub are hardcoded constants
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	cmd.Env = core.HostHelperEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
