@@ -65,7 +65,7 @@ func NewScheduleManager(engine *Engine, jobs *JobManager, store ScheduleStore) *
 		stop: make(chan struct{}),
 	}
 	if jobs != nil && store != nil {
-		jobs.SetCompletionHandler(func(job *ActionJob) {
+		jobs.AddCompletionHandler(func(job *ActionJob) {
 			_ = store.CompleteScheduleRun(
 				context.Background(),
 				job.ID,

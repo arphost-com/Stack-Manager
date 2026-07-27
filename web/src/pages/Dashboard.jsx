@@ -499,8 +499,6 @@ export default function Dashboard() {
       setActionResult({ label: 'update all', status: 'error', error: 'No projects have available updates.' });
       return;
     }
-    if (!window.confirm(`Update all ${targets.length} listed project${targets.length === 1 ? '' : 's'}?\n\nProjects run one at a time. Each update pulls images and may recreate that project's containers.`)) return;
-
     markPending(key, true);
     try {
       setActionResult({ label: `update all ${targets.length} project${targets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
@@ -1677,6 +1675,11 @@ function ActionResult({ result, onDismiss }) {
   const succeededProjects = bulk ? bulk.results.filter(r => r.success) : [];
   const [showFailed, setShowFailed] = useState(true);
   const [showSucceeded, setShowSucceeded] = useState(false);
+  useEffect(() => {
+    if (result.status !== 'done') return undefined;
+    const timer = window.setTimeout(onDismiss, 6000);
+    return () => window.clearTimeout(timer);
+  }, [result.status, result.label, onDismiss]);
   // Sticky-tail the single-job output pane while the action is running.
   // Once status flips off "running" the hook stops forcing scroll so
   // users can browse the finished log without being yanked to the end.

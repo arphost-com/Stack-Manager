@@ -30,7 +30,15 @@ type ProjectHandler struct {
 
 // NewProjectHandler creates a new ProjectHandler.
 func NewProjectHandler(engine *core.Engine, jobs *core.JobManager, store *storage.Store) *ProjectHandler {
-	return &ProjectHandler{Engine: engine, Jobs: jobs, Store: store}
+	handler := &ProjectHandler{Engine: engine, Jobs: jobs, Store: store}
+	if jobs != nil && store != nil {
+		jobs.AddCompletionHandler(func(job *core.ActionJob) {
+			if job.Action == "update" && job.Success {
+				_ = store.SaveProjectUpdateStatus(context.Background(), job.Project, core.ProjectUpdateStatus{})
+			}
+		})
+	}
+	return handler
 }
 
 func (h *ProjectHandler) SetUpdateCheckManager(manager *core.UpdateCheckManager) {
@@ -395,6 +403,9 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results := h.Engine.Update(project, timeout)
+	if opResultsSucceeded(results) {
+		_ = h.Store.SaveProjectUpdateStatus(r.Context(), project.Name, core.ProjectUpdateStatus{})
+	}
 	h.syncPorts(r.Context(), project.Name)
 	writeJSON(w, http.StatusOK, results)
 }
@@ -564,6 +575,9 @@ func (h *ProjectHandler) BulkAction(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			subResults := h.Engine.Update(&p, req.Timeout)
+			if opResultsSucceeded(subResults) {
+				_ = h.Store.SaveProjectUpdateStatus(r.Context(), p.Name, core.ProjectUpdateStatus{})
+			}
 			results = append(results, subResults...)
 			continue
 		default:
@@ -589,6 +603,18 @@ func (h *ProjectHandler) BulkAction(w http.ResponseWriter, r *http.Request) {
 		Success: successes,
 		Failed:  failures,
 	})
+}
+
+func opResultsSucceeded(results []core.OpResult) bool {
+	if len(results) == 0 {
+		return false
+	}
+	for _, result := range results {
+		if !result.Success {
+			return false
+		}
+	}
+	return true
 }
 
 // Prune runs a selected Docker prune command.

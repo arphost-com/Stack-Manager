@@ -1593,6 +1593,11 @@ function ActionResult({ result, onDismiss }) {
   const tone = result.status === 'running' ? 'border-blue-200 bg-blue-50 text-blue-900' :
     result.status === 'error' ? 'border-red-200 bg-red-50 text-red-900' :
     'border-green-200 bg-green-50 text-green-900';
+  useEffect(() => {
+    if (result.status !== 'done') return undefined;
+    const timer = window.setTimeout(onDismiss, 6000);
+    return () => window.clearTimeout(timer);
+  }, [result.status, result.label, onDismiss]);
   return (
     <div className={`action-result rounded border px-4 py-3 text-sm ${tone}`}>
       <div className="flex items-start justify-between gap-4">
