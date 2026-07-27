@@ -22,7 +22,7 @@ services:
         # the first time the stack comes up — no manual 'sudo install' step on
         # any node. /host-sbin is the host's /usr/local/sbin. Best-effort.
         # $$h escapes docker-compose interpolation so the shell (not compose)
-        # expands the loop variable — otherwise $h resolves to a blank string and
+        # expands the loop variable — otherwise the variable resolves to blank and
         # nothing installs.
         if [ -d /host-sbin ]; then
           for h in gpu os update csf tz; do
