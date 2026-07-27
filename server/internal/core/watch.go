@@ -156,8 +156,7 @@ func (w *WatchManager) Start(name string) (*WatchSession, string, error) {
 	logArgs = append(logArgs, "-p", w.engine.getProjectName(project.Name), "logs", "-f", "--no-color", "--timestamps", "--since=0s")
 	logsCmd := exec.CommandContext(ctx, "docker", logArgs...)
 	logsCmd.Dir = project.Dir
-	logsCmd.Env = append(logsCmd.Environ(), "COMPOSE_PROGRESS=plain")
-	logsCmd.Env = append(logsCmd.Env, stackManagerUserEnv(project)...)
+	logsCmd.Env = projectComposeEnv(project)
 
 	f, err := os.OpenFile(session.LogPath, os.O_APPEND|os.O_WRONLY, 0o640)
 	if err != nil {

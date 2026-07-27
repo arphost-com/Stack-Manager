@@ -18,6 +18,44 @@ var composeUserEnvKeys = []string{
 	"USER_GID",
 }
 
+// composeRuntimeEnvKeys must continue to come from Stack Manager's own
+// process. They control how the Docker CLI reaches the host and finds its
+// credentials; a managed project's .env is only for Compose interpolation.
+var composeRuntimeEnvKeys = map[string]struct{}{
+	"DOCKER_CONFIG":  {},
+	"DOCKER_CONTEXT": {},
+	"DOCKER_HOST":    {},
+	"HOME":           {},
+	"PATH":           {},
+}
+
+// projectComposeEnv prevents Stack Manager's container environment from
+// overriding same-named values in a managed project's .env. This is especially
+// important when Stack Manager updates itself: runtime STATE_DIR=/state is an
+// in-container path, while the host compose project uses STATE_DIR=.stack-manager.
+func projectComposeEnv(project *Project) []string {
+	projectKeys := readDotEnvKeys(filepath.Join(project.Dir, ".env"))
+	env := make([]string, 0, len(os.Environ())+len(composeUserEnvKeys)+1)
+	for _, entry := range os.Environ() {
+		key := entry
+		if idx := strings.IndexByte(entry, '='); idx >= 0 {
+			key = entry[:idx]
+		}
+		_, definedByProject := projectKeys[key]
+		_, runtimeRequired := composeRuntimeEnvKeys[key]
+		if definedByProject && !runtimeRequired {
+			continue
+		}
+		if key == "COMPOSE_PROGRESS" {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env, "COMPOSE_PROGRESS=plain")
+	env = append(env, stackManagerUserEnv(project)...)
+	return env
+}
+
 func stackManagerUserEnv(project *Project) []string {
 	if project == nil {
 		return nil

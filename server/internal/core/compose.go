@@ -103,8 +103,7 @@ func (e *Engine) ExecComposeWithTimeout(project *Project, timeoutSecs int, args 
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, "docker", composeArgs...)
 	cmd.Dir = project.Dir
-	cmd.Env = append(cmd.Environ(), "COMPOSE_PROGRESS=plain")
-	cmd.Env = append(cmd.Env, stackManagerUserEnv(project)...)
+	cmd.Env = projectComposeEnv(project)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

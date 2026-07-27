@@ -260,9 +260,10 @@ func runCommandJob(job *ActionJob, dir string, timeoutSecs int, name string, arg
 	// Callers pass fixed Docker commands or validated hook paths; arguments are not shell-expanded.
 	cmd := exec.CommandContext(ctx, name, args...) // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd.Dir = dir
-	cmd.Env = append(cmd.Environ(), "COMPOSE_PROGRESS=plain")
 	if job != nil && job.Project != "" {
-		cmd.Env = append(cmd.Env, stackManagerUserEnv(&Project{Name: job.Project, Dir: dir})...)
+		cmd.Env = projectComposeEnv(&Project{Name: job.Project, Dir: dir})
+	} else {
+		cmd.Env = append(cmd.Environ(), "COMPOSE_PROGRESS=plain")
 	}
 
 	stdout, err := cmd.StdoutPipe()
