@@ -492,6 +492,28 @@ export default function Dashboard() {
     }
   };
 
+  const runListedUpdates = async () => {
+    const key = 'bulk:update-listed';
+    const targets = availableUpdateProjects.map(project => project.name);
+    if (targets.length === 0) {
+      setActionResult({ label: 'update all', status: 'error', error: 'No projects have available updates.' });
+      return;
+    }
+    if (!window.confirm(`Update all ${targets.length} listed project${targets.length === 1 ? '' : 's'}?\n\nProjects run one at a time. Each update pulls images and may recreate that project's containers.`)) return;
+
+    markPending(key, true);
+    try {
+      setActionResult({ label: `update all ${targets.length} project${targets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
+      const res = await cmdProjects.bulk('update', { projects: targets, timeout });
+      setActionResult({ label: `update all${cmdTargetLabel}`, status: 'done', result: res.data });
+      fetchData();
+    } catch (err) {
+      setActionResult({ label: 'update all', status: 'error', error: err.message });
+    } finally {
+      markPending(key, false);
+    }
+  };
+
   const checkUpdates = async () => {
     setCheckingUpdates(true);
     try {
@@ -1045,8 +1067,11 @@ export default function Dashboard() {
             setUpdatePage(1);
           }}
           runAction={runAction}
+          isPending={isPending}
+          runListedUpdates={runListedUpdates}
           checkUpdates={checkUpdates}
           checkingUpdates={checkingUpdates}
+          updatingAll={isPending('bulk:update-listed')}
         />
       )}
 
@@ -1129,7 +1154,7 @@ function SystemStatus({ skills, summary, history, onRefresh }) {
   );
 }
 
-function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCount, pageSize, setPage, setPageSize, runAction, checkUpdates, checkingUpdates }) {
+function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCount, pageSize, setPage, setPageSize, runAction, isPending, runListedUpdates, checkUpdates, checkingUpdates, updatingAll }) {
   const checkedCount = projects.filter(project => project.update_status?.checked).length;
   const lastChecked = projects
     .map(project => project.update_status?.checked_at)
@@ -1145,9 +1170,13 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-gray-500">{checkedCount}/{projects.length} checked</span>
-          <button type="button" className="btn-secondary inline-flex items-center gap-2" disabled={checkingUpdates} onClick={checkUpdates} title="Check registries for newer image digests without pulling images.">
+          <button type="button" className="btn-secondary inline-flex items-center gap-2" disabled={checkingUpdates || updatingAll} onClick={checkUpdates} title="Check registries for newer image digests without pulling images.">
             {checkingUpdates && <span className="spinner" aria-hidden="true"></span>}
             Check Now
+          </button>
+          <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={availableProjects.length === 0 || updatingAll} onClick={runListedUpdates} title={`Update all ${availableProjects.length} listed project${availableProjects.length === 1 ? '' : 's'}, one project at a time.`}>
+            {updatingAll && <span className="spinner" aria-hidden="true"></span>}
+            {updatingAll ? 'Updating All…' : `Update All (${availableProjects.length})`}
           </button>
           <select className="input max-w-[120px]" value={pageSize} onChange={e => setPageSize(Number(e.target.value))} title="Rows per page.">
             {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size} rows</option>)}
@@ -1195,8 +1224,14 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
                   </td>
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
-                      <button type="button" onClick={() => runAction(project.name, 'pull')} className="mini-button" title="Pull available image updates for this project.">Pull</button>
-                      <button type="button" onClick={() => runAction(project.name, 'update')} className="mini-button" title="Pull available image updates and recreate this project.">Update</button>
+                      <button type="button" disabled={updatingAll || isPending(`${project.name}:pull`)} onClick={() => runAction(project.name, 'pull')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates for this project.">
+                        {isPending(`${project.name}:pull`) && <span className="spinner" aria-hidden="true"></span>}
+                        {isPending(`${project.name}:pull`) ? 'Pulling…' : 'Pull'}
+                      </button>
+                      <button type="button" disabled={updatingAll || isPending(`${project.name}:update`)} onClick={() => runAction(project.name, 'update')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates and recreate only this project.">
+                        {isPending(`${project.name}:update`) && <span className="spinner" aria-hidden="true"></span>}
+                        {isPending(`${project.name}:update`) ? 'Updating…' : 'Update This'}
+                      </button>
                     </div>
                   </td>
                 </tr>
