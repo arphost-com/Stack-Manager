@@ -193,6 +193,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 			INDEX idx_update_schedules_agent_project (agent_id, project),
 			CONSTRAINT fk_update_schedules_agent FOREIGN KEY (agent_id) REFERENCES compose_agents(id) ON DELETE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`CREATE TABLE IF NOT EXISTS update_schedule_runs (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			schedule_id BIGINT NOT NULL,
+			agent_id BIGINT NULL,
+			agent_name VARCHAR(128) NOT NULL DEFAULT '',
+			project VARCHAR(255) NOT NULL,
+			action VARCHAR(64) NOT NULL,
+			job_id VARCHAR(128) NULL,
+			status VARCHAR(32) NOT NULL,
+			output MEDIUMTEXT NULL,
+			error TEXT NULL,
+			started_at DATETIME(6) NOT NULL,
+			ended_at DATETIME(6) NULL,
+			duration VARCHAR(64) NOT NULL DEFAULT '',
+			INDEX idx_update_schedule_runs_started (started_at),
+			INDEX idx_update_schedule_runs_schedule (schedule_id, started_at),
+			INDEX idx_update_schedule_runs_job (job_id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 		`CREATE TABLE IF NOT EXISTS backup_destinations (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(128) NOT NULL UNIQUE,
@@ -295,7 +313,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	if err := s.backfillLatestScheduleRuns(ctx); err != nil {
+		return err
+	}
+	return s.reconcileLatestScheduleStatuses(ctx)
 }
 
 func isDuplicateColumn(err error) bool {
@@ -837,7 +858,16 @@ func (s *Store) SaveAgentCommandResult(ctx context.Context, agentID, id int64, s
 		SET status=?, success=?, output=?, updated_at=?
 		WHERE id=? AND agent_id=?`,
 		status, success, output, time.Now().UTC(), id, agentID)
-	return err
+	if err != nil {
+		return err
+	}
+	runStatus := "completed"
+	errText := ""
+	if !success {
+		runStatus = "failed"
+		errText = "agent command failed"
+	}
+	return s.CompleteScheduleRun(ctx, fmt.Sprintf("agent-cmd-%d", id), runStatus, output, errText, time.Now().UTC(), "")
 }
 
 // ListAgentCommands returns recent commands for an agent, newest first,
@@ -1032,13 +1062,33 @@ func (s *Store) ScheduledProjectNames(ctx context.Context) map[string]bool {
 }
 
 func (s *Store) MarkScheduleDispatched(ctx context.Context, id int64, nextRun time.Time, jobID, status, errText string) error {
-	_, err := s.DB.ExecContext(ctx, `UPDATE update_schedules
+	now := time.Now().UTC()
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `UPDATE update_schedules
 		SET next_run_at=?, last_run_at=?, last_job_id=?, last_status=?, last_error=?, updated_at=?
 		WHERE id=?`,
-		nextRun.UTC(), time.Now().UTC(), jobID, status, nullableString(errText), time.Now().UTC(), id)
-	if err == nil {
-		s.DeleteCache(ctx, "schedules:list")
+		nextRun.UTC(), now, jobID, status, nullableString(errText), now, id)
+	if err != nil {
+		return err
 	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	if err := insertScheduleRunTx(ctx, tx, id, jobID, status, errText, now); err != nil {
+		return err
+	}
+	if err := insertScheduleAuditTx(ctx, tx, id, jobID, status, errText, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.DeleteCache(ctx, "schedules:list")
 	return err
 }
 

@@ -33,6 +33,24 @@ func (h *ScheduleHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, schedules)
 }
 
+func (h *ScheduleHandler) History(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 500 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 500")
+			return
+		}
+		limit = value
+	}
+	runs, err := h.Store.ListScheduleRuns(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, runs)
+}
+
 func (h *ScheduleHandler) Save(w http.ResponseWriter, r *http.Request) {
 	var req core.UpdateScheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

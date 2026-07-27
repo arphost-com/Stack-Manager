@@ -1693,9 +1693,9 @@ function ActionResult({ result, onDismiss }) {
               )}
             </div>
           )}
-          {!bulk && output && (
+          {!bulk && (result.job || output) && (
             <pre ref={outputPreRef} className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
-              {output}
+              {output || (result.status === 'running' ? 'Waiting for Docker command output…' : 'Command completed without output.')}
             </pre>
           )}
         </div>

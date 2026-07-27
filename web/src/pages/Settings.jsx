@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { auth, users, backup, projects, agents, schedules, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
+import { auth, users, backup, projects, agents, schedules, jobsForSource, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';
 
@@ -111,6 +111,8 @@ export default function Settings() {
   const [agentList, setAgentList] = useState([]);
   const [agentProjects, setAgentProjects] = useState({});
   const [scheduleList, setScheduleList] = useState([]);
+  const [scheduleRuns, setScheduleRuns] = useState([]);
+  const [scheduleActionResult, setScheduleActionResult] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({ username: '', password: '', role: 'operator' });
@@ -203,18 +205,20 @@ export default function Settings() {
       const meRes = await auth.me();
       setMe(meRes.data);
       if (meRes.data.role !== 'admin') return;
-      const [usersRes, destinationsRes, projectsRes, agentsRes, schedulesRes] = await Promise.all([
+      const [usersRes, destinationsRes, projectsRes, agentsRes, schedulesRes, scheduleRunsRes] = await Promise.all([
         users.list(),
         backup.destinations(),
         projects.list({ include_inactive: 'true', running_only: 'false' }),
         agents.list(),
         schedules.list(),
+        schedules.history(),
       ]);
       setUserList(usersRes.data || []);
       setDestinationList(destinationsRes.data || []);
       setProjectList(projectsRes.data || []);
       setAgentList(agentsRes.data || []);
       setScheduleList(schedulesRes.data || []);
+      setScheduleRuns(scheduleRunsRes.data || []);
     } catch (err) {
       setError(err.message);
     }
@@ -888,12 +892,77 @@ export default function Settings() {
 
   const runSchedule = async (schedule) => {
     try {
+      setScheduleActionResult({
+        scheduleID: schedule.id,
+        label: `${schedule.action || 'update'} ${schedule.project}`,
+        status: 'running',
+        job: { id: '', status: 'starting', output: '' },
+      });
       const res = await schedules.run(schedule.id);
-      showMessage(`Started schedule for ${res.data.project}`);
-      load();
+      const jobID = res.data?.last_job_id || '';
+      if (!jobID) {
+        throw new Error('The scheduler did not return a job ID.');
+      }
+      if (jobID.startsWith('agent-cmd-')) {
+        setScheduleActionResult({
+          scheduleID: schedule.id,
+          label: `${schedule.action || 'update'} ${schedule.project}`,
+          status: 'done',
+          job: {
+            id: jobID,
+            status: 'queued',
+            output: `Queued on ${schedule.agent_name || 'the callback agent'}. Output will appear in Scheduled Run History after the agent reports the result.`,
+          },
+        });
+        load();
+        return;
+      }
+      setScheduleActionResult({
+        scheduleID: schedule.id,
+        label: `${schedule.action || 'update'} ${schedule.project}`,
+        status: 'running',
+        job: { id: jobID, status: 'running', output: '' },
+      });
+      pollScheduleJob(schedule, jobID);
     } catch (err) {
-      showError(err);
+      setScheduleActionResult({
+        scheduleID: schedule.id,
+        label: `${schedule.action || 'update'} ${schedule.project}`,
+        status: 'error',
+        error: err.message,
+      });
     }
+  };
+
+  const pollScheduleJob = (schedule, jobID) => {
+    const jobApi = jobsForSource(schedule.agent_id);
+    const tick = async () => {
+      try {
+        const res = await jobApi.get(jobID);
+        const job = res.data;
+        const running = job.status === 'running';
+        setScheduleActionResult({
+          scheduleID: schedule.id,
+          label: `${schedule.action || 'update'} ${schedule.project}`,
+          status: running ? 'running' : job.success ? 'done' : 'error',
+          job,
+        });
+        if (running) {
+          window.setTimeout(tick, 1000);
+        } else {
+          load();
+        }
+      } catch (err) {
+        setScheduleActionResult({
+          scheduleID: schedule.id,
+          label: `${schedule.action || 'update'} ${schedule.project}`,
+          status: 'error',
+          error: err.message,
+          job: { id: jobID, status: 'unknown', output: '' },
+        });
+      }
+    };
+    window.setTimeout(tick, 300);
   };
 
   const deleteSchedule = async (schedule) => {
@@ -1636,7 +1705,8 @@ export default function Settings() {
       )}
 
       {admin && activeTab === 'schedules' && (
-        <div className="section-panel">
+        <div className="space-y-4">
+          <div className="section-panel">
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-950">Scheduled Updates</h2>
@@ -1644,6 +1714,9 @@ export default function Settings() {
             </div>
             <Badge tone="blue">{scheduleList.length} schedules</Badge>
           </div>
+          {scheduleActionResult && (
+            <ScheduleActionResult result={scheduleActionResult} onDismiss={() => setScheduleActionResult(null)} />
+          )}
           <form onSubmit={saveSchedule} className="mb-5 grid gap-3 lg:grid-cols-6">
             <Field label="Target host" title="Leave as this server for local projects, or select a registered agent.">
               <select value={scheduleForm.agent_id} onChange={e => selectScheduleAgent(e.target.value)} className="input">
@@ -1716,7 +1789,14 @@ export default function Settings() {
                     <td className="text-xs text-gray-500">{schedule.last_status || 'never'} {schedule.last_job_id ? `- ${schedule.last_job_id}` : ''}</td>
                     <td>
                       <div className="flex justify-end gap-1">
-                        <button title="Run this schedule now." onClick={() => runSchedule(schedule)} className="mini-button">Run</button>
+                        <button
+                          title="Run this schedule now and show its live command output."
+                          onClick={() => runSchedule(schedule)}
+                          disabled={scheduleActionResult?.scheduleID === schedule.id && scheduleActionResult.status === 'running'}
+                          className="mini-button"
+                        >
+                          {scheduleActionResult?.scheduleID === schedule.id && scheduleActionResult.status === 'running' ? 'Running…' : 'Run'}
+                        </button>
                         <button title="Load this schedule into the edit form." onClick={() => editSchedule(schedule)} className="mini-button">Edit</button>
                         <button title="Delete this schedule." onClick={() => deleteSchedule(schedule)} className="mini-danger">Delete</button>
                       </div>
@@ -1726,6 +1806,58 @@ export default function Settings() {
               </tbody>
             </table>
             {scheduleList.length === 0 && <div className="py-6 text-sm text-gray-500">No schedules configured.</div>}
+          </div>
+          </div>
+          <div className="section-panel">
+          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-gray-950">Scheduled Run History</h3>
+              <p className="text-sm text-gray-600">Recent scheduler attempts and their final Docker output. These runs are also retained in the Activity Log.</p>
+            </div>
+            <button type="button" className="btn-secondary" title="Reload scheduled run history." onClick={load}>Refresh</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
+                  <th className="py-2">Started</th>
+                  <th>Target</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scheduleRuns.map(run => (
+                  <tr key={run.id} className="border-b border-gray-100 align-top">
+                    <td className="py-2 text-xs text-gray-500">{formatDate(run.started_at)}</td>
+                    <td>
+                      <div className="font-medium text-gray-900">{run.project}</div>
+                      <div className="text-xs text-gray-500">{run.agent_name || 'This server'}</div>
+                    </td>
+                    <td><Badge tone="blue">{run.action}</Badge></td>
+                    <td><Badge tone={scheduleRunTone(run.status)}>{run.status || 'unknown'}</Badge></td>
+                    <td className="text-xs text-gray-500">{run.duration || (run.ended_at ? 'completed' : '—')}</td>
+                    <td className="max-w-md">
+                      {(run.error || run.output) ? (
+                        <details>
+                          <summary className="cursor-pointer text-xs font-medium text-blue-700" title="Show the scheduler error and Docker command output.">
+                            {run.error ? 'Error details' : 'Command output'}
+                          </summary>
+                          {run.error && <div className="mt-2 whitespace-pre-wrap rounded bg-red-50 p-2 text-xs text-red-800">{run.error}</div>}
+                          {run.output && <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{run.output}</pre>}
+                        </details>
+                      ) : (
+                        <span className="text-xs text-gray-400">{run.job_id || 'No output'}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {scheduleRuns.length === 0 && <div className="py-6 text-sm text-gray-500">No scheduled runs have been recorded yet.</div>}
+          </div>
           </div>
         </div>
       )}
@@ -2896,6 +3028,33 @@ function Field({ label, title, hint, children }) {
   );
 }
 
+function ScheduleActionResult({ result, onDismiss }) {
+  const running = result.status === 'running';
+  const failed = result.status === 'error';
+  const output = result.job?.output || '';
+  return (
+    <div className={`mb-5 rounded-md border-2 p-4 shadow-sm ${failed ? 'border-red-300 bg-red-50' : running ? 'border-blue-300 bg-blue-50' : 'border-green-300 bg-green-50'}`}>
+      <div className="mb-2 flex items-start justify-between gap-4">
+        <div>
+          <div className={`font-semibold ${failed ? 'text-red-900' : running ? 'text-blue-900' : 'text-green-900'}`}>
+            {running ? `Running ${result.label}…` : failed ? `${result.label} failed` : `${result.label} completed`}
+          </div>
+          {result.job?.id && (
+            <div className="mt-1 text-xs text-gray-600">
+              Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}
+            </div>
+          )}
+          {result.error && <div className="mt-1 text-sm text-red-800">{result.error}</div>}
+        </div>
+        <button type="button" title="Dismiss this command output." onClick={onDismiss} className="mini-button">Dismiss</button>
+      </div>
+      <pre className="min-h-24 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
+        {output || (running ? 'Waiting for Docker command output…' : failed ? 'No command output was returned.' : 'Command completed without output.')}
+      </pre>
+    </div>
+  );
+}
+
 function Badge({ tone = 'gray', children }) {
   const tones = {
     gray: 'bg-gray-100 text-gray-700',
@@ -2912,6 +3071,13 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'none';
   return date.toLocaleString();
+}
+
+function scheduleRunTone(status) {
+  if (status === 'failed') return 'red';
+  if (status === 'completed') return 'green';
+  if (status === 'running' || status === 'started' || status === 'pending' || status === 'claimed') return 'blue';
+  return 'gray';
 }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

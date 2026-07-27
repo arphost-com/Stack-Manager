@@ -30,9 +30,10 @@ type ActionJob struct {
 }
 
 type JobManager struct {
-	mu    sync.RWMutex
-	jobs  map[string]*ActionJob
-	store JobStore
+	mu         sync.RWMutex
+	jobs       map[string]*ActionJob
+	store      JobStore
+	onComplete func(*ActionJob)
 }
 
 type JobStore interface {
@@ -43,6 +44,14 @@ type JobStore interface {
 
 func NewJobManager(store JobStore) *JobManager {
 	return &JobManager{jobs: make(map[string]*ActionJob), store: store}
+}
+
+// SetCompletionHandler registers the scheduler's reconciliation callback.
+// Manual jobs also invoke it; the schedule store safely ignores unknown IDs.
+func (m *JobManager) SetCompletionHandler(handler func(*ActionJob)) {
+	m.mu.Lock()
+	m.onComplete = handler
+	m.mu.Unlock()
 }
 
 func (m *JobManager) Start(engine *Engine, project *Project, action string, timeoutSecs int) (*ActionJob, error) {
@@ -146,6 +155,12 @@ func (m *JobManager) run(engine *Engine, project *Project, job *ActionJob, timeo
 			}
 		})
 		_ = m.save(job)
+		m.mu.RLock()
+		onComplete := m.onComplete
+		m.mu.RUnlock()
+		if onComplete != nil {
+			onComplete(JobSnapshot(job))
+		}
 	}()
 
 	switch job.Action {

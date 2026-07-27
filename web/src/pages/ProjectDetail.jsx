@@ -1606,9 +1606,9 @@ function ActionResult({ result, onDismiss }) {
               {result.result.destination.target && <span> · <span className="font-mono">{result.result.destination.target}</span></span>}
             </div>
           )}
-          {(result.job?.output || result.result?.output) && (
+          {(result.job || result.job?.output || result.result?.output) && (
             <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
-              {result.job?.output || result.result?.output}
+              {result.job?.output || result.result?.output || (result.status === 'running' ? 'Waiting for Docker command output…' : 'Command completed without output.')}
             </pre>
           )}
         </div>

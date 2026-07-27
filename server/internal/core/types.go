@@ -458,3 +458,23 @@ type UpdateScheduleRequest struct {
 	TimeoutSeconds  int        `json:"timeout_seconds,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
 }
+
+// UpdateScheduleRun is one persisted execution attempt for an update schedule.
+// Job-backed fields are resolved from the jobs or agent command tables so the
+// history reflects the final outcome rather than only the dispatch status.
+type UpdateScheduleRun struct {
+	ID         int64      `json:"id"`
+	ScheduleID int64      `json:"schedule_id"`
+	AgentID    *int64     `json:"agent_id,omitempty"`
+	AgentName  string     `json:"agent_name,omitempty"`
+	Project    string     `json:"project"`
+	Action     string     `json:"action"`
+	JobID      string     `json:"job_id,omitempty"`
+	Status     string     `json:"status"`
+	Success    bool       `json:"success"`
+	Output     string     `json:"output,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	EndedAt    *time.Time `json:"ended_at,omitempty"`
+	Duration   string     `json:"duration,omitempty"`
+}

@@ -331,6 +331,7 @@ func main() {
 			r.Get("/agents/{agentID}/commands", agentHandler.ListCommands)
 			r.Delete("/agents/{agentID}", agentHandler.Delete)
 			r.Get("/schedules", scheduleHandler.List)
+			r.Get("/schedules/history", scheduleHandler.History)
 			r.Post("/schedules", scheduleHandler.Save)
 			r.Delete("/schedules/{scheduleID}", scheduleHandler.Delete)
 			r.Post("/schedules/{scheduleID}/run", scheduleHandler.RunNow)

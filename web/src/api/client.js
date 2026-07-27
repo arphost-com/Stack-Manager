@@ -201,6 +201,7 @@ export const agents = {
 
 export const schedules = {
   list: () => request('/schedules'),
+  history: (limit = 100) => request(`/schedules/history?limit=${encodeURIComponent(limit)}`),
   save: (body) => request('/schedules', { method: 'POST', body: JSON.stringify(body) }),
   delete: (id) => request(`/schedules/${id}`, { method: 'DELETE' }),
   run: (id) => request(`/schedules/${id}/run`, { method: 'POST' }),
