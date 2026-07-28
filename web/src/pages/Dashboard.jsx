@@ -1005,8 +1005,17 @@ export default function Dashboard() {
                       {p.inactive && <Badge tone="amber">inactive</Badge>}
                       {p.has_hook?.update && <Badge tone="cyan">update hook</Badge>}
                       {p.update_policy?.effective_policy === 'no_updates' && <Badge tone="amber">no updates</Badge>}
-                      {(p.update_status?.error || p.update_status?.available) ? (
-                        <Link to={`/projects/${encodeURIComponent(p.name)}?tab=sources`} title={p.update_status?.error || `${p.update_status?.count || 1} image updates available`}>
+                      {p.update_status?.error ? (
+                        <Link
+                          to={`${projectDetailHref(p, 'overview')}#update-check-warning`}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:underline"
+                          title={`View update-check warning: ${p.update_status.error}`}
+                        >
+                          <Badge tone={updateStatusTone(p)}>{updateStatusLabel(p)}</Badge>
+                          View warning
+                        </Link>
+                      ) : p.update_status?.available ? (
+                        <Link to={projectDetailHref(p, 'sources')} title={`${p.update_status?.count || 1} image updates available`}>
                           <Badge tone={updateStatusTone(p)}>{updateStatusLabel(p)}</Badge>
                         </Link>
                       ) : (
@@ -1591,17 +1600,12 @@ function SourceSummary({ sources }) {
 }
 
 function ProjectLinks({ project }) {
-  const encodedName = encodeURIComponent(project.name);
   const docCount = project.documentation?.length || 0;
-  // Carry the owning server so the detail page can proxy to the right peer.
-  const remote = project.source_host && project.source_host !== 'local';
-  const sourceQ = remote ? `?source=${encodeURIComponent(project.source_host)}` : '';
-  const sourceQAmp = remote ? `${sourceQ}&` : '?';
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Link to={`/projects/${encodedName}${sourceQ}`} className="font-medium text-blue-700 hover:underline">{project.name}</Link>
+      <Link to={projectDetailHref(project)} className="font-medium text-blue-700 hover:underline">{project.name}</Link>
       <Link
-        to={`/projects/${encodedName}${sourceQAmp}tab=docs`}
+        to={projectDetailHref(project, 'docs')}
         className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-800 hover:bg-blue-100"
         title="Open project-local documentation."
       >
@@ -1609,6 +1613,14 @@ function ProjectLinks({ project }) {
       </Link>
     </div>
   );
+}
+
+function projectDetailHref(project, tab = '') {
+  const params = new URLSearchParams();
+  if (project.source_host && project.source_host !== 'local') params.set('source', project.source_host);
+  if (tab) params.set('tab', tab);
+  const query = params.toString();
+  return `/projects/${encodeURIComponent(project.name)}${query ? `?${query}` : ''}`;
 }
 
 function formatBytes(bytes) {

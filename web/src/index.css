@@ -155,12 +155,22 @@ html.dark .text-green-950 {
   color: #bbf7d0;
 }
 
+html.dark .bg-amber-50,
 html.dark .bg-amber-100 {
-  background-color: #78350f;
+  background-color: #451a03;
 }
 
-html.dark .text-amber-800 {
-  color: #fcd34d;
+html.dark .text-amber-600,
+html.dark .text-amber-700,
+html.dark .text-amber-800,
+html.dark .text-amber-900,
+html.dark .text-amber-950 {
+  color: #fde68a;
+}
+
+html.dark .border-amber-200,
+html.dark .border-amber-300 {
+  border-color: #d97706;
 }
 
 html.dark .bg-red-50,

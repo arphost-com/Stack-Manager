@@ -776,6 +776,10 @@ function DockerResources({ kind, data, projectName, papi, reload, setActionResul
 
 function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
   const policy = project.update_policy || {};
+  const updateWarnings = [...new Set([
+    project.update_status?.error,
+    ...(project.update_status?.images || []).map(check => check.error),
+  ].filter(Boolean))];
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
@@ -784,6 +788,19 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
         <Info label="Update status" value={updateStatusLabel(project)} />
         <Info label="Last update check" value={project.update_status?.checked_at ? formatDate(project.update_status.checked_at) : 'never'} />
       </div>
+      {updateWarnings.length > 0 && (
+        <div id="update-check-warning" className="rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-950" role="alert">
+          <h2 className="text-sm font-semibold">Update check warning</h2>
+          <p className="mt-1 text-xs">Stack Manager could not complete at least one registry or source check.</p>
+          <ul className="mt-3 space-y-2">
+            {updateWarnings.map((warning, index) => (
+              <li key={`${index}:${warning}`} className="whitespace-pre-wrap break-words rounded border border-amber-200 bg-white/60 p-2 font-mono text-xs">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {project.update_status?.images?.some(check => check.update_available) && (
         <div className="image-updates rounded-md border border-green-200 bg-green-50 p-4">
           <h2 className="text-sm font-semibold text-green-950">Available image updates</h2>
