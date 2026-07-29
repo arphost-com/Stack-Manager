@@ -19,16 +19,16 @@ const applyGpuToCompose = (compose, enable) => {
 // Client-side snapshot cache so the Dashboard paints the last-known state
 // immediately on mount, then refreshes in the background. Keyed by the
 // filter combo so include-inactive / running-only don't leak into each other.
-const SNAPSHOT_VERSION = 2;
-const snapshotKey = (filters) => `cm_dashboard_v${SNAPSHOT_VERSION}_${filters.includeInactive ? 1 : 0}_${filters.runningOnly ? 1 : 0}`;
-const readSnapshot = (filters) => {
+const SNAPSHOT_VERSION = 3;
+const snapshotKey = (filters, source) => `cm_dashboard_v${SNAPSHOT_VERSION}_${source || 'all'}_${filters.includeInactive ? 1 : 0}_${filters.runningOnly ? 1 : 0}`;
+const readSnapshot = (filters, source) => {
   try {
-    const raw = localStorage.getItem(snapshotKey(filters));
+    const raw = localStorage.getItem(snapshotKey(filters, source));
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 };
-const writeSnapshot = (filters, data) => {
-  try { localStorage.setItem(snapshotKey(filters), JSON.stringify({ ...data, cached_at: Date.now() })); } catch {}
+const writeSnapshot = (filters, source, data) => {
+  try { localStorage.setItem(snapshotKey(filters, source), JSON.stringify({ ...data, cached_at: Date.now() })); } catch {}
 };
 
 const ACTIONS = [
@@ -57,6 +57,8 @@ const updateBlockedReason = (project) => {
 };
 
 const canRunImageUpdate = (project) => updateBlockedReason(project) === '';
+const projectSelectionKey = (project) => `${project.source_host || 'local'}:${project.name}`;
+const projectActionKey = (project, action) => `${projectSelectionKey(project)}:${action}`;
 
 const updateStatusLabel = (project) => {
   const status = project.update_status || {};
@@ -216,7 +218,10 @@ export default function Dashboard() {
   // Initial state hydrates from localStorage snapshot when one exists so
   // the page paints instantly on a return visit.
   const initialFilters = { includeInactive: true, runningOnly: false, query: '' };
-  const initialSnapshot = readSnapshot(initialFilters);
+  const initialServerSource = (() => {
+    try { return localStorage.getItem('cm_server_source') || 'all'; } catch { return 'all'; }
+  })();
+  const initialSnapshot = readSnapshot(initialFilters, initialServerSource);
   const [projectList, setProjectList] = useState(initialSnapshot?.projectList || []);
   const [skillList, setSkillList] = useState(initialSnapshot?.skillList || []);
   const [agentList, setAgentList] = useState(initialSnapshot?.agentList || []);
@@ -227,9 +232,7 @@ export default function Dashboard() {
   const [backupDestinations, setBackupDestinations] = useState(initialSnapshot?.backupDestinations || []);
   const [backupSchedules, setBackupSchedules] = useState(initialSnapshot?.backupSchedules || []);
   const [mainTab, setMainTab] = useState('projects');
-  const [serverSource, setServerSource] = useState(() => {
-    try { return localStorage.getItem('cm_server_source') || 'all'; } catch { return 'all'; }
-  });
+  const [serverSource, setServerSource] = useState(initialServerSource);
   const [serverName, setServerName] = useState('');
   const [loading, setLoading] = useState(!initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -256,6 +259,26 @@ export default function Dashboard() {
   const cmdSystem = commandAgent ? systemForSource(commandAgent.id) : system;
   const cmdUpdates = commandAgent ? updatesForSource(commandAgent.id) : updatesApi;
   const cmdTargetLabel = commandAgent ? ` on ${commandAgent.name}` : '';
+  const directAgentByName = (name) => agentList.find(a => a.name === name && a.base_url);
+  const apiForSource = (source) => {
+    if (!source || source === 'local') {
+      return { projects, jobs, updates: updatesApi, label: '' };
+    }
+    const agent = directAgentByName(source);
+    if (!agent) return null;
+    return {
+      projects: projectsForSource(agent.id),
+      jobs: jobsForSource(agent.id),
+      updates: updatesForSource(agent.id),
+      label: ` on ${agent.name}`,
+    };
+  };
+  const apiForProject = (project) => {
+    if (serverSource !== 'all') {
+      return { projects: cmdProjects, jobs: cmdJobs, updates: cmdUpdates, label: cmdTargetLabel };
+    }
+    return apiForSource(project?.source_host || 'local');
+  };
   const [error, setError] = useState(null);
   const [actionResult, setActionResult] = useState(null);
   const [selected, setSelected] = useState([]);
@@ -353,7 +376,7 @@ export default function Dashboard() {
       setBackupList(fresh.backupList);
       setBackupDestinations(fresh.backupDestinations);
       setBackupSchedules(fresh.backupSchedules);
-      writeSnapshot(filters, fresh);
+      writeSnapshot(filters, serverSource, fresh);
       setError(null);
     } catch (err) {
       // Preserve cached data on background failures so a blip doesn't blank the page.
@@ -367,7 +390,7 @@ export default function Dashboard() {
   // On mount (or filter change) do a background refresh if we already have
   // cached data, otherwise show the loading state.
   useEffect(() => {
-    const snapshot = readSnapshot(filters);
+    const snapshot = readSnapshot(filters, serverSource);
     if (snapshot) {
       setProjectList(snapshot.projectList || []);
       setSkillList(snapshot.skillList || []);
@@ -428,15 +451,23 @@ export default function Dashboard() {
     setSelected([]);
   };
 
-  const runAction = async (name, action) => {
-    const key = `${name}:${action}`;
+  const runAction = async (project, action) => {
+    const name = typeof project === 'string' ? project : project.name;
+    const key = typeof project === 'string' ? `local:${name}:${action}` : projectActionKey(project, action);
+    const scoped = typeof project === 'string'
+      ? { projects: cmdProjects, jobs: cmdJobs, label: cmdTargetLabel }
+      : apiForProject(project);
+    if (!scoped) {
+      setActionResult({ label: `${action} ${name}`, status: 'error', error: `Cannot route ${action} for ${project.source_host || 'unknown source'}.` });
+      return;
+    }
     markPending(key, true);
     try {
-      const res = await cmdProjects.startJob(name, action, timeout);
-      setActionResult({ label: `${action} ${name}${cmdTargetLabel}`, status: 'running', job: res.data });
-      pollJob(res.data.id, `${action} ${name}${cmdTargetLabel}`, key, cmdJobs);
+      const res = await scoped.projects.startJob(name, action, timeout);
+      setActionResult({ label: `${action} ${name}${scoped.label}`, status: 'running', job: res.data });
+      pollJob(res.data.id, `${action} ${name}${scoped.label}`, key, scoped.jobs);
     } catch (err) {
-      setActionResult({ label: `${action} ${name}${cmdTargetLabel}`, status: 'error', error: err.message });
+      setActionResult({ label: `${action} ${name}${scoped.label}`, status: 'error', error: err.message });
       markPending(key, false);
     }
   };
@@ -463,10 +494,9 @@ export default function Dashboard() {
 
   const runBulk = async (action) => {
     const key = `bulk:${action}`;
-    const targetProjects = selected.length > 0 ? projectList.filter(p => selected.includes(p.name)) : filteredProjects;
+    const targetProjects = selected.length > 0 ? projectList.filter(p => selected.includes(projectSelectionKey(p))) : filteredProjects;
     const runnableTargets = action === 'update' || action === 'pull' ? targetProjects.filter(canRunImageUpdate) : targetProjects;
-    const targets = runnableTargets.map(p => p.name);
-    if (targets.length === 0) {
+    if (runnableTargets.length === 0) {
       setActionResult({ label: `bulk ${action}`, status: 'error', error: action === 'update' || action === 'pull' ? 'No checked projects have available updates.' : 'No projects selected.' });
       return;
     }
@@ -477,14 +507,40 @@ export default function Dashboard() {
     const implicitAll = selected.length === 0;
     if (action === 'down' || action === 'restart') {
       const verb = action === 'down' ? 'Stop (compose down)' : 'Restart';
-      const scope = implicitAll ? `all ${targets.length}` : `${targets.length} selected`;
-      if (!window.confirm(`${verb} ${scope} project${targets.length === 1 ? '' : 's'}?${implicitAll ? '\n\nNothing is checked, so this applies to every project in the current view.' : ''}`)) return;
+      const scope = implicitAll ? `all ${runnableTargets.length}` : `${runnableTargets.length} selected`;
+      if (!window.confirm(`${verb} ${scope} project${runnableTargets.length === 1 ? '' : 's'}?${implicitAll ? '\n\nNothing is checked, so this applies to every project in the current view.' : ''}`)) return;
     }
     markPending(key, true);
     try {
-      setActionResult({ label: `${action} ${targets.length} project${targets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
-      const res = await cmdProjects.bulk(action, { projects: targets, timeout });
-      setActionResult({ label: `bulk ${action}${cmdTargetLabel}`, status: 'done', result: res.data });
+      setActionResult({ label: `${action} ${runnableTargets.length} project${runnableTargets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
+      const groups = runnableTargets.reduce((acc, project) => {
+        const source = serverSource === 'all' ? (project.source_host || 'local') : 'selected';
+        if (!acc[source]) acc[source] = [];
+        acc[source].push(project.name);
+        return acc;
+      }, {});
+      const results = [];
+      const failures = [];
+      for (const [source, names] of Object.entries(groups)) {
+        const scoped = source === 'selected' ? { projects: cmdProjects } : apiForSource(source);
+        if (!scoped) {
+          failures.push(`${source}: cannot route ${names.length} project${names.length === 1 ? '' : 's'}`);
+          continue;
+        }
+        try {
+          const res = await scoped.projects.bulk(action, { projects: names, timeout });
+          results.push(`${source === 'selected' ? 'selected' : source}: ${names.length} queued`);
+          if (res.data?.output) results.push(res.data.output);
+        } catch (err) {
+          failures.push(`${source}: ${err.message}`);
+        }
+      }
+      setActionResult({
+        label: `bulk ${action}${cmdTargetLabel}`,
+        status: failures.length ? 'error' : 'done',
+        result: { output: [...results, ...failures].join('\n') },
+        error: failures.length ? `${failures.length} source${failures.length === 1 ? '' : 's'} failed.` : undefined,
+      });
       setSelected([]);
       fetchData();
     } catch (err) {
@@ -496,16 +552,40 @@ export default function Dashboard() {
 
   const runListedUpdates = async () => {
     const key = 'bulk:update-listed';
-    const targets = availableUpdateProjects.map(project => project.name);
-    if (targets.length === 0) {
+    if (availableUpdateProjects.length === 0) {
       setActionResult({ label: 'update all', status: 'error', error: 'No projects have available updates.' });
       return;
     }
     markPending(key, true);
     try {
-      setActionResult({ label: `update all ${targets.length} project${targets.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
-      const res = await cmdProjects.bulk('update', { projects: targets, timeout });
-      setActionResult({ label: `update all${cmdTargetLabel}`, status: 'done', result: res.data });
+      setActionResult({ label: `update all ${availableUpdateProjects.length} project${availableUpdateProjects.length === 1 ? '' : 's'}${cmdTargetLabel}`, status: 'running' });
+      const groups = availableUpdateProjects.reduce((acc, project) => {
+        const source = serverSource === 'all' ? (project.source_host || 'local') : 'selected';
+        if (!acc[source]) acc[source] = [];
+        acc[source].push(project.name);
+        return acc;
+      }, {});
+      const results = [];
+      const failures = [];
+      for (const [source, names] of Object.entries(groups)) {
+        const scoped = source === 'selected' ? { projects: cmdProjects } : apiForSource(source);
+        if (!scoped) {
+          failures.push(`${source}: cannot route ${names.length} project${names.length === 1 ? '' : 's'}`);
+          continue;
+        }
+        try {
+          await scoped.projects.bulk('update', { projects: names, timeout });
+          results.push(`${source === 'selected' ? 'selected' : source}: ${names.length} queued`);
+        } catch (err) {
+          failures.push(`${source}: ${err.message}`);
+        }
+      }
+      setActionResult({
+        label: `update all${cmdTargetLabel}`,
+        status: failures.length ? 'error' : 'done',
+        result: { output: [...results, ...failures].join('\n') },
+        error: failures.length ? `${failures.length} source${failures.length === 1 ? '' : 's'} failed.` : undefined,
+      });
       fetchData();
     } catch (err) {
       setActionResult({ label: 'update all', status: 'error', error: err.message });
@@ -518,8 +598,35 @@ export default function Dashboard() {
     setCheckingUpdates(true);
     try {
       setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'running' });
-      const res = await cmdUpdates.check();
-      setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'done', result: res.data });
+      if (serverSource === 'all') {
+        const sources = Array.from(new Set(projectList.map(p => p.source_host || 'local')));
+        if (sources.length === 0) sources.push('local');
+        const results = [];
+        const failures = [];
+        for (const source of sources) {
+          const scoped = apiForSource(source);
+          if (!scoped) {
+            failures.push(`${source}: cannot route update check`);
+            continue;
+          }
+          try {
+            const res = await scoped.updates.check();
+            const count = res.data?.count || 0;
+            results.push(`${source}: ${count} update${count === 1 ? '' : 's'} available`);
+          } catch (err) {
+            failures.push(`${source}: ${err.message}`);
+          }
+        }
+        setActionResult({
+          label: 'check updates on all servers',
+          status: failures.length ? 'error' : 'done',
+          result: { output: [...results, ...failures].join('\n') },
+          error: failures.length ? `${failures.length} source${failures.length === 1 ? '' : 's'} failed.` : undefined,
+        });
+      } else {
+        const res = await cmdUpdates.check();
+        setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'done', result: res.data });
+      }
       await fetchData({ background: true });
     } catch (err) {
       setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'error', error: err.message });
@@ -534,14 +641,19 @@ export default function Dashboard() {
       setActionResult({ label: `delete ${project.name}`, status: 'error', error: 'Project name confirmation did not match.' });
       return;
     }
+    const scoped = apiForProject(project);
+    if (!scoped) {
+      setActionResult({ label: `delete ${project.name}`, status: 'error', error: `Cannot route delete for ${project.source_host || 'unknown source'}.` });
+      return;
+    }
     try {
-      setActionResult({ label: `delete ${project.name}`, status: 'running' });
-      const res = await projects.delete(project.name, { confirm_name: confirmName, stop_first: true });
-      setActionResult({ label: `delete ${project.name}`, status: 'done', result: res.data });
-      setSelected(selected.filter(name => name !== project.name));
+      setActionResult({ label: `delete ${project.name}${scoped.label}`, status: 'running' });
+      const res = await scoped.projects.delete(project.name, { confirm_name: confirmName, stop_first: true });
+      setActionResult({ label: `delete ${project.name}${scoped.label}`, status: 'done', result: res.data });
+      setSelected(selected.filter(key => key !== projectSelectionKey(project)));
       fetchData();
     } catch (err) {
-      setActionResult({ label: `delete ${project.name}`, status: 'error', error: err.message, result: err.data });
+      setActionResult({ label: `delete ${project.name}${scoped.label}`, status: 'error', error: err.message, result: err.data });
       // Refresh the list too - if the delete partially succeeded (compose down
       // fine but RemoveAll failed halfway, or the underlying directory is
       // already gone as when compose-manager was cleaned up out-of-band) the
@@ -810,15 +922,17 @@ export default function Dashboard() {
     }
   };
 
-  const toggleSelected = (name) => {
-    setSelected((current) => current.includes(name) ? current.filter(item => item !== name) : [...current, name]);
+  const toggleSelected = (project) => {
+    const key = projectSelectionKey(project);
+    setSelected((current) => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
   };
 
   const toggleAll = () => {
-    if (selected.length === filteredProjects.length) {
+    const visibleKeys = filteredProjects.map(projectSelectionKey);
+    if (visibleKeys.length > 0 && visibleKeys.every(key => selected.includes(key))) {
       setSelected([]);
     } else {
-      setSelected(filteredProjects.map(p => p.name));
+      setSelected(visibleKeys);
     }
   };
 
@@ -972,7 +1086,7 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-wrap gap-2">
             {ACTIONS.map(action => {
-              const actionProjects = selected.length > 0 ? projectList.filter(p => selected.includes(p.name)) : filteredProjects;
+              const actionProjects = selected.length > 0 ? projectList.filter(p => selected.includes(projectSelectionKey(p))) : filteredProjects;
               const runnableCount = action.key === 'update' || action.key === 'pull' ? actionProjects.filter(canRunImageUpdate).length : actionProjects.length;
               return (
               <button key={action.key} disabled={isPending(`bulk:${action.key}`) || runnableCount === 0} title={action.key === 'update' || action.key === 'pull' ? `${action.title} Enabled only for projects with checked available updates.` : `${action.title} Applies to selected rows, or the current filtered list if none are selected.`} onClick={() => runBulk(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} ${runnableCount === 0 ? 'opacity-50' : ''} inline-flex items-center gap-2`}>
@@ -987,7 +1101,7 @@ export default function Dashboard() {
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
-                <th className="w-10 py-2"><input title="Select or clear all visible projects." type="checkbox" checked={filteredProjects.length > 0 && selected.length === filteredProjects.length} onChange={toggleAll} /></th>
+                <th className="w-10 py-2"><input title="Select or clear all visible projects." type="checkbox" checked={filteredProjects.length > 0 && filteredProjects.every(p => selected.includes(projectSelectionKey(p)))} onChange={toggleAll} /></th>
                 <th className="py-2">Project</th>
                 <th className="py-2">State</th>
                 <th className="py-2">Sources</th>
@@ -998,8 +1112,8 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {filteredProjects.map(p => (
-                <tr key={p.name} className="border-b border-gray-100 align-top">
-                  <td className="py-3"><input title={`Select ${p.name} for bulk actions.`} type="checkbox" checked={selected.includes(p.name)} onChange={() => toggleSelected(p.name)} /></td>
+                <tr key={projectSelectionKey(p)} className="border-b border-gray-100 align-top">
+                  <td className="py-3"><input title={`Select ${p.name} for bulk actions.`} type="checkbox" checked={selected.includes(projectSelectionKey(p))} onChange={() => toggleSelected(p)} /></td>
                   <td className="py-3">
                     <ProjectLinks project={p} />
                     <div className="mt-1 flex gap-1">
@@ -1041,8 +1155,8 @@ export default function Dashboard() {
                       {ACTIONS.map(action => {
                         const imageActionBlocked = (action.key === 'update' || action.key === 'pull') && !canRunImageUpdate(p);
                         return (
-                        <button key={action.key} disabled={isPending(`${p.name}:${action.key}`) || imageActionBlocked} title={imageActionBlocked ? updateBlockedReason(p) : action.title} onClick={() => runAction(p.name, action.key)} className={`${action.key === 'down' ? 'mini-danger' : 'mini-button'} ${imageActionBlocked ? 'opacity-50' : ''} inline-flex items-center gap-1`}>
-                          {isPending(`${p.name}:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
+                        <button key={action.key} disabled={isPending(`${p.source_host || 'local'}:${p.name}:${action.key}`) || imageActionBlocked} title={imageActionBlocked ? updateBlockedReason(p) : action.title} onClick={() => runAction(p, action.key)} className={`${action.key === 'down' ? 'mini-danger' : 'mini-button'} ${imageActionBlocked ? 'opacity-50' : ''} inline-flex items-center gap-1`}>
+                          {isPending(`${p.source_host || 'local'}:${p.name}:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
                           {action.label}
                         </button>
                       )})}
@@ -1210,7 +1324,7 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
             {pagedProjects.map(project => {
               const checks = (project.update_status?.images || []).filter(check => check.update_available);
               return (
-                <tr key={project.name} className="border-b border-gray-100 align-top">
+                <tr key={projectSelectionKey(project)} className="border-b border-gray-100 align-top">
                   <td className="py-3">
                     <ProjectLinks project={project} />
                     <div className="mt-1 flex flex-wrap gap-1">
@@ -1233,13 +1347,13 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
                   </td>
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
-                      <button type="button" disabled={updatingAll || isPending(`${project.name}:pull`)} onClick={() => runAction(project.name, 'pull')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates for this project.">
-                        {isPending(`${project.name}:pull`) && <span className="spinner" aria-hidden="true"></span>}
-                        {isPending(`${project.name}:pull`) ? 'Pulling…' : 'Pull'}
+                      <button type="button" disabled={updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:pull`)} onClick={() => runAction(project, 'pull')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates for this project.">
+                        {isPending(`${project.source_host || 'local'}:${project.name}:pull`) && <span className="spinner" aria-hidden="true"></span>}
+                        {isPending(`${project.source_host || 'local'}:${project.name}:pull`) ? 'Pulling…' : 'Pull'}
                       </button>
-                      <button type="button" disabled={updatingAll || isPending(`${project.name}:update`)} onClick={() => runAction(project.name, 'update')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates and recreate only this project.">
-                        {isPending(`${project.name}:update`) && <span className="spinner" aria-hidden="true"></span>}
-                        {isPending(`${project.name}:update`) ? 'Updating…' : 'Update This'}
+                      <button type="button" disabled={updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:update`)} onClick={() => runAction(project, 'update')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates and recreate only this project.">
+                        {isPending(`${project.source_host || 'local'}:${project.name}:update`) && <span className="spinner" aria-hidden="true"></span>}
+                        {isPending(`${project.source_host || 'local'}:${project.name}:update`) ? 'Updating…' : 'Update This'}
                       </button>
                     </div>
                   </td>

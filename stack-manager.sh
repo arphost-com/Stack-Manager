@@ -54,6 +54,7 @@ RUNNING_ONLY=0
 LOG_ENABLED=1          # can be disabled with --no-log / --log-off
 LOG_DIR=""             # default = ROOT
 LOG_FILE=""            # auto if empty
+LOG_OPTION_SET=0       # CLI explicitly set logging on/off/file/dir
 
 # Timeout seconds (0 = disabled)
 TIMEOUT_SECS=0
@@ -786,10 +787,10 @@ while [[ $# -gt 0 ]]; do
     --running-only) RUNNING_ONLY=1; shift;;
     --timeout) TIMEOUT_SECS="${2:-0}"; shift 2 2>/dev/null || shift;;
 
-    --log-dir) LOG_DIR="${2:-}"; shift 2 2>/dev/null || shift;;
-    --log-file) LOG_FILE="${2:-}"; shift 2 2>/dev/null || shift;;
-    --no-log|--log-off) LOG_ENABLED=0; shift;;
-    --log-on) LOG_ENABLED=1; shift;;
+    --log-dir) LOG_DIR="${2:-}"; LOG_OPTION_SET=1; shift 2 2>/dev/null || shift;;
+    --log-file) LOG_FILE="${2:-}"; LOG_OPTION_SET=1; shift 2 2>/dev/null || shift;;
+    --no-log|--log-off) LOG_ENABLED=0; LOG_OPTION_SET=1; shift;;
+    --log-on) LOG_ENABLED=1; LOG_OPTION_SET=1; shift;;
 
     --hooks-dir) HOOKS_DIR="${2:-}"; shift 2 2>/dev/null || shift;;
     --no-hooks) HOOKS_ENABLED=0; shift;;
@@ -813,6 +814,9 @@ done
 CMD="${1:-}"; shift || true
 
 need_bin docker
+if (( DRY_RUN )) && (( ! LOG_OPTION_SET )) && [[ -z "$LOG_FILE" ]]; then
+  LOG_ENABLED=0
+fi
 init_logging
 init_hooks
 

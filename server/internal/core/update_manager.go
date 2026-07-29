@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type UpdateCheckManager struct {
 	engine *Engine
 	store  UpdateCheckStore
 	stop   chan struct{}
+	mu     sync.Mutex
 }
 
 func NewUpdateCheckManager(engine *Engine, store UpdateCheckStore) *UpdateCheckManager {
@@ -30,15 +32,21 @@ func (m *UpdateCheckManager) Start(ctx context.Context) {
 		return
 	}
 	go func() {
+		startup := time.NewTimer(15 * time.Second)
 		for {
 			timer := time.NewTimer(time.Until(nextLocalMidnight(time.Now())))
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+				startup.Stop()
 				return
 			case <-m.stop:
 				timer.Stop()
+				startup.Stop()
 				return
+			case <-startup.C:
+				timer.Stop()
+				m.Run(ctx)
 			case <-timer.C:
 				m.Run(ctx)
 			}
@@ -54,6 +62,9 @@ func (m *UpdateCheckManager) Stop() {
 }
 
 func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	summary := ProjectUpdateStatus{Checked: true}
 	if m == nil || m.engine == nil || m.store == nil {
 		summary.Error = "update checker is not configured"

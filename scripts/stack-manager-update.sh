@@ -86,6 +86,14 @@ cmd_update() {
     ownerid=\$(stat -c '%U:%G' '$dir' 2>/dev/null || true)
     [ -n \"\$ownerid\" ] && [ \"\$ownerid\" != 'root:root' ] && find '$dir' -name .stack-manager -prune -o -user root -exec chown \"\$ownerid\" {} + 2>/dev/null || true
     export VITE_GIT_SHA=\$($git rev-parse --short HEAD)
+    if [ -f .env ]; then
+      if grep -q '^VITE_GIT_SHA=' .env; then
+        sed -i \"s/^VITE_GIT_SHA=.*/VITE_GIT_SHA=\$VITE_GIT_SHA/\" .env
+      else
+        printf '\\nVITE_GIT_SHA=%s\\n' \"\$VITE_GIT_SHA\" >> .env
+      fi
+      [ -n \"\$ownerid\" ] && [ \"\$ownerid\" != 'root:root' ] && chown \"\$ownerid\" .env 2>/dev/null || true
+    fi
     echo \"rebuilding at \$VITE_GIT_SHA\"
     docker compose --env-file .env up -d --build --remove-orphans || { echo 'ERROR: compose up failed'; exit 1; }
     echo \"=== \$(date -u) self-update done ===\""
