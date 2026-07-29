@@ -13,6 +13,18 @@ const ACTIONS = [
   { key: 'status', label: 'Status' },
 ];
 
+function hostFromURL(rawURL) {
+  try {
+    return rawURL ? new URL(rawURL).hostname : '';
+  } catch {
+    return '';
+  }
+}
+
+function configuredOrBrowserHost(configuredHost) {
+  return configuredHost || (typeof window !== 'undefined' ? window.location.hostname : '');
+}
+
 const DESTINATION_TYPES = [
   { value: 'local', label: 'Linux path' },
   { value: 'mount', label: 'Mounted path' },
@@ -168,6 +180,7 @@ export default function Settings() {
   const [npmHosts, setNpmHosts] = useState([]);
   const [npmSuggestions, setNpmSuggestions] = useState([]);
   const [npmHostForm, setNpmHostForm] = useState({ domain: '', forward_host: '', forward_port: '', forward_scheme: 'http' });
+  const [configuredConnectionHost, setConfiguredConnectionHost] = useState('');
   // NPM's Docker gateway — the address that reaches host-published ports from
   // inside NPM without the public-IP hairpin (504). Used to prefill forwards.
   const [npmGateway, setNpmGateway] = useState('');
@@ -386,6 +399,9 @@ export default function Settings() {
     try {
       const res = await proxyApi.status();
       setNpmStatus(res.data);
+      system.info()
+        .then(info => setConfiguredConnectionHost(info.data?.connection_host || hostFromURL(info.data?.host_url || '') || ''))
+        .catch(() => setConfiguredConnectionHost(''));
       if (res.data?.connected) {
         const [hostsRes, sugRes, gwRes] = await Promise.all([
           proxyApi.listHosts().catch(() => ({ data: [] })),
@@ -443,11 +459,12 @@ export default function Settings() {
   // One-click: proxy the Stack Manager dashboard itself. Forwards to the host
   // and HTTPS port this browser is on (the web container terminates TLS).
   const proxyThisUI = () => {
+    const host = configuredOrBrowserHost(configuredConnectionHost);
     setNpmHostForm({
       domain: '',
       // Use NPM's Docker gateway (reaches this host's published ports from inside
-      // NPM without the public-IP hairpin), falling back to the hostname.
-      forward_host: npmGateway || window.location.hostname,
+      // NPM without the public-IP hairpin), falling back to the configured host.
+      forward_host: npmGateway || host,
       forward_port: window.location.port || '8993',
       forward_scheme: 'https',
     });
@@ -2446,7 +2463,7 @@ export default function Settings() {
                   <div className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
                     <div className="font-semibold">NPM deployed &amp; connected. Save these — this is also your NPM admin login:</div>
                     <div className="mt-2 grid gap-1 font-mono text-xs">
-                      <div>Admin UI: <span className="font-semibold">http://{window.location.hostname}:81</span></div>
+                      <div>Admin UI: <span className="font-semibold">http://{configuredOrBrowserHost(configuredConnectionHost)}:81</span></div>
                       <div>Login: <span className="font-semibold">{npmCreds.login}</span></div>
                       <div>Password: <span className="select-all font-semibold">{npmCreds.password}</span></div>
                     </div>
@@ -2550,7 +2567,7 @@ export default function Settings() {
                     {npmSuggestions.map(s => (
                       <button key={s.name} className="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-800 hover:bg-blue-100" onClick={() => {
                         const portMatch = s.ports.match(/(\d+)->(\d+)/);
-                        setNpmHostForm({ forward_scheme: 'http', forward_host: npmGateway || window.location.hostname, forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
+                        setNpmHostForm({ forward_scheme: 'http', forward_host: npmGateway || configuredOrBrowserHost(configuredConnectionHost), forward_port: portMatch ? portMatch[1] : '', domain: s.name + '.example.com' });
                       }} title={s.ports}>{s.name}</button>
                     ))}
                   </div>
@@ -2561,7 +2578,7 @@ export default function Settings() {
                     <input className="input" value={npmHostForm.domain} onChange={e => setNpmHostForm({ ...npmHostForm, domain: e.target.value })} placeholder="app.example.com" />
                   </Field>
                   <Field label="Forward Host" hint={npmGateway ? `for this host use ${npmGateway} (Docker gateway), not the public IP` : 'for a service on this host, use the Docker gateway or a container name — not the public IP'}>
-                    <input className="input" value={npmHostForm.forward_host} onChange={e => setNpmHostForm({ ...npmHostForm, forward_host: e.target.value })} placeholder={npmGateway || window.location.hostname} />
+                    <input className="input" value={npmHostForm.forward_host} onChange={e => setNpmHostForm({ ...npmHostForm, forward_host: e.target.value })} placeholder={npmGateway || configuredOrBrowserHost(configuredConnectionHost)} />
                   </Field>
                   <Field label="Forward Port">
                     <input className="input" type="number" value={npmHostForm.forward_port} onChange={e => setNpmHostForm({ ...npmHostForm, forward_port: e.target.value })} placeholder="8080" />

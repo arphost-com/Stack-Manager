@@ -38,6 +38,19 @@ const ACTIONS = [
   { key: 'down', label: 'Stop', title: 'Run docker compose down.' },
 ];
 
+function hostFromURL(rawURL) {
+  try {
+    return rawURL ? new URL(rawURL).hostname : '';
+  } catch {
+    return '';
+  }
+}
+
+function browserURLHost(host) {
+  if (!host) return '';
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
 const updateBlockedReason = (project) => {
   if (project.update_policy?.effective_policy === 'no_updates') return project.update_policy?.no_updates_reason || 'Updates are disabled for this project.';
   if (!project.update_status?.checked) return 'No update check has run yet.';
@@ -94,9 +107,10 @@ export default function ProjectDetail() {
   // (logs/stats/shell) or use skills (security/backups/databases) aren't proxied
   // yet, so they show a notice for remote projects.
   const papiRef = useRef(projects);
-  const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '', callback: false });
+  const [sourceInfo, setSourceInfo] = useState({ resolved: false, agentId: null, name: '', baseUrl: '', callback: false });
   const [agentCommands, setAgentCommands] = useState([]);
   const [hostGpu, setHostGpu] = useState(null);
+  const [localConnectionHost, setLocalConnectionHost] = useState('');
   const isRemote = !!sourceInfo.agentId;
   // Callback agents are push-only: we can't call them live, so their project is
   // read from the last check-in snapshot and actions are queued for the agent to
@@ -119,7 +133,7 @@ export default function ProjectDetail() {
       const agent = list?.data?.find(a => a.name === sourceName);
       if (agent) return agentTarget(agent);
     }
-    return { api: projects, agentId: null, name: '', callback: false };
+    return { api: projects, agentId: null, name: '', baseUrl: '', callback: false };
   };
 
   // agentTarget decides how to talk to a project's owning agent: peers and
@@ -132,6 +146,7 @@ export default function ProjectDetail() {
       api: live ? projectsForSource(agent.id) : projects,
       agentId: agent.id,
       name: agent.name,
+      baseUrl: agent.base_url || '',
       callback: !live,
     };
   };
@@ -143,7 +158,7 @@ export default function ProjectDetail() {
 
   const fetchProject = async () => {
     try {
-      let { api, agentId, name: srcName, callback } = await resolveProjectApi();
+      let { api, agentId, name: srcName, baseUrl, callback } = await resolveProjectApi();
       papiRef.current = api;
       let res;
       if (callback) {
@@ -165,7 +180,7 @@ export default function ProjectDetail() {
             const owner = all?.data?.find(p => p.name === name && p.source_host && p.source_host !== 'local');
             const agent = owner && agentList?.data?.find(a => a.name === owner.source_host);
             if (agent) {
-              ({ api, agentId, name: srcName, callback } = agentTarget(agent));
+              ({ api, agentId, name: srcName, baseUrl, callback } = agentTarget(agent));
               papiRef.current = api;
               if (callback) {
                 const snap = await agentsApi.projects(agentId).catch(() => ({ data: [] }));
@@ -183,7 +198,7 @@ export default function ProjectDetail() {
           }
         }
       }
-      setSourceInfo({ resolved: true, agentId, name: srcName, callback });
+      setSourceInfo({ resolved: true, agentId, name: srcName, baseUrl: baseUrl || '', callback });
       setProject(res.data);
       if (callback && agentId) loadAgentCommands(agentId);
       const destinationRes = await backup.destinations().catch(() => ({ data: [] }));
@@ -199,6 +214,11 @@ export default function ProjectDetail() {
       setLoading(false);
     }
   };
+
+  const projectConnectionHost = sourceInfo.baseUrl
+    ? hostFromURL(sourceInfo.baseUrl)
+    : localConnectionHost;
+  const projectLinkHost = projectConnectionHost || (typeof window !== 'undefined' ? window.location.hostname : '');
 
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
 
@@ -386,22 +406,27 @@ export default function ProjectDetail() {
       return;
     }
     const port = ports[0];
-    if (!window.confirm(`Create an NPM proxy host for "${name}" forwarding to ${window.location.hostname}:${port}? You can set the real domain and SSL in NPM afterward.`)) return;
+    if (!window.confirm(`Create an NPM proxy host for "${name}" forwarding to ${projectLinkHost}:${port}? You can set the real domain and SSL in NPM afterward.`)) return;
     try {
       setActionResult({ status: 'running', label: 'add to proxy' });
       await proxyApi.createHost({
-        domain_names: [name], forward_scheme: 'http', forward_host: window.location.hostname, forward_port: Number(port),
+        domain_names: [name], forward_scheme: 'http', forward_host: projectLinkHost, forward_port: Number(port),
         enabled: true, block_exploits: true, allow_websocket_upgrade: true, access_list_id: 0, certificate_id: 0,
         meta: { letsencrypt_agree: false, dns_challenge: false }, advanced_config: '', locations: [],
         caching_enabled: false, ssl_forced: false, http2_support: false, hsts_enabled: false, hsts_subdomains: false,
       });
-      setActionResult({ status: 'done', label: 'add to proxy', result: { output: `Created proxy host "${name}" -> ${window.location.hostname}:${port}. Edit the domain and enable SSL in NPM.` } });
+      setActionResult({ status: 'done', label: 'add to proxy', result: { output: `Created proxy host "${name}" -> ${projectLinkHost}:${port}. Edit the domain and enable SSL in NPM.` } });
     } catch (err) {
       setActionResult({ status: 'error', label: 'add to proxy', error: err.message });
     }
   };
 
   useEffect(() => { system.gpu().then(r => setHostGpu(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    system.info()
+      .then(r => setLocalConnectionHost(r.data?.connection_host || hostFromURL(r.data?.host_url || '') || ''))
+      .catch(() => setLocalConnectionHost(''));
+  }, []);
 
   // Enable GPU passthrough on an already-deployed stack: inject the compose
   // device block into compose.yml and restart. Host GPU setup is separate
@@ -653,7 +678,7 @@ export default function ProjectDetail() {
         </div>
 
         <div className="pt-4">
-          {activeTab === 'overview' && <Overview project={project} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
+          {activeTab === 'overview' && <Overview project={project} linkHost={projectLinkHost} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
           {activeTab === 'overview' && isCallback && (
             <QueuedCommands commands={agentCommands} agentName={sourceInfo.name} onRefresh={() => loadAgentCommands(sourceInfo.agentId)} />
           )}
@@ -774,7 +799,7 @@ function DockerResources({ kind, data, projectName, papi, reload, setActionResul
   );
 }
 
-function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
+function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePolicy }) {
   const policy = project.update_policy || {};
   const updateWarnings = [...new Set([
     project.update_status?.error,
@@ -848,7 +873,7 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
                   <td className="py-2 font-mono">{c.name}</td>
                   <td className="font-mono text-xs text-gray-600">{c.image}</td>
                   <td><Badge tone={c.state === 'running' ? 'green' : 'gray'}>{c.state}</Badge></td>
-                  <td className="text-xs"><ContainerPorts ports={c.ports} state={c.state} /></td>
+                  <td className="text-xs"><ContainerPorts ports={c.ports} state={c.state} linkHost={linkHost} /></td>
                 </tr>
               ))}
             </tbody>
@@ -881,7 +906,7 @@ const LockIcon = ({ className = 'h-3 w-3' }) => (
 // link glyph); ports that are only exposed on the internal Docker network get a
 // muted lock chip that explains why they aren't clickable. Deduplicates the
 // IPv4/IPv6 pair Docker prints for the same host port.
-function ContainerPorts({ ports, state }) {
+function ContainerPorts({ ports, state, linkHost }) {
   if (!ports) return <span className="text-gray-400">—</span>;
   const publishedSeen = new Set();
   const internalSeen = new Set();
@@ -931,7 +956,8 @@ function ContainerPorts({ ports, state }) {
           );
         }
         const scheme = HTTPS_HOST_PORTS.has(hostPort) || HTTPS_CONTAINER_PORTS.has(containerPort) ? 'https' : 'http';
-        const url = `${scheme}://${window.location.hostname}:${hostPort}`;
+        const host = browserURLHost(linkHost || (typeof window !== 'undefined' ? window.location.hostname : ''));
+        const url = `${scheme}://${host}:${hostPort}`;
         return (
           <a key={hostPort} href={live ? url : undefined} target="_blank" rel="noreferrer"
             aria-disabled={!live}

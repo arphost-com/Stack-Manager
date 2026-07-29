@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -39,8 +41,43 @@ func (h *SystemInfoHandler) serverName(r *http.Request) string {
 	return ""
 }
 
+func (h *SystemInfoHandler) hostURL(r *http.Request) string {
+	if h.Store != nil {
+		if v, ok := h.Store.GetSettingString(r.Context(), "HOST_URL"); ok {
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		}
+	}
+	return strings.TrimSpace(os.Getenv("HOST_URL"))
+}
+
+func connectionHost(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err == nil && u.Host != "" {
+		return u.Hostname()
+	}
+	host := rawURL
+	if strings.Contains(host, "://") {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	return strings.Trim(strings.TrimPrefix(host, "["), "]")
+}
+
 func (h *SystemInfoHandler) Get(w http.ResponseWriter, r *http.Request) {
-	res := map[string]string{"server_name": h.serverName(r)}
+	hostURL := h.hostURL(r)
+	res := map[string]string{
+		"server_name":     h.serverName(r),
+		"host_url":        hostURL,
+		"connection_host": connectionHost(hostURL),
+	}
 	ver := ""
 	if h.Store != nil {
 		if v, ok := h.Store.GetSettingString(r.Context(), "app_version"); ok {
@@ -83,7 +120,12 @@ func (h *SystemInfoHandler) Save(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	res := map[string]string{"server_name": h.serverName(r)}
+	hostURL := h.hostURL(r)
+	res := map[string]string{
+		"server_name":     h.serverName(r),
+		"host_url":        hostURL,
+		"connection_host": connectionHost(hostURL),
+	}
 	if v, ok := h.Store.GetSettingString(r.Context(), "app_version"); ok {
 		res["version"] = v
 	}
