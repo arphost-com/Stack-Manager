@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, projectsForSource, jobs, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi } from '../api/client';
+import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi, updatesForSource } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 
 // GPU passthrough deploy block + a toggle that injects/removes it in a compose
@@ -252,7 +252,9 @@ export default function Dashboard() {
     ? agentList.find(a => a.name === serverSource && a.base_url)
     : null;
   const cmdProjects = commandAgent ? projectsForSource(commandAgent.id) : projects;
+  const cmdJobs = commandAgent ? jobsForSource(commandAgent.id) : jobs;
   const cmdSystem = commandAgent ? systemForSource(commandAgent.id) : system;
+  const cmdUpdates = commandAgent ? updatesForSource(commandAgent.id) : updatesApi;
   const cmdTargetLabel = commandAgent ? ` on ${commandAgent.name}` : '';
   const [error, setError] = useState(null);
   const [actionResult, setActionResult] = useState(null);
@@ -430,19 +432,19 @@ export default function Dashboard() {
     const key = `${name}:${action}`;
     markPending(key, true);
     try {
-      const res = await projects.startJob(name, action, timeout);
-      setActionResult({ label: `${action} ${name}`, status: 'running', job: res.data });
-      pollJob(res.data.id, `${action} ${name}`, key);
+      const res = await cmdProjects.startJob(name, action, timeout);
+      setActionResult({ label: `${action} ${name}${cmdTargetLabel}`, status: 'running', job: res.data });
+      pollJob(res.data.id, `${action} ${name}${cmdTargetLabel}`, key, cmdJobs);
     } catch (err) {
-      setActionResult({ label: `${action} ${name}`, status: 'error', error: err.message });
+      setActionResult({ label: `${action} ${name}${cmdTargetLabel}`, status: 'error', error: err.message });
       markPending(key, false);
     }
   };
 
-  const pollJob = (jobId, label, pendingKey) => {
+  const pollJob = (jobId, label, pendingKey, jobApi = jobs) => {
     const tick = async () => {
       try {
-        const res = await jobs.get(jobId);
+        const res = await jobApi.get(jobId);
         const job = res.data;
         setActionResult({ label, status: job.status === 'running' ? 'running' : job.success ? 'done' : 'error', job });
         if (job.status === 'running') {
@@ -515,12 +517,12 @@ export default function Dashboard() {
   const checkUpdates = async () => {
     setCheckingUpdates(true);
     try {
-      setActionResult({ label: 'check updates', status: 'running' });
-      const res = await updatesApi.check();
-      setActionResult({ label: 'check updates', status: 'done', result: res.data });
+      setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'running' });
+      const res = await cmdUpdates.check();
+      setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'done', result: res.data });
       await fetchData({ background: true });
     } catch (err) {
-      setActionResult({ label: 'check updates', status: 'error', error: err.message });
+      setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'error', error: err.message });
     } finally {
       setCheckingUpdates(false);
     }

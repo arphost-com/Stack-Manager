@@ -167,6 +167,16 @@ export const updates = {
   check: () => request('/updates/check', { method: 'POST' }),
 };
 
+// updatesForSource scopes update checks to a peer/agent by id, matching the
+// project and job helpers used by remote dashboard actions.
+export function updatesForSource(agentId) {
+  if (!agentId) return updates;
+  const p = (path) => `/agent-proxy/${agentId}${path}`;
+  return {
+    check: () => request(p('/updates/check'), { method: 'POST' }),
+  };
+}
+
 export const jobs = {
   list: () => request('/jobs'),
   get: (id) => request(`/jobs/${id}`),
