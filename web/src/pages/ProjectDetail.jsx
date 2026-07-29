@@ -861,6 +861,7 @@ function Overview({ project, policyForm, setPolicyForm, saveUpdatePolicy }) {
 }
 
 const HTTPS_HOST_PORTS = new Set(['443', '8443', '8993', '9443']);
+const HTTPS_CONTAINER_PORTS = new Set(['443', '8443', '9443', '3001']);
 
 // ExternalLinkIcon / LockIcon are tiny inline glyphs so a port chip reads at a
 // glance as either "opens in a new tab" or "internal, not reachable".
@@ -891,16 +892,17 @@ function ContainerPorts({ ports, state }) {
     // Published: "0.0.0.0:8080->80/tcp", "[::]:8080->80/tcp", or a coalesced
     // range like "0.0.0.0:3000-3001->3000-3001/tcp" (Docker merges consecutive
     // ports) — expand the range into individual host ports.
-    const pub = part.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]):(\d+)(?:-(\d+))?->\d+(?:-\d+)?\/(tcp|udp)/);
+    const pub = part.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]):(\d+)(?:-(\d+))?->(\d+)(?:-(\d+))?\/(tcp|udp)/);
     if (pub) {
-      const [, startS, endS, proto] = pub;
+      const [, startS, endS, targetStartS, , proto] = pub;
       const start = Number(startS);
       const end = endS ? Number(endS) : start;
+      const targetStart = Number(targetStartS);
       for (let p = start; p <= end && p - start < 64; p++) {
         const hostPort = String(p);
         if (publishedSeen.has(hostPort)) continue;
         publishedSeen.add(hostPort);
-        published.push({ hostPort, proto });
+        published.push({ hostPort, containerPort: String(targetStart + (p - start)), proto });
       }
       continue;
     }
@@ -919,7 +921,7 @@ function ContainerPorts({ ports, state }) {
   const live = state === 'running';
   return (
     <div className="flex flex-wrap gap-1.5">
-      {published.map(({ hostPort, proto }) => {
+      {published.map(({ hostPort, containerPort, proto }) => {
         if (proto === 'udp') {
           return (
             <span key={`u${hostPort}`} title={`UDP port ${hostPort} is published on the host but UDP services don't open in a browser.`}
@@ -928,7 +930,7 @@ function ContainerPorts({ ports, state }) {
             </span>
           );
         }
-        const scheme = HTTPS_HOST_PORTS.has(hostPort) ? 'https' : 'http';
+        const scheme = HTTPS_HOST_PORTS.has(hostPort) || HTTPS_CONTAINER_PORTS.has(containerPort) ? 'https' : 'http';
         const url = `${scheme}://${window.location.hostname}:${hostPort}`;
         return (
           <a key={hostPort} href={live ? url : undefined} target="_blank" rel="noreferrer"
