@@ -44,6 +44,12 @@ type ProxyHandler struct {
 	npmPass  string
 }
 
+type npmContainerInfo struct {
+	ID             string
+	State          string
+	ComposeProject string
+}
+
 func NewProxyHandler(engine *core.Engine, store *storage.Store) *ProxyHandler {
 	h := &ProxyHandler{engine: engine, store: store}
 	h.loadPersisted()
@@ -151,19 +157,47 @@ func (h *ProxyHandler) Disconnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"connected": false})
 }
 
-// npmContainerID finds the running Nginx Proxy Manager container by image name.
+// findNPMContainer finds an existing Nginx Proxy Manager container, including a
+// stopped one. Deployment must fail closed when NPM already exists: creating a
+// second Compose project could collide on ports 80/443 and, more importantly,
+// must never replace or obscure the operator's existing /data and certificate
+// mounts. Existing installations are connected through Configure instead.
+func findNPMContainer(includeStopped bool) (npmContainerInfo, error) {
+	args := []string{"ps"}
+	if includeStopped {
+		args = append(args, "-a")
+	}
+	args = append(args, "--format", "{{.ID}}\t{{.Image}}\t{{.State}}\t{{.Label \"com.docker.compose.project\"}}")
+	res, err := core.DockerExec(args...)
+	if err != nil {
+		return npmContainerInfo{}, err
+	}
+	return parseNPMContainerOutput(res.Stdout), nil
+}
+
+func parseNPMContainerOutput(output string) npmContainerInfo {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) >= 2 && strings.Contains(strings.ToLower(parts[1]), "nginx-proxy-manager") {
+			info := npmContainerInfo{ID: strings.TrimSpace(parts[0])}
+			if len(parts) >= 3 {
+				info.State = strings.TrimSpace(parts[2])
+			}
+			if len(parts) == 4 {
+				info.ComposeProject = strings.TrimSpace(parts[3])
+			}
+			return info
+		}
+	}
+	return npmContainerInfo{}
+}
+
 func npmContainerID() string {
-	res, err := core.DockerExec("ps", "--format", "{{.ID}}\t{{.Image}}")
+	info, err := findNPMContainer(false)
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) == 2 && strings.Contains(parts[1], "nginx-proxy-manager") {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-	return ""
+	return info.ID
 }
 
 // npmGateway returns the Docker network gateway of the NPM container. That
@@ -220,11 +254,17 @@ func (h *ProxyHandler) Status(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	existing, detectionErr := findNPMContainer(true)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"configured": url != "",
-		"connected":  connected,
-		"url":        url,
-		"expires":    exp.Format(time.RFC3339),
+		"configured":          url != "",
+		"connected":           connected,
+		"detected":            existing.ID != "",
+		"detection_available": detectionErr == nil,
+		"container_state":     existing.State,
+		"compose_project":     existing.ComposeProject,
+		"suggested_url":       "http://localhost:81",
+		"url":                 url,
+		"expires":             exp.Format(time.RFC3339),
 	})
 }
 
@@ -288,16 +328,36 @@ func (h *ProxyHandler) initNPMDefaults(dial string) (string, string, error) {
 	return defEmail, newPass, nil
 }
 
-// DeployNPM creates and starts a Nginx Proxy Manager project from the built-in
-// template, so the operator can stand NPM up with one click before connecting.
-// If the project already exists it is just brought up. NPM's first-run default
-// login is admin@example.com / changeme — the caller connects with those, then
-// NPM forces a password change on first UI login.
+// DeployNPM creates and starts a new Nginx Proxy Manager project from the
+// built-in template only when Docker confirms that no NPM container exists.
+// Existing installations must be connected, preserving their current Compose
+// lifecycle and persistent state.
 func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
 	if !middleware.RequireAdmin(w, r) {
 		return
 	}
 	const projectName = "nginx-proxy-manager"
+
+	// Adoption guardrail: deployment is only for a host with no NPM container.
+	// An existing instance already owns its database, certificates, ports, and
+	// Compose lifecycle. The safe operation is API connection, not another up.
+	existing, detectionErr := findNPMContainer(true)
+	if detectionErr != nil {
+		writeError(w, http.StatusServiceUnavailable, "cannot safely check for an existing Nginx Proxy Manager container; deployment was not attempted")
+		return
+	}
+	if existing.ID != "" {
+		writeErrorWithData(w, http.StatusConflict,
+			"Nginx Proxy Manager already exists on this host; connect the existing instance instead of deploying another",
+			map[string]interface{}{
+				"detected":        true,
+				"container_state": existing.State,
+				"compose_project": existing.ComposeProject,
+				"suggested_url":   "http://localhost:81",
+				"action":          "connect_existing",
+			})
+		return
+	}
 
 	var tmpl *core.StackTemplate
 	for i := range core.BuiltinStackTemplates() {
@@ -420,6 +480,50 @@ func (h *ProxyHandler) CreateHost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_, _ = w.Write(resp) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
+}
+
+func npmProxyHostActionPath(id int, enabled bool) (string, error) {
+	if id <= 0 {
+		return "", fmt.Errorf("proxy host id must be a positive integer")
+	}
+	action := "disable"
+	if enabled {
+		action = "enable"
+	}
+	return fmt.Sprintf("/api/nginx/proxy-hosts/%d/%s", id, action), nil
+}
+
+// ToggleHost enables or disables an existing NPM proxy host without deleting
+// its configuration. Disabled hosts remain in NPM and can be re-enabled later.
+func (h *ProxyHandler) ToggleHost(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		ID      int   `json:"id"`
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "enabled is required")
+		return
+	}
+	path, err := npmProxyHostActionPath(body.ID, *body.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := h.npmPost(path, json.RawMessage(`{}`)); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":      body.ID,
+		"enabled": *body.Enabled,
+	})
 }
 
 // DeleteHost removes a proxy host from NPM.

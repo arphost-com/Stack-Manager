@@ -570,6 +570,15 @@ export default function Settings() {
     } catch (err) { showError(err); }
   };
 
+  const toggleProxyHost = async (id, domains, enabled) => {
+    if (!enabled && !window.confirm(`Disable proxy host ${domains}? Traffic to its domains will stop until it is enabled again.`)) return;
+    try {
+      await proxyApi.toggleHost(id, enabled);
+      showMessage(`${enabled ? 'Enabled' : 'Disabled'} proxy host ${domains}.`);
+      await loadProxyStatus();
+    } catch (err) { showError(err); }
+  };
+
   useEffect(() => {
     if (admin && activeTab === 'general') loadGeneralSettings();
   }, [admin, activeTab]);
@@ -2512,28 +2521,46 @@ export default function Settings() {
 
           {!npmStatus?.connected && (
             <>
-              <div className="section-panel space-y-3 border-blue-200 bg-blue-50">
-                <h3 className="text-base font-semibold text-blue-950">One-click deploy</h3>
-                <p className="text-sm text-blue-900">Deploy Nginx Proxy Manager from the built-in template and prefill the connection form below. It binds host ports 80 (HTTP), 443 (HTTPS), and 81 (admin).</p>
-                <button className="btn-primary inline-flex items-center gap-2" onClick={deployNpm} disabled={deployingNpm} title="Create and start the nginx-proxy-manager project, then prefill the connection form with its admin URL and default login.">
-                  {deployingNpm && <span className="spinner" aria-hidden="true"></span>}
-                  {deployingNpm ? 'Deploying…' : 'Deploy Nginx Proxy Manager'}
-                </button>
-                <p className="text-xs text-blue-800">One click deploys NPM, sets a secure admin password automatically, and connects Stack Manager over localhost — no manual NPM setup needed.</p>
-                {npmCreds && (
-                  <div className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
-                    <div className="font-semibold">NPM deployed &amp; connected. Save these — this is also your NPM admin login:</div>
-                    <div className="mt-2 grid gap-1 font-mono text-xs">
-                      <div>Admin UI: <span className="font-semibold">http://{configuredOrBrowserHost(configuredConnectionHost)}:81</span></div>
-                      <div>Login: <span className="font-semibold">{npmCreds.login}</span></div>
-                      <div>Password: <span className="select-all font-semibold">{npmCreds.password}</span></div>
-                    </div>
-                    <div className="mt-2 text-xs">Change it any time inside NPM. This is shown once.</div>
+              {npmStatus?.detection_available === false ? (
+                <div className="section-panel space-y-2 border-red-300 bg-red-50">
+                  <h3 className="text-base font-semibold text-red-950">NPM deployment safety check unavailable</h3>
+                  <p className="text-sm text-red-900">Stack Manager could not inspect Docker for an existing NPM container, so deployment is disabled. Restore Docker access, then reload this page.</p>
+                </div>
+              ) : npmStatus?.detected ? (
+                <div className="section-panel space-y-2 border-amber-300 bg-amber-50">
+                  <h3 className="text-base font-semibold text-amber-950">Existing Nginx Proxy Manager detected</h3>
+                  <p className="text-sm text-amber-900">
+                    Stack Manager will not deploy or replace it. Connect the existing instance below; this only uses the NPM API and leaves its proxy hosts, database, certificates, Compose files, and volumes untouched.
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs text-amber-800">
+                    {npmStatus.compose_project && <span>Compose project: <code>{npmStatus.compose_project}</code></span>}
+                    {npmStatus.container_state && <span>Container: <code>{npmStatus.container_state}</code></span>}
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="section-panel space-y-3 border-blue-200 bg-blue-50">
+                  <h3 className="text-base font-semibold text-blue-950">One-click deploy</h3>
+                  <p className="text-sm text-blue-900">Deploy Nginx Proxy Manager from the built-in template and prefill the connection form below. It binds host ports 80 (HTTP), 443 (HTTPS), and 81 (admin).</p>
+                  <button className="btn-primary inline-flex items-center gap-2" onClick={deployNpm} disabled={deployingNpm} title="Create and start the nginx-proxy-manager project, then prefill the connection form with its admin URL and default login.">
+                    {deployingNpm && <span className="spinner" aria-hidden="true"></span>}
+                    {deployingNpm ? 'Deploying…' : 'Deploy Nginx Proxy Manager'}
+                  </button>
+                  <p className="text-xs text-blue-800">One click deploys NPM only when no existing NPM container is present, sets a secure admin password automatically, and connects Stack Manager over localhost.</p>
+                  {npmCreds && (
+                    <div className="rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
+                      <div className="font-semibold">NPM deployed &amp; connected. Save these — this is also your NPM admin login:</div>
+                      <div className="mt-2 grid gap-1 font-mono text-xs">
+                        <div>Admin UI: <span className="font-semibold">http://{configuredOrBrowserHost(configuredConnectionHost)}:81</span></div>
+                        <div>Login: <span className="font-semibold">{npmCreds.login}</span></div>
+                        <div>Password: <span className="select-all font-semibold">{npmCreds.password}</span></div>
+                      </div>
+                      <div className="mt-2 text-xs">Change it any time inside NPM. This is shown once.</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              <div className="section-panel space-y-3">
+              {npmStatus?.detection_available !== false && !npmStatus?.detected && <div className="section-panel space-y-3">
                 <h3 className="text-base font-semibold text-gray-950">Manual setup (alternative)</h3>
                 <ol className="list-decimal space-y-3 pl-5 text-sm text-gray-700">
                   <li>
@@ -2549,7 +2576,7 @@ export default function Settings() {
                     <span className="font-medium">Connect below.</span> Enter the NPM admin URL and your updated credentials, then click Connect. Once connected, you can manage proxy hosts from this panel.
                   </li>
                 </ol>
-              </div>
+              </div>}
 
               <div className="section-panel border-amber-200 bg-amber-50">
                 <h3 className="text-base font-semibold text-amber-900">When NOT to use a reverse proxy</h3>
@@ -2574,13 +2601,13 @@ export default function Settings() {
               <>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <Field label="NPM Admin URL" hint="e.g. http://78.109.20.111:81">
-                    <input className="input" value={npmForm.url} onChange={e => setNpmForm({ ...npmForm, url: e.target.value })} placeholder="http://localhost:81" />
+                    <input className="input" title="Nginx Proxy Manager admin API URL" value={npmForm.url} onChange={e => setNpmForm({ ...npmForm, url: e.target.value })} placeholder={npmStatus?.suggested_url || 'http://localhost:81'} />
                   </Field>
                   <Field label="Admin Email" hint="default: admin@example.com">
-                    <input className="input" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} />
+                    <input className="input" title="Nginx Proxy Manager administrator email" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} />
                   </Field>
                   <Field label="Password">
-                    <input className="input" type="password" value={npmForm.password} onChange={e => setNpmForm({ ...npmForm, password: e.target.value })} placeholder="changeme" />
+                    <input className="input" title="Nginx Proxy Manager administrator password" type="password" value={npmForm.password} onChange={e => setNpmForm({ ...npmForm, password: e.target.value })} placeholder="changeme" />
                   </Field>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2601,16 +2628,26 @@ export default function Settings() {
                 {npmHosts.length > 0 && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Domain(s)</th><th>Forward</th><th>SSL</th><th className="text-right">Actions</th></tr></thead>
+                      <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Domain(s)</th><th>Forward</th><th>Status</th><th>SSL</th><th className="text-right">Actions</th></tr></thead>
                       <tbody>
-                        {npmHosts.map(host => (
-                          <tr key={host.id} className="border-b border-gray-100">
-                            <td className="py-2 font-mono text-xs">{(host.domain_names || []).join(', ')}</td>
-                            <td className="text-xs text-gray-600">{host.forward_scheme}://{host.forward_host}:{host.forward_port}</td>
-                            <td>{host.certificate_id > 0 ? <Badge tone="green">SSL</Badge> : <Badge tone="gray">none</Badge>}</td>
-                            <td className="text-right"><button className="mini-danger" onClick={() => deleteProxyHost(host.id, (host.domain_names || []).join(', '))}>Delete</button></td>
-                          </tr>
-                        ))}
+                        {npmHosts.map(host => {
+                          const enabled = host.enabled !== false && host.enabled !== 0;
+                          const domains = (host.domain_names || []).join(', ');
+                          return (
+                            <tr key={host.id} className="border-b border-gray-100">
+                              <td className="py-2 font-mono text-xs">{domains}</td>
+                              <td className="text-xs text-gray-600">{host.forward_scheme}://{host.forward_host}:{host.forward_port}</td>
+                              <td>{enabled ? <Badge tone="green">enabled</Badge> : <Badge tone="gray">disabled</Badge>}</td>
+                              <td>{host.certificate_id > 0 ? <Badge tone="green">SSL</Badge> : <Badge tone="gray">none</Badge>}</td>
+                              <td className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <button className="mini-button" title={`${enabled ? 'Disable' : 'Enable'} this proxy host without deleting its configuration`} onClick={() => toggleProxyHost(host.id, domains, !enabled)}>{enabled ? 'Disable' : 'Enable'}</button>
+                                  <button className="mini-danger" title="Permanently delete this proxy host" onClick={() => deleteProxyHost(host.id, domains)}>Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

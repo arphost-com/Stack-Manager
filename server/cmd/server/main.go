@@ -351,6 +351,7 @@ func main() {
 			r.Post("/proxy/disconnect", proxyHandler.Disconnect)
 			r.Get("/proxy/hosts", proxyHandler.ListHosts)
 			r.Post("/proxy/hosts", proxyHandler.CreateHost)
+			r.Post("/proxy/hosts/toggle", proxyHandler.ToggleHost)
 			r.Delete("/proxy/hosts", proxyHandler.DeleteHost)
 			r.Get("/proxy/suggestions", proxyHandler.ProjectSuggestions)
 

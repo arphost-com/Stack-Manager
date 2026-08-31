@@ -578,6 +578,8 @@ If the helper is not installed, the Firewall panel shows an amber install-comman
 Settings > Reverse Proxy deploys and manages Nginx Proxy Manager from the dashboard:
 
 - **Deploy Nginx Proxy Manager** — one click stands up NPM from the built-in template and prefills the connection form with its admin URL and default login
+- **Adopt existing NPM safely** — if an NPM container already exists, deployment is blocked and the dashboard directs you to connect it without changing its Compose files, database, certificates, or volumes
+- **Proxy host lifecycle** — enable or disable proxy hosts without deleting their configuration; Delete remains a separate destructive action
 - **Connect** with the NPM admin URL, email, and password (the auth request sends only `identity` + `secret`, which NPM's schema requires)
 - **Add proxied domains** from a form — running projects appear as chips that auto-fill the forward target, plus a one-click **Stack Manager UI** target to proxy the dashboard itself
 - **Add to Proxy (NPM)** on any project — one click creates a proxy host forwarding to the host + the project's first published port (domain and SSL editable in NPM after)

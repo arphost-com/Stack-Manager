@@ -313,6 +313,7 @@ export const proxy = {
   forwardHost: () => request('/proxy/forward-host'),
   listHosts: () => request('/proxy/hosts'),
   createHost: (body) => request('/proxy/hosts', { method: 'POST', body: JSON.stringify(body) }),
+  toggleHost: (id, enabled) => request('/proxy/hosts/toggle', { method: 'POST', body: JSON.stringify({ id, enabled }) }),
   deleteHost: (id) => request(`/proxy/hosts?id=${id}`, { method: 'DELETE' }),
   suggestions: () => request('/proxy/suggestions'),
 };
