@@ -10,6 +10,7 @@ type Project struct {
 	SourceHost    string              `json:"source_host,omitempty"`
 	Inactive      bool                `json:"inactive"`
 	Running       bool                `json:"running"`
+	State         string              `json:"state"`
 	IsGit         bool                `json:"is_git"`
 	Containers    []Container         `json:"containers,omitempty"`
 	HasHook       map[string]bool     `json:"has_hook,omitempty"`
@@ -23,7 +24,7 @@ type Project struct {
 	TemplateUpdateAvailable bool `json:"template_update_available,omitempty"`
 }
 
-// Container represents a running Docker container.
+// Container represents a Docker container belonging to a Compose project.
 type Container struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`

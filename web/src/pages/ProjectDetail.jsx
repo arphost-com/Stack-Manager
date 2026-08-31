@@ -25,6 +25,7 @@ function parsePublishedPorts(project) {
   return ports;
 }
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
+import { projectState, projectStateTone, stateTone } from '../utils/projectState';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -580,7 +581,7 @@ export default function ProjectDetail() {
                 on {sourceInfo.name}{isCallback ? ' · check-in' : ''}
               </span>
             )}
-            <Badge tone={project.running ? 'green' : 'gray'}>{project.running ? 'running' : 'stopped'}</Badge>
+            <Badge tone={projectStateTone(project)}>{projectState(project)}</Badge>
             {project.inactive && <Badge tone="amber">inactive</Badge>}
             {project.has_hook?.update && <Badge tone="cyan">update hook</Badge>}
             {project.update_policy?.effective_policy === 'no_updates' && <Badge tone="amber">no updates</Badge>}
@@ -872,13 +873,13 @@ function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePoli
                 <tr key={c.name} className="border-b border-gray-100">
                   <td className="py-2 font-mono">{c.name}</td>
                   <td className="font-mono text-xs text-gray-600">{c.image}</td>
-                  <td><Badge tone={c.state === 'running' ? 'green' : 'gray'}>{c.state}</Badge></td>
+                  <td><Badge tone={stateTone(c.state)}>{c.state}</Badge></td>
                   <td className="text-xs"><ContainerPorts ports={c.ports} state={c.state} linkHost={linkHost} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {(!project.containers || project.containers.length === 0) && <div className="py-6 text-gray-500">No running containers found.</div>}
+          {(!project.containers || project.containers.length === 0) && <div className="py-6 text-gray-500">No containers found.</div>}
         </div>
       </div>
     </div>
@@ -1638,11 +1639,12 @@ function ActionResult({ result, onDismiss }) {
   const tone = result.status === 'running' ? 'border-blue-200 bg-blue-50 text-blue-900' :
     result.status === 'error' ? 'border-red-200 bg-red-50 text-red-900' :
     'border-green-200 bg-green-50 text-green-900';
+  const output = result.job?.output || result.result?.output || '';
   useEffect(() => {
-    if (result.status !== 'done') return undefined;
+    if (result.status !== 'done' || output) return undefined;
     const timer = window.setTimeout(onDismiss, 6000);
     return () => window.clearTimeout(timer);
-  }, [result.status, result.label, onDismiss]);
+  }, [result.status, result.label, output, onDismiss]);
   return (
     <div className={`action-result rounded border px-4 py-3 text-sm ${tone}`}>
       <div className="flex items-start justify-between gap-4">
@@ -1656,9 +1658,9 @@ function ActionResult({ result, onDismiss }) {
               {result.result.destination.target && <span> · <span className="font-mono">{result.result.destination.target}</span></span>}
             </div>
           )}
-          {(result.job || result.job?.output || result.result?.output) && (
+          {(result.job || output) && (
             <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">
-              {result.job?.output || result.result?.output || (result.status === 'running' ? 'Waiting for Docker command output…' : 'Command completed without output.')}
+              {output || (result.status === 'running' ? 'Waiting for Docker command output…' : 'Command completed without output.')}
             </pre>
           )}
         </div>

@@ -128,9 +128,11 @@ func (e *Engine) buildProject(dir, composeFile string) Project {
 		}
 	}
 
-	// Check running status and containers
-	containers, running := e.getContainers(name)
-	p.Running = running
+	// Check the actual Docker state and include non-running containers so
+	// restart loops and stopped services remain visible to operators.
+	containers, state := e.getContainers(name)
+	p.State = state
+	p.Running = state == "running"
 	p.Containers = containers
 	p.ImageSources = e.ImageSources(&p)
 	p.Documentation = e.ProjectDocs(&p)

@@ -124,6 +124,7 @@ export default function Settings() {
   const [agentProjects, setAgentProjects] = useState({});
   const [scheduleList, setScheduleList] = useState([]);
   const [scheduleRuns, setScheduleRuns] = useState([]);
+  const [scheduleServerFilter, setScheduleServerFilter] = useState('all');
   const [scheduleActionResult, setScheduleActionResult] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -221,7 +222,7 @@ export default function Settings() {
       const [usersRes, destinationsRes, projectsRes, agentsRes, schedulesRes, scheduleRunsRes] = await Promise.all([
         users.list(),
         backup.destinations(),
-        projects.list({ include_inactive: 'true', running_only: 'false' }),
+        projects.list({ include_inactive: 'true', running_only: 'false', source: 'local' }),
         agents.list(),
         schedules.list(),
         schedules.history(),
@@ -287,30 +288,33 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, activeTab]);
 
-  const runOsCheck = async () => {
-    setOsBusy('check'); setOsResult(null);
+  const runOsCheck = async (preserveResult = false) => {
+    setOsBusy('check');
+    if (!preserveResult) setOsResult(null);
     try { const r = await system.osStatus(); setOsStatus(r.data); }
-    catch (err) { setOsResult({ success: false, error: err.message }); }
+    catch (err) {
+      if (!preserveResult) setOsResult({ ...(err.data || {}), success: false, error: err.message });
+    }
     finally { setOsBusy(''); }
   };
   const runOsUpgrade = async () => {
     if (!window.confirm('Run a full base-OS upgrade (apt update + dist-upgrade + autoremove) on this host? This can take a while.')) return;
     setOsBusy('upgrade'); setOsResult(null);
-    try { const r = await system.osUpgrade(); setOsResult(r.data); runOsCheck(); }
-    catch (err) { setOsResult({ success: false, error: err.message }); }
+    try { const r = await system.osUpgrade(); setOsResult(r.data); await runOsCheck(true); }
+    catch (err) { setOsResult({ ...(err.data || {}), success: false, error: err.message }); }
     finally { setOsBusy(''); }
   };
   const runOsAutoremove = async () => {
     setOsBusy('autoremove'); setOsResult(null);
     try { const r = await system.osAutoremove(); setOsResult(r.data); }
-    catch (err) { setOsResult({ success: false, error: err.message }); }
+    catch (err) { setOsResult({ ...(err.data || {}), success: false, error: err.message }); }
     finally { setOsBusy(''); }
   };
   const runOsSearch = async () => {
     if (!osSearchTerm.trim()) return;
     setOsBusy('search'); setOsSearchOut(null);
     try { const r = await system.osSearch(osSearchTerm.trim()); setOsSearchOut(r.data); }
-    catch (err) { setOsSearchOut({ success: false, error: err.message }); }
+    catch (err) { setOsSearchOut({ ...(err.data || {}), success: false, error: err.message }); }
     finally { setOsBusy(''); }
   };
   const runOsInstall = async () => {
@@ -318,7 +322,7 @@ export default function Settings() {
     if (!window.confirm(`Install package "${osInstallPkg.trim()}" on this host via apt?`)) return;
     setOsBusy('install'); setOsResult(null);
     try { const r = await system.osInstall(osInstallPkg.trim()); setOsResult(r.data); }
-    catch (err) { setOsResult({ success: false, error: err.message }); }
+    catch (err) { setOsResult({ ...(err.data || {}), success: false, error: err.message }); }
     finally { setOsBusy(''); }
   };
 
@@ -339,14 +343,43 @@ export default function Settings() {
 
   const runUpdateCheck = async () => {
     setUpdateBusy('check');
-    try { const r = await system.updateStatus(); setUpdateInfo(r.data); }
+    try {
+      const [status, progress] = await Promise.all([system.updateStatus(), system.updateProgress()]);
+      setUpdateInfo(status.data);
+      if (progress.data?.output || progress.data?.running) setUpdateResult(progress.data);
+    }
     catch (err) { setUpdateInfo({ error: err.message }); }
     finally { setUpdateBusy(''); }
+  };
+  const followSelfUpdate = async () => {
+    const deadline = Date.now() + (15 * 60 * 1000);
+    let sawProgress = false;
+    while (Date.now() < deadline) {
+      try {
+        const r = await system.updateProgress();
+        const progress = r.data || {};
+        sawProgress = sawProgress || Boolean(progress.running) || Boolean(progress.output);
+        setUpdateResult(progress);
+        if (sawProgress && !progress.running) {
+          await runUpdateCheck();
+          return;
+        }
+      } catch {
+        // The API is expected to disappear briefly while its own containers
+        // are recreated. Keep polling so the same page resumes the live log.
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 2000));
+    }
+    setUpdateResult(previous => ({ ...(previous || {}), running: false, error: 'Timed out waiting for the update to finish. Check the last output below.' }));
   };
   const runSelfUpdate = async () => {
     if (!window.confirm('Update Stack Manager to the latest code now?\n\nThis fetches and hard-resets the deploy tree to the tracked upstream and rebuilds the stack. The dashboard will briefly go down — reconnect in a few minutes. Any uncommitted local changes in the deploy tree on the host are discarded.')) return;
     setUpdateBusy('update'); setUpdateResult(null);
-    try { const r = await system.selfUpdate(); setUpdateResult(r.data); }
+    try {
+      const r = await system.selfUpdate();
+      setUpdateResult({ ...r.data, running: true });
+      void followSelfUpdate();
+    }
     catch (err) { setUpdateResult({ error: err.message }); }
     finally { setUpdateBusy(''); }
   };
@@ -1264,6 +1297,13 @@ export default function Settings() {
   const agentControllerHost = (controllerUrl || '').trim() || (typeof window !== 'undefined' ? window.location.origin : 'https://your-controller:8993');
 
   const availableProjects = scheduleForm.agent_id ? (agentProjects[scheduleForm.agent_id] || []) : projectList;
+  const scheduleMatchesServer = (item) => {
+    if (scheduleServerFilter === 'all') return true;
+    if (scheduleServerFilter === 'local') return !item.agent_id;
+    return String(item.agent_id || '') === scheduleServerFilter;
+  };
+  const visibleSchedules = scheduleList.filter(scheduleMatchesServer);
+  const visibleScheduleRuns = scheduleRuns.filter(scheduleMatchesServer);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -1724,12 +1764,29 @@ export default function Settings() {
       {admin && activeTab === 'schedules' && (
         <div className="space-y-4">
           <div className="section-panel">
-          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-950">Scheduled Updates</h2>
-              <p className="text-sm text-gray-600">Choose a server or agent, then pick one of its discovered projects from the dropdown.</p>
+              <p className="text-sm text-gray-600">Filter the schedules by server, then choose one target host and one of that host's discovered projects.</p>
             </div>
-            <Badge tone="blue">{scheduleList.length} schedules</Badge>
+            <div className="flex items-end gap-2">
+              <Field label="View server" title="Show schedules and run history for all servers, this controller, or one registered server.">
+                <select
+                  value={scheduleServerFilter}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setScheduleServerFilter(value);
+                    if (value !== 'all' && value !== 'local') loadAgentProjects(value);
+                  }}
+                  className="input min-w-[190px]"
+                >
+                  <option value="all">All servers</option>
+                  <option value="local">This server</option>
+                  {agentList.map(agent => <option key={agent.id} value={String(agent.id)}>{agent.name}</option>)}
+                </select>
+              </Field>
+              <Badge tone="blue">{visibleSchedules.length}{scheduleServerFilter === 'all' ? '' : ` of ${scheduleList.length}`} schedules</Badge>
+            </div>
           </div>
           {scheduleActionResult && (
             <ScheduleActionResult result={scheduleActionResult} onDismiss={() => setScheduleActionResult(null)} />
@@ -1797,7 +1854,7 @@ export default function Settings() {
             <table className="w-full min-w-[840px] text-left text-sm">
               <thead><tr className="border-b border-gray-200 text-xs uppercase text-gray-500"><th className="py-2">Target</th><th>Action</th><th>Cadence</th><th>Next</th><th>Last</th><th className="text-right">Tools</th></tr></thead>
               <tbody>
-                {scheduleList.map(schedule => (
+                {visibleSchedules.map(schedule => (
                   <tr key={schedule.id} className="border-b border-gray-100">
                     <td className="py-2"><div className="font-medium">{schedule.project}</div><div className="text-xs text-gray-500">{schedule.agent_name || 'This server'}</div></td>
                     <td><Badge tone={schedule.enabled ? 'green' : 'gray'}>{schedule.action}</Badge></td>
@@ -1822,7 +1879,7 @@ export default function Settings() {
                 ))}
               </tbody>
             </table>
-            {scheduleList.length === 0 && <div className="py-6 text-sm text-gray-500">No schedules configured.</div>}
+            {visibleSchedules.length === 0 && <div className="py-6 text-sm text-gray-500">No schedules configured for the selected server.</div>}
           </div>
           </div>
           <div className="section-panel">
@@ -1846,7 +1903,7 @@ export default function Settings() {
                 </tr>
               </thead>
               <tbody>
-                {scheduleRuns.map(run => (
+                {visibleScheduleRuns.map(run => (
                   <tr key={run.id} className="border-b border-gray-100 align-top">
                     <td className="py-2 text-xs text-gray-500">{formatDate(run.started_at)}</td>
                     <td>
@@ -1873,7 +1930,7 @@ export default function Settings() {
                 ))}
               </tbody>
             </table>
-            {scheduleRuns.length === 0 && <div className="py-6 text-sm text-gray-500">No scheduled runs have been recorded yet.</div>}
+            {visibleScheduleRuns.length === 0 && <div className="py-6 text-sm text-gray-500">No scheduled runs have been recorded for the selected server.</div>}
           </div>
           </div>
         </div>
@@ -2203,7 +2260,7 @@ export default function Settings() {
           <div className="section-panel space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-950">Base OS updates</h2>
-              <button onClick={runOsCheck} disabled={!!osBusy} className="btn-secondary inline-flex items-center gap-2 text-xs">{osBusy === 'check' && <span className="spinner" aria-hidden="true"></span>}Check</button>
+              <button onClick={() => runOsCheck()} disabled={!!osBusy} className="btn-secondary inline-flex items-center gap-2 text-xs">{osBusy === 'check' && <span className="spinner" aria-hidden="true"></span>}Check</button>
             </div>
             <p className="text-sm text-gray-600">Manage this host&rsquo;s base OS packages (apt) on Debian &amp; Ubuntu. Admin only. These run as root on the host.</p>
             {osStatus && osStatus.helper_installed === false ? (
@@ -2266,9 +2323,9 @@ export default function Settings() {
                 <p className="mt-1">Install the helper on the host once (over SSH), then this panel activates:</p>
                 <pre className="mt-2 overflow-auto rounded bg-gray-950 p-2 text-xs text-gray-100">{updateInfo.helper_hint || 'sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update'}</pre>
               </div>
-            ) : updateInfo && updateInfo.vcs === 'none' ? (
+            ) : updateInfo && (updateInfo.vcs === 'none' || updateInfo.vcs === 'ci') ? (
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                <div className="font-medium">This host isn&rsquo;t a git checkout</div>
+                <div className="font-medium">{updateInfo.vcs === 'ci' ? 'This host is updated by GitLab CI' : 'This host isn\u2019t a git checkout'}</div>
                 <p className="mt-1">{updateInfo.note || 'The deploy tree here was created by CI/rsync, not git, so in-place self-update isn’t available. Update this host through its pipeline / deploy process.'}</p>
                 {updateInfo.dir && <div className="mt-2 font-mono text-xs text-blue-700">dir={updateInfo.dir}</div>}
               </div>
@@ -2296,8 +2353,12 @@ export default function Settings() {
               </>
             )}
             {updateResult && (
-              <div className={`rounded-md border p-3 text-sm ${updateResult.error ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-900'}`}>
-                {updateResult.error ? updateResult.error : (updateResult.note || 'Update started.')}
+              <div className={`rounded-md border p-3 text-sm ${updateResult.error ? 'border-red-200 bg-red-50 text-red-800' : updateResult.running ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-green-200 bg-green-50 text-green-900'}`}>
+                <div className="flex items-center gap-2 font-medium">
+                  {updateResult.running && <span className="spinner" aria-hidden="true"></span>}
+                  {updateResult.error ? updateResult.error : updateResult.running ? 'Stack Manager update is running…' : (updateResult.note || 'Update completed.')}
+                </div>
+                {updateResult.output && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-3 font-mono text-xs text-gray-100">{updateResult.output}</pre>}
               </div>
             )}
           </div>

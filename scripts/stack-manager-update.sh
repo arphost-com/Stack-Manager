@@ -29,6 +29,14 @@ cmd_status() {
   local dir; dir=$(find_dir) || { echo 'error=cannot locate stack-manager deploy dir'; return 0; }
   [ -n "$dir" ] && cd "$dir" 2>/dev/null || { echo "error=deploy dir not found: $dir"; return 0; }
   echo "dir=$dir"
+  # A pipeline-managed tree can retain a legacy .git directory because rsync
+  # intentionally excludes it. That checkout may track a stale mirror and must
+  # never be treated as the source of truth for an in-place self-update.
+  if [ -f .stack-manager-ci-deployed ]; then
+    echo "vcs=ci"
+    echo "note=This controller is managed by GitLab CI. Update it through the pipeline; in-place Git self-update is disabled."
+    return 0
+  fi
   git config --global --add safe.directory "$dir" 2>/dev/null || true
   # A CI/rsync-deployed host has no .git, so self-update (fetch + reset) can't
   # work — report that clearly instead of blank branch/local fields.
@@ -50,6 +58,10 @@ cmd_status() {
 cmd_update() {
   local dir; dir=$(find_dir) || { echo 'error=cannot locate stack-manager deploy dir'; return 1; }
   [ -n "$dir" ] || { echo 'error=empty deploy dir'; return 1; }
+  if [ -f "$dir/.stack-manager-ci-deployed" ]; then
+    echo 'error=this controller is managed by GitLab CI; update it through the pipeline, not this button'
+    return 1
+  fi
   # Refuse on a non-git (CI/rsync) tree instead of failing mid-rebuild.
   if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
     echo 'error=this deploy tree is not a git checkout (deployed by CI/rsync); update it through your pipeline, not this button'

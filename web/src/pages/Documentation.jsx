@@ -828,7 +828,7 @@ docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code
 
       <DocSection title="Upgrade">
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
-          <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are and what's in the update. Install the helper once: <code className="rounded bg-gray-100 px-1 text-xs">sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update</code></li>
+          <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are, what&rsquo;s in the update, and the live rebuild log through completion. Install the helper once: <code className="rounded bg-gray-100 px-1 text-xs">sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update</code></li>
           <li><strong>deploy.sh (recommended full refresh):</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/deploy.sh</code> — rebuilds with the correct version stamp, installs all host helpers, records the version in the DB.</li>
           <li><strong>Manual:</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/prepare-state.sh .env &amp;&amp; docker compose --env-file .env up -d --build</code></li>
         </ul>
@@ -864,7 +864,7 @@ curl -sk -H "X-API-Key: $API_KEY" https://HOST:8993/api/v1/projects/myapp/volume
                 ['Per-project', 'GET /projects/{name}/{status|images|logs*|stats*|files} · shell/exec (WS) · watch · /update-policy · /inactive'],
                 ['Volumes / networks', 'GET /projects/{name}/volumes · DELETE …/volumes/{volume} · GET /projects/{name}/networks · DELETE …/networks/{network}'],
                 ['Agents / schedules', 'GET|POST /agents · GET /agents/{id}/projects · POST|GET /agents/{id}/commands · GET|POST /schedules · POST /schedules/{id}/run'],
-                ['System / settings', 'GET|PUT /settings/env · POST /settings/env/roll-api-key · GET|POST /settings/ssl/* · GET /system/{gpu|os|update|tz} (+ POST actions) · GET|PUT /docker/daemon · GET /metrics/* · GET /audit'],
+                ['System / settings', 'GET|PUT /settings/env · POST /settings/env/roll-api-key · GET|POST /settings/ssl/* · GET /system/{gpu|os|update|tz} (+ POST actions) · GET /system/update/progress · GET|PUT /docker/daemon · GET /metrics/* · GET /audit'],
                 ['Skills', 'GET /scan/{name} (security) · backup, dbadmin, debug (inspect/top/logs/stats), firewall'],
                 ['Registry / proxy / templates', 'POST /registries/login · GET /stack-templates · /proxy/{status|deploy|hosts}'],
               ].map(([g, r]) => (

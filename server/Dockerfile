@@ -1,5 +1,5 @@
 ARG BASE_IMAGE_PREFIX=
-FROM ${BASE_IMAGE_PREFIX}golang:1.25.12-alpine AS builder
+FROM ${BASE_IMAGE_PREFIX}golang:1.25.13-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -15,8 +15,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 ARG BASE_IMAGE_PREFIX=
 FROM ${BASE_IMAGE_PREFIX}alpine:3.22
-RUN apk add --no-cache ca-certificates curl docker-cli docker-cli-compose bash tar gzip git openssh-client rclone util-linux
-RUN apk upgrade --no-cache
+# Security version floors both require the patched packages and invalidate the
+# cached install layer when Alpine publishes a fix without changing the base
+# image tag.
+RUN apk add --no-cache \
+    ca-certificates curl docker-cli docker-cli-compose bash tar \
+    'gzip>=1.14-r2' git openssh-client rclone util-linux \
+    'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0' && \
+    apk upgrade --no-cache
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
     mkdir -p /home/appuser/.docker && \

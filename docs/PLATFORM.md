@@ -124,8 +124,10 @@ if it's missing on an older install, the panel prints the one-time command:
 sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update
 ```
 
-> A **CI/rsync-deployed** host (no `.git` in the deploy tree) can't self-update
-> in place — the panel says so and you update it through its pipeline instead.
+> A **CI/rsync-deployed** host can't self-update in place. The pipeline writes
+> `.stack-manager-ci-deployed`, and the panel checks that marker even if a
+> legacy `.git` directory remains. Update it through the pipeline instead of
+> risking a reset to a stale external mirror.
 
 ### 2. `deploy.sh` (SSH, recommended for a full refresh)
 
@@ -270,6 +272,12 @@ proxy, set e.g.
 `BASE_IMAGE_PREFIX=10.10.10.96:8929/arphost/dependency_proxy/containers/library/`
 (trailing slash required) to route every base image through the proxy and avoid
 Docker Hub rate limits.
+
+For docker02 GitLab deployments, the prefix defaults to empty and is not
+preserved from an older `.env`. Set `STACK_MANAGER_BASE_IMAGE_PREFIX` in CI only
+when the host has persistent pull credentials for that registry; job-scoped
+dependency-proxy credentials cannot support later UI helper pulls or detached
+rebuilds.
 
 ---
 

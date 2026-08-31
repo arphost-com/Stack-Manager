@@ -22,6 +22,7 @@ const (
 	updateHelperPath  = "/usr/local/sbin/stack-manager-update"
 	updateHelperImage = "alpine:3.22"
 	updateTimeout     = 60 * time.Second
+	progressTimeout   = 20 * time.Second
 )
 
 var errUpdateHelperMissing = errors.New("host helper not installed at " + updateHelperPath)
@@ -101,6 +102,57 @@ func (h *SelfUpdateHandler) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	res["changes"] = changes
 	writeJSON(w, http.StatusOK, res)
+}
+
+// Progress returns the current or most recent detached self-update log. It
+// uses fixed host commands instead of a new helper subcommand so upgrading
+// from an older release can show progress before the installed helper itself
+// has been refreshed by deploy.sh.
+func (h *SelfUpdateHandler) Progress(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), progressTimeout)
+	defer cancel()
+
+	statusOut, _ := h.runHostCommand(ctx, "systemctl", "is-active", "stack-manager-selfupdate.service")
+	running := strings.TrimSpace(statusOut) == "active"
+	output, err := h.runHostCommand(ctx, "tail", "-n", "500", "/var/log/stack-manager-update.log")
+	if err != nil {
+		if strings.Contains(output, "No such file") || strings.Contains(output, "cannot open") {
+			output = ""
+		} else {
+			writeError(w, http.StatusInternalServerError, strings.TrimSpace(output))
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"running": running,
+		"output":  strings.TrimSpace(output),
+	})
+}
+
+func (h *SelfUpdateHandler) runHostCommand(ctx context.Context, args ...string) (string, error) {
+	dockerArgs := []string{
+		"run", "--rm",
+		"--privileged",
+		"--network=host",
+		"--pid=host",
+		"-v", "/:/host:ro",
+		h.baseImagePrefix + updateHelperImage,
+		"chroot", "/host",
+	}
+	dockerArgs = append(dockerArgs, args...)
+	cmd := exec.CommandContext(ctx, "docker", dockerArgs...) //nolint:gosec // every caller supplies fixed command arguments
+	cmd.Env = core.HostHelperEnv()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return stdout.String() + "\n" + stderr.String(), err
+	}
+	return stdout.String(), nil
 }
 
 // Update kicks off a detached pull + rebuild of the controller's own stack.

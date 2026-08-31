@@ -10,22 +10,24 @@ import (
 	"time"
 )
 
-// getProjectName returns the compose project name, preferring a running label.
+// getProjectName returns the compose project name, preferring an existing label.
 func (e *Engine) getProjectName(name string) string {
-	// Try to detect from running containers first
+	// Try to detect from existing containers first. Include stopped and
+	// restarting containers because their Compose project label is still the
+	// authoritative name.
 	if label := e.detectRunningLabel(name); label != "" {
 		return label
 	}
 	return sanitizeProjectName(name)
 }
 
-// detectRunningLabel checks if containers are running with a compose project label.
+// detectRunningLabel checks if containers exist with a compose project label.
 func (e *Engine) detectRunningLabel(name string) string {
 	sanitized := sanitizeProjectName(name)
 	candidates := []string{sanitized, strings.ToLower(name)}
 
 	for _, cand := range candidates {
-		out, err := exec.Command("docker", "ps",
+		out, err := exec.Command("docker", "ps", "-a",
 			"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", cand),
 			"--format", `{{.Label "com.docker.compose.project"}}`,
 		).Output()
@@ -39,15 +41,17 @@ func (e *Engine) detectRunningLabel(name string) string {
 	return ""
 }
 
-// getContainers returns the running containers for a project.
-func (e *Engine) getContainers(name string) ([]Container, bool) {
+// getContainers returns every container for a project, including transitional
+// and stopped containers. The second return value is the aggregate project
+// state derived from Docker's live container states.
+func (e *Engine) getContainers(name string) ([]Container, string) {
 	pname := e.getProjectName(name)
-	out, err := exec.Command("docker", "ps",
+	out, err := exec.Command("docker", "ps", "-a",
 		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", pname),
 		"--format", `{{json .}}`,
 	).Output()
 	if err != nil {
-		return nil, false
+		return nil, "unknown"
 	}
 
 	var containers []Container
@@ -74,7 +78,32 @@ func (e *Engine) getContainers(name string) ([]Container, bool) {
 		})
 	}
 
-	return containers, len(containers) > 0
+	return containers, aggregateProjectState(containers)
+}
+
+// aggregateProjectState reports the operator-relevant state for a Compose
+// project. A restart loop must win over a concurrently running sidecar, while
+// exited one-shot init containers must not make an otherwise running project
+// look stopped.
+func aggregateProjectState(containers []Container) string {
+	if len(containers) == 0 {
+		return "stopped"
+	}
+
+	present := make(map[string]bool, len(containers))
+	for _, container := range containers {
+		state := strings.ToLower(strings.TrimSpace(container.State))
+		if state != "" {
+			present[state] = true
+		}
+	}
+
+	for _, state := range []string{"restarting", "dead", "removing", "paused", "running", "created", "exited"} {
+		if present[state] {
+			return state
+		}
+	}
+	return "unknown"
 }
 
 // ExecCompose runs a docker compose command for a project.

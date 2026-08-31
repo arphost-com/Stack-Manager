@@ -84,6 +84,8 @@ func (h *OSUpdateHandler) respond(w http.ResponseWriter, out string, err error) 
 	res := map[string]interface{}{"helper_installed": true, "output": out, "success": err == nil}
 	if err != nil {
 		res["error"] = err.Error()
+		writeErrorWithData(w, http.StatusBadGateway, "OS package command failed: "+err.Error(), res)
+		return
 	}
 	writeJSON(w, http.StatusOK, res)
 }

@@ -367,6 +367,7 @@ func main() {
 			r.Get("/system/os/search", osUpdateHandler.Search)
 			r.Post("/system/os/install", osUpdateHandler.Install)
 			r.Get("/system/update/status", selfUpdateHandler.Status)
+			r.Get("/system/update/progress", selfUpdateHandler.Progress)
 			r.Post("/system/update", selfUpdateHandler.Update)
 			r.Get("/system/tz", systemTZHandler.Status)
 			r.Post("/system/tz", systemTZHandler.Apply)

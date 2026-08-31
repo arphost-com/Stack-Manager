@@ -181,8 +181,8 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 		// even checking that there is nothing to stop. Blocking Delete on
 		// that failure meant operators could not remove a directory that
 		// had no containers running anyway.
-		_, running := e.getContainers(project.Name)
-		if running {
+		containers, _ := e.getContainers(project.Name)
+		if len(containers) > 0 {
 			down := e.Down(project)
 			result.Output += "=== docker compose down ===\n" + down.Output + "\n"
 			if !down.Success {

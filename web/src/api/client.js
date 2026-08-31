@@ -252,24 +252,37 @@ export const debug = {
   top: (name) => request(`/skills/debug/top/${encodeURIComponent(name)}`),
 };
 
-export const backup = {
-  create: (name, body = {}) => request(`/skills/backup/create/${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify(body) }),
-  list: () => request('/skills/backup/list'),
-  listProject: (name) => request(`/skills/backup/list/${encodeURIComponent(name)}`),
-  download: (id) => download(`/skills/backup/download/${encodeURIComponent(id)}`, id),
-  restore: (name, backupId) => request(`/skills/backup/restore/${encodeURIComponent(name)}/${encodeURIComponent(backupId)}`, { method: 'POST' }),
-  delete: (id) => request(`/skills/backup/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  destinations: () => request('/skills/backup/destinations'),
-  saveDestination: (body) => request('/skills/backup/destinations', { method: 'POST', body: JSON.stringify(body) }),
-  deleteDestination: (id) => request(`/skills/backup/destinations/${id}`, { method: 'DELETE' }),
-  testDestination: (id) => request(`/skills/backup/destinations/${id}/test`, { method: 'POST' }),
-  destinationPublicKey: (id) => request(`/skills/backup/destinations/${id}/public-key`),
-  generateSSHKey: () => request('/skills/backup/keys/generate', { method: 'POST' }),
-  schedules: () => request('/skills/backup/schedules'),
-  saveSchedule: (body) => request('/skills/backup/schedules', { method: 'POST', body: JSON.stringify(body) }),
-  deleteSchedule: (id) => request(`/skills/backup/schedules/${id}`, { method: 'DELETE' }),
-  runSchedule: (id) => request(`/skills/backup/schedules/${id}/run`, { method: 'POST' }),
-};
+function makeBackup(prefix = '') {
+  const p = (path) => `${prefix}${path}`;
+  return {
+    create: (name, body = {}) => request(p(`/skills/backup/create/${encodeURIComponent(name)}`), { method: 'POST', body: JSON.stringify(body) }),
+    list: () => request(p('/skills/backup/list')),
+    listProject: (name) => request(p(`/skills/backup/list/${encodeURIComponent(name)}`)),
+    download: (id) => download(p(`/skills/backup/download/${encodeURIComponent(id)}`), id),
+    restore: (name, backupId) => request(p(`/skills/backup/restore/${encodeURIComponent(name)}/${encodeURIComponent(backupId)}`), { method: 'POST' }),
+    delete: (id) => request(p(`/skills/backup/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+    destinations: () => request(p('/skills/backup/destinations')),
+    saveDestination: (body) => request(p('/skills/backup/destinations'), { method: 'POST', body: JSON.stringify(body) }),
+    deleteDestination: (id) => request(p(`/skills/backup/destinations/${id}`), { method: 'DELETE' }),
+    testDestination: (id) => request(p(`/skills/backup/destinations/${id}/test`), { method: 'POST' }),
+    destinationPublicKey: (id) => request(p(`/skills/backup/destinations/${id}/public-key`)),
+    generateSSHKey: () => request(p('/skills/backup/keys/generate'), { method: 'POST' }),
+    schedules: () => request(p('/skills/backup/schedules')),
+    saveSchedule: (body) => request(p('/skills/backup/schedules'), { method: 'POST', body: JSON.stringify(body) }),
+    deleteSchedule: (id) => request(p(`/skills/backup/schedules/${id}`), { method: 'DELETE' }),
+    runSchedule: (id) => request(p(`/skills/backup/schedules/${id}/run`), { method: 'POST' }),
+  };
+}
+
+export const backup = makeBackup();
+
+// Backup state belongs to the host where the project runs. Peer controllers
+// expose the same backup skill through agent-proxy, so lists, schedules, and
+// actions can stay scoped to the server selected in the dashboard.
+export function backupForSource(agentId) {
+  if (!agentId) return backup;
+  return makeBackup(`/agent-proxy/${agentId}`);
+}
 
 export const dbadmin = {
   discover: () => request('/skills/dbadmin/discover'),
@@ -329,6 +342,7 @@ export const system = {
   osSearch: (q) => request(`/system/os/search?q=${encodeURIComponent(q)}`),
   osInstall: (pkg) => request('/system/os/install', { method: 'POST', body: JSON.stringify({ package: pkg }) }),
   updateStatus: () => request('/system/update/status'),
+  updateProgress: () => request('/system/update/progress'),
   selfUpdate: () => request('/system/update', { method: 'POST' }),
   info: () => request('/system/info'),
   setName: (name) => request('/system/info', { method: 'PUT', body: JSON.stringify({ server_name: name }) }),

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, updates as updatesApi, updatesForSource } from '../api/client';
+import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, backupForSource, updates as updatesApi, updatesForSource } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
+import { projectState, projectStateTone } from '../utils/projectState';
 
 // GPU passthrough deploy block + a toggle that injects/removes it in a compose
 // (same behaviour as the Stack Catalog checkbox). Anchors on the first
@@ -231,6 +232,7 @@ export default function Dashboard() {
   const [backupList, setBackupList] = useState(initialSnapshot?.backupList || []);
   const [backupDestinations, setBackupDestinations] = useState(initialSnapshot?.backupDestinations || []);
   const [backupSchedules, setBackupSchedules] = useState(initialSnapshot?.backupSchedules || []);
+  const [backupScopeWarning, setBackupScopeWarning] = useState(initialSnapshot?.backupScopeWarning || '');
   const [mainTab, setMainTab] = useState('projects');
   const [serverSource, setServerSource] = useState(initialServerSource);
   const [serverName, setServerName] = useState('');
@@ -260,6 +262,12 @@ export default function Dashboard() {
   const cmdUpdates = commandAgent ? updatesForSource(commandAgent.id) : updatesApi;
   const cmdTargetLabel = commandAgent ? ` on ${commandAgent.name}` : '';
   const directAgentByName = (name) => agentList.find(a => a.name === name && a.base_url);
+  const peerByName = (name, list = agentList) => list.find(a => a.name === name && a.mode === 'peer' && a.base_url);
+  const backupAPIForSource = (source, list = agentList) => {
+    if (!source || source === 'local') return { api: backupApi, label: 'This server' };
+    const peer = peerByName(source, list);
+    return peer ? { api: backupForSource(peer.id), label: peer.name } : null;
+  };
   const apiForSource = (source) => {
     if (!source || source === 'local') {
       return { projects, jobs, updates: updatesApi, label: '' };
@@ -342,30 +350,69 @@ export default function Dashboard() {
     await fetchData({ background: true });
   };
 
+  const loadBackupSource = async (source, agents) => {
+    const scoped = backupAPIForSource(source, agents);
+    if (!scoped) throw new Error(`${source} does not expose controller backup APIs`);
+    const [backupsRes, destinationsRes, schedulesRes] = await Promise.all([
+      scoped.api.list(),
+      scoped.api.destinations(),
+      scoped.api.schedules(),
+    ]);
+    const agent = source === 'local' ? null : peerByName(source, agents);
+    const tag = (items) => (items || []).map(item => ({
+      ...item,
+      source_host: source,
+      source_agent_id: agent?.id || null,
+    }));
+    return {
+      backups: tag(backupsRes.data),
+      destinations: tag(destinationsRes.data),
+      schedules: tag(schedulesRes.data),
+    };
+  };
+
+  const loadBackupData = async (source, agents) => {
+    const sources = source === 'all'
+      ? ['local', ...agents.filter(agent => agent.mode === 'peer' && agent.base_url).map(agent => agent.name)]
+      : [source];
+    const results = await Promise.allSettled(sources.map(item => loadBackupSource(item, agents)));
+    const merged = { backups: [], destinations: [], schedules: [], warnings: [] };
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        merged.backups.push(...result.value.backups);
+        merged.destinations.push(...result.value.destinations);
+        merged.schedules.push(...result.value.schedules);
+      } else {
+        merged.warnings.push(`${sources[index]}: ${result.reason?.message || 'backup data unavailable'}`);
+      }
+    });
+    return merged;
+  };
+
   const fetchData = async ({ background = false } = {}) => {
     try {
       if (background) setRefreshing(true); else setLoading(true);
-      const [projRes, skillRes, agentRes, scheduleRes, metricsRes, historyRes, backupRes, backupDestRes, backupScheduleRes] = await Promise.all([
+      const agentRes = await agentsApi.list();
+      const freshAgents = agentRes.data || [];
+      const [projRes, skillRes, scheduleRes, metricsRes, historyRes, backupData] = await Promise.all([
         projects.list({ include_inactive: filters.includeInactive ? 'true' : 'false', running_only: filters.runningOnly ? 'true' : 'false', source: serverSource }),
         skillsApi.list(),
-        agentsApi.list(),
         schedulesApi.list(),
         metricsApi.summary(),
         metricsApi.history(24),
-        backupApi.list(),
-        backupApi.destinations(),
-        backupApi.schedules(),
+        loadBackupData(serverSource, freshAgents),
       ]);
       const fresh = {
         projectList: projRes.data || [],
         skillList: skillRes.data || [],
-        agentList: agentRes.data || [],
+        agentList: freshAgents,
         scheduleList: scheduleRes.data || [],
         metricsSummary: metricsRes.data || null,
         metricsHistory: historyRes.data || [],
-        backupList: backupRes.data || [],
-        backupDestinations: backupDestRes.data || [],
-        backupSchedules: backupScheduleRes.data || [],
+        backupList: backupData.backups,
+        backupDestinations: backupData.destinations,
+        backupSchedules: backupData.schedules,
+        backupScopeWarning: backupData.warnings.join('; '),
       };
       setProjectList(fresh.projectList);
       setSkillList(fresh.skillList);
@@ -376,6 +423,7 @@ export default function Dashboard() {
       setBackupList(fresh.backupList);
       setBackupDestinations(fresh.backupDestinations);
       setBackupSchedules(fresh.backupSchedules);
+      setBackupScopeWarning(fresh.backupScopeWarning);
       writeSnapshot(filters, serverSource, fresh);
       setError(null);
     } catch (err) {
@@ -401,6 +449,7 @@ export default function Dashboard() {
       setBackupList(snapshot.backupList || []);
       setBackupDestinations(snapshot.backupDestinations || []);
       setBackupSchedules(snapshot.backupSchedules || []);
+      setBackupScopeWarning(snapshot.backupScopeWarning || '');
       fetchData({ background: true });
     } else {
       fetchData();
@@ -423,7 +472,7 @@ export default function Dashboard() {
   const filteredProjects = projectList.filter((p) => {
     const q = filters.query.trim().toLowerCase();
     if (q && !p.name.toLowerCase().includes(q) && !p.dir.toLowerCase().includes(q)) return false;
-    if (quickFilter === 'running') return p.running;
+    if (quickFilter === 'running') return projectState(p) === 'running';
     if (quickFilter === 'inactive') return p.inactive;
     if (quickFilter === 'no_updates') return p.update_policy?.effective_policy === 'no_updates';
     if (quickFilter === 'registry') return (p.image_sources || []).some(s => s.source_type === 'registry');
@@ -431,7 +480,7 @@ export default function Dashboard() {
     return true;
   });
 
-  const running = projectList.filter(p => p.running).length;
+  const running = projectList.filter(p => projectState(p) === 'running').length;
   const inactive = projectList.filter(p => p.inactive).length;
   const noUpdates = projectList.filter(p => p.update_policy?.effective_policy === 'no_updates').length;
   const customServices = projectList.reduce((sum, p) => sum + (p.image_sources || []).filter(s => s.source_type === 'custom').length, 0);
@@ -520,26 +569,27 @@ export default function Dashboard() {
         return acc;
       }, {});
       const results = [];
-      const failures = [];
       for (const [source, names] of Object.entries(groups)) {
         const scoped = source === 'selected' ? { projects: cmdProjects } : apiForSource(source);
         if (!scoped) {
-          failures.push(`${source}: cannot route ${names.length} project${names.length === 1 ? '' : 's'}`);
+          results.push({ project: source, action, success: false, exit_code: -1, output: `Cannot route ${names.length} project${names.length === 1 ? '' : 's'} on this server.` });
           continue;
         }
         try {
           const res = await scoped.projects.bulk(action, { projects: names, timeout });
-          results.push(`${source === 'selected' ? 'selected' : source}: ${names.length} queued`);
-          if (res.data?.output) results.push(res.data.output);
+          for (const item of (res.data?.results || [])) {
+            results.push({ ...item, project: source === 'selected' ? item.project : `${source}: ${item.project}` });
+          }
         } catch (err) {
-          failures.push(`${source}: ${err.message}`);
+          results.push({ project: source, action, success: false, exit_code: -1, output: err.message });
         }
       }
+      const failed = results.filter(item => !item.success).length;
       setActionResult({
         label: `bulk ${action}${cmdTargetLabel}`,
-        status: failures.length ? 'error' : 'done',
-        result: { output: [...results, ...failures].join('\n') },
-        error: failures.length ? `${failures.length} source${failures.length === 1 ? '' : 's'} failed.` : undefined,
+        status: failed ? 'error' : 'done',
+        result: { results, total: results.length, success: results.length - failed, failed },
+        error: failed ? `${failed} action${failed === 1 ? '' : 's'} failed.` : undefined,
       });
       setSelected([]);
       fetchData();
@@ -566,25 +616,27 @@ export default function Dashboard() {
         return acc;
       }, {});
       const results = [];
-      const failures = [];
       for (const [source, names] of Object.entries(groups)) {
         const scoped = source === 'selected' ? { projects: cmdProjects } : apiForSource(source);
         if (!scoped) {
-          failures.push(`${source}: cannot route ${names.length} project${names.length === 1 ? '' : 's'}`);
+          results.push({ project: source, action: 'update', success: false, exit_code: -1, output: `Cannot route ${names.length} project${names.length === 1 ? '' : 's'} on this server.` });
           continue;
         }
         try {
-          await scoped.projects.bulk('update', { projects: names, timeout });
-          results.push(`${source === 'selected' ? 'selected' : source}: ${names.length} queued`);
+          const res = await scoped.projects.bulk('update', { projects: names, timeout });
+          for (const item of (res.data?.results || [])) {
+            results.push({ ...item, project: source === 'selected' ? item.project : `${source}: ${item.project}` });
+          }
         } catch (err) {
-          failures.push(`${source}: ${err.message}`);
+          results.push({ project: source, action: 'update', success: false, exit_code: -1, output: err.message });
         }
       }
+      const failed = results.filter(item => !item.success).length;
       setActionResult({
         label: `update all${cmdTargetLabel}`,
-        status: failures.length ? 'error' : 'done',
-        result: { output: [...results, ...failures].join('\n') },
-        error: failures.length ? `${failures.length} source${failures.length === 1 ? '' : 's'} failed.` : undefined,
+        status: failed ? 'error' : 'done',
+        result: { results, total: results.length, success: results.length - failed, failed },
+        error: failed ? `${failed} update action${failed === 1 ? '' : 's'} failed.` : undefined,
       });
       fetchData();
     } catch (err) {
@@ -810,30 +862,48 @@ export default function Dashboard() {
     setSelectedBackupDestinations(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   };
 
-  const runBackupProject = async (name) => {
+  const runBackupProject = async (project) => {
+    const name = project.name;
+    const scoped = backupAPIForSource(project.source_host || (serverSource === 'all' ? '' : serverSource));
+    if (!scoped) {
+      setActionResult({ label: `backup ${name}`, status: 'error', error: 'Backups are available on this controller and peer controllers only.' });
+      return;
+    }
     try {
-      setActionResult({ label: `backup ${name}`, status: 'running' });
+      setActionResult({ label: `backup ${name} on ${scoped.label}`, status: 'running' });
       const body = selectedBackupDestinations.length > 0 ? { destination_ids: selectedBackupDestinations } : {};
-      const res = await backupApi.create(name, body);
-      setActionResult({ label: `backup ${name}`, status: 'done', result: res.data });
+      const res = await scoped.api.create(name, body);
+      setActionResult({ label: `backup ${name} on ${scoped.label}`, status: 'done', result: res.data });
       fetchData();
     } catch (err) {
-      setActionResult({ label: `backup ${name}`, status: 'error', error: err.message });
+      setActionResult({ label: `backup ${name} on ${scoped.label}`, status: 'error', error: err.message });
     }
   };
 
   const runBackupBatch = async (mode) => {
-    const targets = mode === 'all' ? projectList.filter(p => !p.inactive).map(p => p.name) : selectedBackupProjects;
+    if (serverSource === 'all') {
+      setActionResult({ label: 'backup batch', status: 'error', error: 'Select one server before starting backups. All servers is a read-only aggregate view for backup data.' });
+      return;
+    }
+    const targets = mode === 'all'
+      ? projectList.filter(p => !p.inactive)
+      : projectList.filter(project => selectedBackupProjects.includes(project.name));
     if (targets.length === 0) {
       setActionResult({ label: 'backup batch', status: 'error', error: 'No projects selected.' });
       return;
     }
+    const scoped = backupAPIForSource(serverSource);
+    if (!scoped) {
+      setActionResult({ label: 'backup batch', status: 'error', error: 'Backups are available on this controller and peer controllers only.' });
+      return;
+    }
     const results = [];
     setActionResult({ label: `backup ${targets.length} project${targets.length === 1 ? '' : 's'}`, status: 'running' });
-    for (const name of targets) {
+    for (const project of targets) {
+      const name = project.name;
       try {
         const body = selectedBackupDestinations.length > 0 ? { destination_ids: selectedBackupDestinations } : {};
-        const res = await backupApi.create(name, body);
+        const res = await scoped.api.create(name, body);
         results.push({ project: name, success: true, backup: res.data?.id });
         setActionResult({ label: `backup ${targets.length} projects`, status: 'running', result: { output: results.map(r => `${r.project}: ${r.success ? r.backup : r.error}`).join('\n') } });
       } catch (err) {
@@ -868,6 +938,12 @@ export default function Dashboard() {
 
   const saveBackupSchedule = async (event) => {
     event.preventDefault();
+    const source = backupScheduleForm.source_host || serverSource;
+    const scoped = backupAPIForSource(source);
+    if (!scoped || source === 'all') {
+      setActionResult({ label: 'save backup schedule', status: 'error', error: 'Select this server or one peer controller before saving a backup schedule.' });
+      return;
+    }
     const body = {
       id: Number(backupScheduleForm.id) || undefined,
       name: backupScheduleForm.name,
@@ -878,8 +954,8 @@ export default function Dashboard() {
     };
     try {
       setActionResult({ label: 'save backup schedule', status: 'running' });
-      const res = await backupApi.saveSchedule(body);
-      setActionResult({ label: 'save backup schedule', status: 'done', result: res.data });
+      const res = await scoped.api.saveSchedule(body);
+      setActionResult({ label: `save backup schedule on ${scoped.label}`, status: 'done', result: res.data });
       setBackupScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440 });
       fetchData();
     } catch (err) {
@@ -888,6 +964,10 @@ export default function Dashboard() {
   };
 
   const editBackupSchedule = (schedule) => {
+    if (serverSource === 'all' && schedule.source_host) {
+      setServerSource(schedule.source_host);
+      try { localStorage.setItem('cm_server_source', schedule.source_host); } catch {}
+    }
     setBackupScheduleForm({
       id: schedule.id,
       name: schedule.name,
@@ -896,14 +976,20 @@ export default function Dashboard() {
       destination_ids: schedule.destination_ids || [],
       enabled: Boolean(schedule.enabled),
       interval_minutes: schedule.interval_minutes || 1440,
+      source_host: schedule.source_host || serverSource,
     });
   };
 
   const runBackupSchedule = async (schedule) => {
+    const scoped = backupAPIForSource(schedule.source_host || serverSource);
+    if (!scoped) {
+      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'error', error: 'The owning server does not expose controller backup APIs.' });
+      return;
+    }
     try {
-      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'running' });
-      const res = await backupApi.runSchedule(schedule.id);
-      setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'done', result: res.data });
+      setActionResult({ label: `run backup schedule ${schedule.name} on ${scoped.label}`, status: 'running' });
+      const res = await scoped.api.runSchedule(schedule.id);
+      setActionResult({ label: `run backup schedule ${schedule.name} on ${scoped.label}`, status: 'done', result: res.data });
       fetchData();
     } catch (err) {
       setActionResult({ label: `run backup schedule ${schedule.name}`, status: 'error', error: err.message });
@@ -912,10 +998,15 @@ export default function Dashboard() {
 
   const deleteBackupSchedule = async (schedule) => {
     if (!window.confirm(`Delete backup schedule ${schedule.name}?`)) return;
+    const scoped = backupAPIForSource(schedule.source_host || serverSource);
+    if (!scoped) {
+      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'error', error: 'The owning server does not expose controller backup APIs.' });
+      return;
+    }
     try {
-      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'running' });
-      await backupApi.deleteSchedule(schedule.id);
-      setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'done' });
+      setActionResult({ label: `delete backup schedule ${schedule.name} on ${scoped.label}`, status: 'running' });
+      await scoped.api.deleteSchedule(schedule.id);
+      setActionResult({ label: `delete backup schedule ${schedule.name} on ${scoped.label}`, status: 'done' });
       fetchData();
     } catch (err) {
       setActionResult({ label: `delete backup schedule ${schedule.name}`, status: 'error', error: err.message });
@@ -1144,7 +1235,7 @@ export default function Dashboard() {
                       )}
                     </div>
                   </td>
-                  <td className="py-3"><Badge tone={p.running ? 'green' : 'gray'}>{p.running ? 'running' : 'stopped'}</Badge></td>
+                  <td className="py-3"><Badge tone={projectStateTone(p)}>{projectState(p)}</Badge></td>
                   <td className="py-3">
                     <SourceSummary sources={p.image_sources || []} />
                   </td>
@@ -1204,6 +1295,8 @@ export default function Dashboard() {
           backups={backupList}
           destinations={backupDestinations}
           schedules={backupSchedules}
+          serverSource={serverSource}
+          scopeWarning={backupScopeWarning}
           selectedProjects={selectedBackupProjects}
           selectedDestinations={selectedBackupDestinations}
           scheduleForm={backupScheduleForm}
@@ -1329,7 +1422,7 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
                     <ProjectLinks project={project} />
                     <div className="mt-1 flex flex-wrap gap-1">
                       {project.inactive && <Badge tone="amber">inactive</Badge>}
-                      <Badge tone={project.running ? 'green' : 'gray'}>{project.running ? 'running' : 'stopped'}</Badge>
+                      <Badge tone={projectStateTone(project)}>{projectState(project)}</Badge>
                     </div>
                   </td>
                   <td className="py-3"><Badge tone={updateStatusTone(project)}>{updateStatusLabel(project)}</Badge></td>
@@ -1373,6 +1466,8 @@ function BackupsPanel({
   backups,
   destinations,
   schedules,
+  serverSource,
+  scopeWarning,
   selectedProjects,
   selectedDestinations,
   scheduleForm,
@@ -1393,8 +1488,18 @@ function BackupsPanel({
   const totalBytes = backups.reduce((sum, backup) => sum + Number(backup.size_bytes || 0), 0);
   return (
     <div className="space-y-4">
+      {scopeWarning && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Some backup data is unavailable: {scopeWarning}
+        </div>
+      )}
+      {serverSource === 'all' && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          All servers combines backup records and scheduled backups from this controller and registered peer controllers. Select one server above to create backups or edit a schedule.
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Local backups" value={backups.length} sub={formatBytes(totalBytes)} />
+        <MetricCard label="Backup archives" value={backups.length} sub={formatBytes(totalBytes)} />
         <MetricCard label="Backup endpoints" value={enabledDestinations.length} sub={`${destinations.length} configured`} />
         <MetricCard label="Backup schedules" value={schedules.length} sub={`${schedules.filter(s => s.enabled).length} enabled`} />
         <MetricCard label="Active projects" value={activeProjects.length} />
@@ -1407,8 +1512,8 @@ function BackupsPanel({
             <p className="text-sm text-gray-600">Create local archives and optionally copy them to configured endpoints.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary" onClick={() => runBatch('selected')} title="Back up checked projects.">Backup Selected ({selectedProjects.length})</button>
-            <button type="button" className="btn-primary" onClick={() => runBatch('all')} title="Back up every active project.">Backup All Active</button>
+            <button type="button" disabled={serverSource === 'all'} className="btn-secondary" onClick={() => runBatch('selected')} title={serverSource === 'all' ? 'Select one server before starting backups.' : 'Back up checked projects.'}>Backup Selected ({selectedProjects.length})</button>
+            <button type="button" disabled={serverSource === 'all'} className="btn-primary" onClick={() => runBatch('all')} title={serverSource === 'all' ? 'Select one server before starting backups.' : 'Back up every active project.'}>Backup All Active</button>
           </div>
         </div>
 
@@ -1416,9 +1521,9 @@ function BackupsPanel({
           <div className="mb-2 text-sm font-medium text-gray-800">Copy to endpoints</div>
           <div className="flex flex-wrap gap-3">
             {enabledDestinations.map(destination => (
-              <label key={destination.id} className="flex items-center gap-2 text-sm text-gray-700" title={`Copy new backups to ${destination.name}.`}>
-                <input type="checkbox" checked={selectedDestinations.includes(destination.id)} onChange={() => toggleDestination(destination.id)} />
-                {destination.name} <span className="text-xs text-gray-500">({destination.type})</span>
+              <label key={`${destination.source_host || 'local'}:${destination.id}`} className="flex items-center gap-2 text-sm text-gray-700" title={`Copy new backups to ${destination.name}.`}>
+                <input type="checkbox" disabled={serverSource === 'all'} checked={selectedDestinations.includes(destination.id)} onChange={() => toggleDestination(destination.id)} />
+                {destination.name} <span className="text-xs text-gray-500">({destination.type}{serverSource === 'all' ? ` · ${destination.source_host === 'local' ? 'This server' : destination.source_host}` : ''})</span>
               </label>
             ))}
             {enabledDestinations.length === 0 && <span className="text-sm text-gray-500">No enabled endpoints. Configure them in Settings &gt; Backup Endpoints.</span>}
@@ -1438,14 +1543,15 @@ function BackupsPanel({
             </thead>
             <tbody>
               {projects.map(project => {
-                const lastBackup = backups.find(backup => backup.project === project.name);
+                const source = project.source_host || (serverSource === 'all' ? 'local' : serverSource);
+                const lastBackup = backups.find(backup => backup.project === project.name && (backup.source_host || 'local') === source);
                 return (
-                  <tr key={project.name} className="border-b border-gray-100">
-                    <td className="py-3"><input type="checkbox" checked={selectedProjects.includes(project.name)} onChange={() => toggleProject(project.name)} title={`Select ${project.name} for backup.`} /></td>
-                    <td className="py-3"><ProjectLinks project={project} /></td>
-                    <td><Badge tone={project.inactive ? 'amber' : project.running ? 'green' : 'gray'}>{project.inactive ? 'inactive' : project.running ? 'running' : 'stopped'}</Badge></td>
+                  <tr key={`${source}:${project.name}`} className="border-b border-gray-100">
+                    <td className="py-3"><input type="checkbox" disabled={serverSource === 'all'} checked={selectedProjects.includes(project.name)} onChange={() => toggleProject(project.name)} title={serverSource === 'all' ? 'Select one server before starting backups.' : `Select ${project.name} for backup.`} /></td>
+                    <td className="py-3"><ProjectLinks project={project} />{serverSource === 'all' && <div className="text-xs text-gray-500">{source === 'local' ? 'This server' : source}</div>}</td>
+                    <td><Badge tone={project.inactive ? 'amber' : projectStateTone(project)}>{project.inactive ? 'inactive' : projectState(project)}</Badge></td>
                     <td className="text-xs text-gray-500">{lastBackup ? `${formatDate(lastBackup.created_at)} · ${formatBytes(lastBackup.size_bytes)}` : 'none'}</td>
-                    <td className="text-right"><button type="button" className="mini-button" onClick={() => runProject(project.name)} title={`Create a backup for ${project.name}.`}>Backup</button></td>
+                    <td className="text-right"><button type="button" disabled={serverSource === 'all'} className="mini-button" onClick={() => runProject(project)} title={serverSource === 'all' ? 'Select one server before starting backups.' : `Create a backup for ${project.name}.`}>Backup</button></td>
                   </tr>
                 );
               })}
@@ -1456,6 +1562,12 @@ function BackupsPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+        {serverSource === 'all' ? (
+          <div className="section-panel">
+            <h2 className="text-lg font-semibold text-gray-950">Backup Schedule Editor</h2>
+            <p className="mt-2 text-sm text-gray-600">Select this server or one peer controller above to create or edit its backup schedules.</p>
+          </div>
+        ) : (
         <form onSubmit={saveSchedule} className="section-panel space-y-3">
           <h2 className="text-lg font-semibold text-gray-950">{scheduleForm.id ? 'Edit Backup Schedule' : 'New Backup Schedule'}</h2>
           <Field label="Name" title="Friendly schedule name.">
@@ -1499,6 +1611,7 @@ function BackupsPanel({
             )}
           </div>
         </form>
+        )}
 
         <div className="section-panel">
           <h2 className="mb-3 text-lg font-semibold text-gray-950">Backup Schedules</h2>
@@ -1507,6 +1620,7 @@ function BackupsPanel({
               <thead>
                 <tr className="border-b border-gray-200 text-xs uppercase text-gray-500">
                   <th className="py-2">Name</th>
+                  {serverSource === 'all' && <th>Server</th>}
                   <th>Scope</th>
                   <th>Interval</th>
                   <th>Next Run</th>
@@ -1517,8 +1631,9 @@ function BackupsPanel({
               </thead>
               <tbody>
                 {schedules.map(schedule => (
-                  <tr key={schedule.id} className="border-b border-gray-100 align-top">
+                  <tr key={`${schedule.source_host || 'local'}:${schedule.id}`} className="border-b border-gray-100 align-top">
                     <td className="py-3 font-medium">{schedule.name}</td>
+                    {serverSource === 'all' && <td className="py-3 text-xs text-gray-600">{schedule.source_host === 'local' ? 'This server' : schedule.source_host}</td>}
                     <td className="py-3 text-xs text-gray-600">{schedule.projects?.length ? schedule.projects.join(', ') : 'all active projects'}</td>
                     <td>{schedule.interval_minutes}m</td>
                     <td className="text-xs text-gray-500">{formatDate(schedule.next_run_at)}</td>
@@ -1802,16 +1917,16 @@ function ActionResult({ result, onDismiss }) {
   const failedProjects = bulk ? bulk.results.filter(r => !r.success) : [];
   const succeededProjects = bulk ? bulk.results.filter(r => r.success) : [];
   const [showFailed, setShowFailed] = useState(true);
-  const [showSucceeded, setShowSucceeded] = useState(false);
+  const [showSucceeded, setShowSucceeded] = useState(() => result.label?.startsWith('update'));
+  const output = result.job?.output || result.result?.output || '';
   useEffect(() => {
-    if (result.status !== 'done') return undefined;
+    if (result.status !== 'done' || bulk || output) return undefined;
     const timer = window.setTimeout(onDismiss, 6000);
     return () => window.clearTimeout(timer);
-  }, [result.status, result.label, onDismiss]);
+  }, [result.status, result.label, bulk, output, onDismiss]);
   // Sticky-tail the single-job output pane while the action is running.
   // Once status flips off "running" the hook stops forcing scroll so
   // users can browse the finished log without being yanked to the end.
-  const output = result.job?.output || result.result?.output || '';
   const outputPreRef = useFollowingScroll(output.length, result.status === 'running');
   return (
     <div className={`sticky top-2 z-30 rounded-md border-2 px-4 py-3 text-sm shadow-lg ${tone}`}>
@@ -1851,9 +1966,12 @@ function ActionResult({ result, onDismiss }) {
                 {showSucceeded ? 'Hide' : 'Show'} {succeededProjects.length} success{succeededProjects.length === 1 ? '' : 'es'}
               </button>
               {showSucceeded && (
-                <ul className="mt-1 flex flex-wrap gap-1">
+                <ul className="mt-1 space-y-2">
                   {succeededProjects.map((r, i) => (
-                    <li key={`s${i}`} className="rounded bg-green-100/60 px-2 py-0.5 font-mono text-xs">{r.project}</li>
+                    <li key={`s${i}`} className="rounded bg-green-100/60 p-2">
+                      <div className="font-mono text-xs font-semibold">{r.project} — {r.action} (exit {r.exit_code ?? 0})</div>
+                      {r.output && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 font-mono text-[11px] text-gray-100">{r.output}</pre>}
+                    </li>
                   ))}
                 </ul>
               )}
