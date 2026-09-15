@@ -26,6 +26,7 @@ function parsePublishedPorts(project) {
 }
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone, stateTone } from '../utils/projectState';
+import { canRunImageUpdate, updateBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -52,32 +53,6 @@ function browserURLHost(host) {
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
 }
 
-const updateBlockedReason = (project) => {
-  if (project.update_policy?.effective_policy === 'no_updates') return project.update_policy?.no_updates_reason || 'Updates are disabled for this project.';
-  if (!project.update_status?.checked) return 'No update check has run yet.';
-  if (!project.update_status?.available) return 'No image updates were available at the last check.';
-  return '';
-};
-
-const canRunImageUpdate = (project) => updateBlockedReason(project) === '';
-
-const updateStatusLabel = (project) => {
-  const status = project.update_status || {};
-  if (project.update_policy?.effective_policy === 'no_updates') return 'disabled';
-  if (!status.checked) return 'not checked';
-  if (status.available) return `${status.count || 1} available`;
-  if (status.error) return 'check warning';
-  return 'current';
-};
-
-const updateStatusTone = (project) => {
-  const status = project.update_status || {};
-  if (project.update_policy?.effective_policy === 'no_updates') return 'amber';
-  if (!status.checked) return 'gray';
-  if (status.available) return 'green';
-  if (status.error) return 'amber';
-  return 'gray';
-};
 
 export default function ProjectDetail() {
   const { name } = useParams();
@@ -376,6 +351,16 @@ export default function ProjectDetail() {
     }
   };
 
+  const dismissUpdateNotice = async () => {
+    try {
+      await papiRef.current.dismissUpdate(name);
+      setActionResult({ status: 'done', label: 'dismiss update notice', result: { output: 'Update notice dismissed. It may return after a future update check.' } });
+      await fetchProject();
+    } catch (err) {
+      setActionResult({ status: 'error', label: 'dismiss update notice', error: err.message });
+    }
+  };
+
   // Open this project's published ports in the host CSF firewall.
   const openFirewallPorts = async () => {
     const ports = parsePublishedPorts(project);
@@ -583,6 +568,7 @@ export default function ProjectDetail() {
             )}
             <Badge tone={projectStateTone(project)}>{projectState(project)}</Badge>
             {project.inactive && <Badge tone="amber">inactive</Badge>}
+            {project.controller && <Badge tone="blue">Stack Manager</Badge>}
             {project.has_hook?.update && <Badge tone="cyan">update hook</Badge>}
             {project.update_policy?.effective_policy === 'no_updates' && <Badge tone="amber">no updates</Badge>}
             <Badge tone={updateStatusTone(project)}>{updateStatusLabel(project)}</Badge>
@@ -679,7 +665,7 @@ export default function ProjectDetail() {
         </div>
 
         <div className="pt-4">
-          {activeTab === 'overview' && <Overview project={project} linkHost={projectLinkHost} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} />}
+          {activeTab === 'overview' && <Overview project={project} linkHost={projectLinkHost} policyForm={policyForm} setPolicyForm={setPolicyForm} saveUpdatePolicy={saveUpdatePolicy} dismissUpdateNotice={dismissUpdateNotice} />}
           {activeTab === 'overview' && isCallback && (
             <QueuedCommands commands={agentCommands} agentName={sourceInfo.name} onRefresh={() => loadAgentCommands(sourceInfo.agentId)} />
           )}
@@ -800,7 +786,7 @@ function DockerResources({ kind, data, projectName, papi, reload, setActionResul
   );
 }
 
-function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePolicy }) {
+function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePolicy, dismissUpdateNotice }) {
   const policy = project.update_policy || {};
   const updateWarnings = [...new Set([
     project.update_status?.error,
@@ -825,6 +811,7 @@ function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePoli
               </li>
             ))}
           </ul>
+          <button type="button" className="mini-button mt-3" onClick={dismissUpdateNotice} title="Hide this warning until the next scheduled or manual update check.">Dismiss warning</button>
         </div>
       )}
       {project.update_status?.images?.some(check => check.update_available) && (
@@ -838,6 +825,7 @@ function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePoli
               </div>
             ))}
           </div>
+          <button type="button" className="mini-button mt-3" onClick={dismissUpdateNotice} title="Hide these available updates until the next scheduled or manual update check.">Dismiss notice</button>
         </div>
       )}
       <form onSubmit={saveUpdatePolicy} className="rounded-md border border-gray-200 p-4">

@@ -59,6 +59,9 @@ func (e *Engine) GetProject(name string) (*Project, error) {
 
 // Pull pulls images for a project.
 func (e *Engine) Pull(project *Project, timeout int) *OpResult {
+	if e.IsControllerProject(project) {
+		return controllerImageActionResult(project, "pull")
+	}
 	return e.ExecComposeWithTimeout(project, timeout, "pull")
 }
 
@@ -80,6 +83,9 @@ func (e *Engine) Restart(project *Project) *OpResult {
 // Update performs a full update: if a post-update hook exists, run only that;
 // otherwise pull + up.
 func (e *Engine) Update(project *Project, timeout int) []OpResult {
+	if e.IsControllerProject(project) {
+		return []OpResult{*controllerImageActionResult(project, "update")}
+	}
 	if e.HasHook("post", "update", project.Name) {
 		hookResult := e.RunHook("post", "update", project)
 		hookResult.Action = "update (hook)"

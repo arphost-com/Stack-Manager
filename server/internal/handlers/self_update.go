@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/arphost-com/Stack-Manager/server/internal/core"
 	"github.com/arphost-com/Stack-Manager/server/internal/middleware"
+	"github.com/arphost-com/Stack-Manager/server/internal/version"
 )
 
 // Self-update pulls the latest code and rebuilds the controller's own stack,
@@ -126,10 +128,41 @@ func (h *SelfUpdateHandler) Progress(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"running": running,
 		"output":  strings.TrimSpace(output),
-	})
+		"version": version.Full(),
+	}
+	if progressErr := selfUpdateProgressError(output, version.Full(), running); progressErr != "" {
+		response["error"] = progressErr
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+var rebuildingAtPattern = regexp.MustCompile(`(?m)^rebuilding at ([0-9a-f]{7,40})\s*$`)
+
+func selfUpdateProgressError(output, runningVersion string, running bool) string {
+	if running {
+		return ""
+	}
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ERROR:") {
+			return line
+		}
+	}
+	matches := rebuildingAtPattern.FindStringSubmatch(trimmed)
+	if len(matches) == 2 && !strings.HasSuffix(strings.TrimSpace(runningVersion), "+"+matches[1]) {
+		return "self-update rebuilt commit " + matches[1] + ", but the running Stack Manager reports " + strings.TrimSpace(runningVersion)
+	}
+	if strings.Contains(trimmed, "self-update starting") && !strings.Contains(trimmed, "self-update done") {
+		return "self-update ended before recording successful completion"
+	}
+	return ""
 }
 
 func (h *SelfUpdateHandler) runHostCommand(ctx context.Context, args ...string) (string, error) {

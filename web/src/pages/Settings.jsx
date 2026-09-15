@@ -347,21 +347,35 @@ export default function Settings() {
       const [status, progress] = await Promise.all([system.updateStatus(), system.updateProgress()]);
       setUpdateInfo(status.data);
       if (progress.data?.output || progress.data?.running) setUpdateResult(progress.data);
+      return status.data;
     }
     catch (err) { setUpdateInfo({ error: err.message }); }
     finally { setUpdateBusy(''); }
   };
-  const followSelfUpdate = async () => {
+  const followSelfUpdate = async (previousOutput = '') => {
     const deadline = Date.now() + (15 * 60 * 1000);
     let sawProgress = false;
     while (Date.now() < deadline) {
       try {
         const r = await system.updateProgress();
         const progress = r.data || {};
-        sawProgress = sawProgress || Boolean(progress.running) || Boolean(progress.output);
+        sawProgress = sawProgress || Boolean(progress.running) || (Boolean(progress.output) && progress.output !== previousOutput);
         setUpdateResult(progress);
         if (sawProgress && !progress.running) {
-          await runUpdateCheck();
+          if (progress.error) return;
+          const latest = await runUpdateCheck();
+          const info = await system.info();
+          const runningVersion = info.data?.version || '';
+          if (!latest?.local || !runningVersion) {
+            setUpdateResult({ ...progress, running: false, error: 'Update finished, but Stack Manager could not verify the fetched commit against the running version.' });
+            return;
+          }
+          if (!runningVersion.endsWith(`+${latest.local}`)) {
+            setUpdateResult({ ...progress, running: false, error: `Update rebuilt the checkout at ${latest.local}, but the running Stack Manager reports ${runningVersion || 'an unknown version'}.` });
+            return;
+          }
+          setUpdateResult({ ...progress, running: false, note: `Update completed and verified: v${runningVersion}.` });
+          window.dispatchEvent(new Event('stack-manager-version-refresh'));
           return;
         }
       } catch {
@@ -376,9 +390,10 @@ export default function Settings() {
     if (!window.confirm('Update Stack Manager to the latest code now?\n\nThis fetches and hard-resets the deploy tree to the tracked upstream and rebuilds the stack. The dashboard will briefly go down — reconnect in a few minutes. Any uncommitted local changes in the deploy tree on the host are discarded.')) return;
     setUpdateBusy('update'); setUpdateResult(null);
     try {
+      const before = await system.updateProgress().catch(() => ({ data: {} }));
       const r = await system.selfUpdate();
       setUpdateResult({ ...r.data, running: true });
-      void followSelfUpdate();
+      void followSelfUpdate(before.data?.output || '');
     }
     catch (err) { setUpdateResult({ error: err.message }); }
     finally { setUpdateBusy(''); }

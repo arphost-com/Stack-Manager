@@ -18,6 +18,9 @@ type Project struct {
 	Documentation []ProjectDoc        `json:"documentation,omitempty"`
 	UpdatePolicy  ProjectUpdatePolicy `json:"update_policy,omitempty"`
 	UpdateStatus  ProjectUpdateStatus `json:"update_status,omitempty"`
+	// Controller marks the Compose project that is running this Stack Manager
+	// instance. It stays visible, but must use the dedicated self-update path.
+	Controller bool `json:"controller,omitempty"`
 	// TemplateUpdateAvailable is set for local projects whose matching catalog
 	// template's compose has changed since deploy (a one-click template update
 	// is available on the project's detail page).

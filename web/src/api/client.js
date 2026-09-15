@@ -146,6 +146,7 @@ function makeProjects(prefix = '') {
     applyTemplateUpdate: (name) => request(p(`/projects/${encodeURIComponent(name)}/template-update`), { method: 'POST' }),
     updatePolicy: (name) => request(p(`/projects/${encodeURIComponent(name)}/update-policy`)),
     setUpdatePolicy: (name, body) => request(p(`/projects/${encodeURIComponent(name)}/update-policy`), { method: 'PUT', body: JSON.stringify(body) }),
+    dismissUpdate: (name) => request(p(`/projects/${encodeURIComponent(name)}/update-status`), { method: 'DELETE' }),
     setInactive: (name, inactive) => request(p(`/projects/${encodeURIComponent(name)}/inactive`), { method: 'PUT', body: JSON.stringify({ inactive }) }),
     bulk: (action, body) => request(p(`/projects/bulk/${action}`), { method: 'POST', body: JSON.stringify(body) }),
     files: (name) => request(p(`/projects/${encodeURIComponent(name)}/files`)),

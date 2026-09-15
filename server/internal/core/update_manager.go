@@ -82,6 +82,12 @@ func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
 
 	for i := range projects {
 		project := &projects[i]
+		if m.engine.IsControllerProject(project) {
+			// The controller has a dedicated Settings > Update workflow. Clear
+			// any stale ordinary-stack notice left by an older release.
+			_ = m.store.SaveProjectUpdateStatus(ctx, project.Name, ProjectUpdateStatus{})
+			continue
+		}
 		if project.Inactive {
 			continue
 		}

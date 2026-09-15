@@ -831,6 +831,8 @@ docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code
           <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are, what&rsquo;s in the update, and the live rebuild log through completion. Install the helper once: <code className="rounded bg-gray-100 px-1 text-xs">sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update</code></li>
           <li><strong>deploy.sh (recommended full refresh):</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/deploy.sh</code> — rebuilds with the correct version stamp, installs all host helpers, records the version in the DB.</li>
           <li><strong>Manual:</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/prepare-state.sh .env &amp;&amp; docker compose --env-file .env up -d --build</code></li>
+          <li><strong>Controller guard:</strong> Stack Manager&rsquo;s own Compose project is visible on the dashboard but cannot be pulled or updated as an ordinary stack. Use Settings → Update, which verifies the running version after the rebuild.</li>
+          <li><strong>Dismiss notices:</strong> Dismiss hides an image-update or check-warning notice only until a future check reports it again. It does not pull images, restart containers, or alter Compose files.</li>
         </ul>
         <p className="text-sm text-amber-700">Always use <code className="rounded bg-white/60 px-1">up -d --build</code> after pulling — a bare <code className="rounded bg-white/60 px-1">up -d</code> reuses stale images (wrong footer version / "invalid request body").</p>
       </DocSection>

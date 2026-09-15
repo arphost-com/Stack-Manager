@@ -332,6 +332,9 @@ func (h *ProjectHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if h.rejectControllerImageAction(w, project) {
+		return
+	}
 	timeout := h.getTimeout(r)
 	result := h.Engine.Pull(project, timeout)
 	writeJSON(w, http.StatusOK, result)
@@ -397,6 +400,9 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	if h.rejectControllerImageAction(w, project) {
+		return
+	}
 	timeout := h.getTimeout(r)
 	if h.noUpdates(project) {
 		writeJSON(w, http.StatusOK, skippedUpdateResults(project))
@@ -427,6 +433,9 @@ func (h *ProjectHandler) StartJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := chi.URLParam(r, "action")
+	if (action == "update" || action == "pull") && h.rejectControllerImageAction(w, project) {
+		return
+	}
 	timeout := h.getTimeout(r)
 	if action == "update" && h.noUpdates(project) {
 		policy := h.Store.ResolveUpdatePolicy(*project)
@@ -494,6 +503,21 @@ func (h *ProjectHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
+// DismissUpdateStatus removes the last displayed update check for one project.
+// A later scheduled or manual check may create a fresh notice.
+func (h *ProjectHandler) DismissUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	project, err := h.getProject(w, r)
+	if err != nil {
+		return
+	}
+	if err := h.Store.SaveProjectUpdateStatus(r.Context(), project.Name, core.ProjectUpdateStatus{}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.Store.DeleteCache(r.Context(), "projects:list")
+	writeJSON(w, http.StatusOK, map[string]interface{}{"project": project.Name, "dismissed": true})
+}
+
 // GetJob returns a tracked compose action with its current or completed output.
 func (h *ProjectHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "jobId")
@@ -559,6 +583,10 @@ func (h *ProjectHandler) BulkAction(w http.ResponseWriter, r *http.Request) {
 	var results []core.OpResult
 	for _, p := range filtered {
 		p := p
+		if (action == "update" || action == "pull") && h.Engine.IsControllerProject(&p) {
+			results = append(results, controllerImageActionResult(&p, action))
+			continue
+		}
 		var result *core.OpResult
 		switch action {
 		case "pull":
@@ -724,9 +752,26 @@ func (h *ProjectHandler) applyPolicy(project *core.Project) {
 		return
 	}
 	project.UpdatePolicy = h.Store.ResolveUpdatePolicy(*project)
+	project.Controller = h.Engine.IsControllerProject(project)
+	if project.Controller {
+		project.UpdateStatus = core.ProjectUpdateStatus{}
+		return
+	}
 	if status, err := h.Store.ProjectUpdateStatus(context.Background(), project.Name); err == nil {
 		project.UpdateStatus = status
 	}
+}
+
+func (h *ProjectHandler) rejectControllerImageAction(w http.ResponseWriter, project *core.Project) bool {
+	if h.Engine.IsControllerProject(project) {
+		writeError(w, http.StatusConflict, core.ControllerImageActionMessage)
+		return true
+	}
+	return false
+}
+
+func controllerImageActionResult(project *core.Project, action string) core.OpResult {
+	return core.OpResult{Project: project.Name, Action: action, Success: false, Output: core.ControllerImageActionMessage + "\n", ExitCode: -1}
 }
 
 func (h *ProjectHandler) noUpdates(project *core.Project) bool {

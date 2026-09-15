@@ -75,7 +75,7 @@ Existing catalog screenshots:
 
 ### Dashboard
 
-The main page shows every discovered Compose project with live state, image sources, update availability, and one-click actions: start, stop, restart, update, pull, backup, and delete. Filter by running, stopped, inactive, or projects with available updates. Bulk actions apply to the filtered list or a manual selection.
+The main page shows every discovered Compose project with live state, image sources, update availability, and one-click actions: start, stop, restart, update, pull, backup, and delete. Filter by running, stopped, inactive, or projects with available updates. Bulk actions apply to the filtered list or a manual selection. The controller's own Compose project remains visible but is excluded from normal Pull/Update actions; update Stack Manager itself only through **Settings → Update**. Update notices and check warnings can be dismissed without changing images, containers, or Compose files, and may return after a later check finds the condition again.
 
 ### Stack Catalog (275 Templates)
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, backupForSource, updates as updatesApi, updatesForSource } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone } from '../utils/projectState';
+import { canRunImageUpdate, updateBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
 
 // GPU passthrough deploy block + a toggle that injects/removes it in a compose
 // (same behaviour as the Stack Catalog checkbox). Anchors on the first
@@ -50,34 +51,8 @@ const PRUNE_MODES = [
   { key: 'builder', label: 'Builder cache --all', title: 'Remove Docker build cache.' },
 ];
 
-const updateBlockedReason = (project) => {
-  if (project.update_policy?.effective_policy === 'no_updates') return project.update_policy?.no_updates_reason || 'Updates are disabled for this project.';
-  if (!project.update_status?.checked) return 'No update check has run yet.';
-  if (!project.update_status?.available) return 'No image updates were available at the last check.';
-  return '';
-};
-
-const canRunImageUpdate = (project) => updateBlockedReason(project) === '';
 const projectSelectionKey = (project) => `${project.source_host || 'local'}:${project.name}`;
 const projectActionKey = (project, action) => `${projectSelectionKey(project)}:${action}`;
-
-const updateStatusLabel = (project) => {
-  const status = project.update_status || {};
-  if (project.update_policy?.effective_policy === 'no_updates') return 'disabled';
-  if (!status.checked) return 'not checked';
-  if (status.available) return `${status.count || 1} available`;
-  if (status.error) return 'check warning';
-  return 'current';
-};
-
-const updateStatusTone = (project) => {
-  const status = project.update_status || {};
-  if (project.update_policy?.effective_policy === 'no_updates') return 'amber';
-  if (!status.checked) return 'gray';
-  if (status.available) return 'green';
-  if (status.error) return 'amber';
-  return 'gray';
-};
 
 // Small inline icons so the selector reads at a glance without an icon lib.
 function ServerIcon({ kind, className = 'h-4 w-4' }) {
@@ -486,9 +461,12 @@ export default function Dashboard() {
   const customServices = projectList.reduce((sum, p) => sum + (p.image_sources || []).filter(s => s.source_type === 'custom').length, 0);
   const registryServices = projectList.reduce((sum, p) => sum + (p.image_sources || []).filter(s => s.source_type === 'registry').length, 0);
   const availableUpdateProjects = projectList.filter(canRunImageUpdate);
-  const updatePageCount = Math.max(1, Math.ceil(availableUpdateProjects.length / updatePageSize));
+  const updateNoticeProjects = projectList.filter(p => !p.controller && p.update_status?.checked && (
+    p.update_status?.available || p.update_status?.error || (p.update_status?.images || []).some(check => check.error)
+  ));
+  const updatePageCount = Math.max(1, Math.ceil(updateNoticeProjects.length / updatePageSize));
   const updatePageSafe = Math.min(updatePage, updatePageCount);
-  const pagedUpdateProjects = availableUpdateProjects.slice((updatePageSafe - 1) * updatePageSize, updatePageSafe * updatePageSize);
+  const pagedUpdateProjects = updateNoticeProjects.slice((updatePageSafe - 1) * updatePageSize, updatePageSafe * updatePageSize);
 
   const setSummaryFilter = (filter) => {
     setQuickFilter(filter);
@@ -518,6 +496,21 @@ export default function Dashboard() {
     } catch (err) {
       setActionResult({ label: `${action} ${name}${scoped.label}`, status: 'error', error: err.message });
       markPending(key, false);
+    }
+  };
+
+  const dismissUpdateNotice = async (project) => {
+    const scoped = apiForProject(project);
+    if (!scoped) {
+      setActionResult({ label: `dismiss ${project.name}`, status: 'error', error: 'Cannot route this project to its owning server.' });
+      return;
+    }
+    try {
+      await scoped.projects.dismissUpdate(project.name);
+      setActionResult({ label: `dismiss ${project.name}${scoped.label}`, status: 'done', result: { output: 'Update notice dismissed. It may return after a future update check.' } });
+      await fetchData({ background: true });
+    } catch (err) {
+      setActionResult({ label: `dismiss ${project.name}${scoped.label}`, status: 'error', error: err.message });
     }
   };
 
@@ -1286,6 +1279,7 @@ export default function Dashboard() {
           checkUpdates={checkUpdates}
           checkingUpdates={checkingUpdates}
           updatingAll={isPending('bulk:update-listed')}
+          dismissUpdateNotice={dismissUpdateNotice}
         />
       )}
 
@@ -1370,9 +1364,10 @@ function SystemStatus({ skills, summary, history, onRefresh }) {
   );
 }
 
-function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCount, pageSize, setPage, setPageSize, runAction, isPending, runListedUpdates, checkUpdates, checkingUpdates, updatingAll }) {
-  const checkedCount = projects.filter(project => project.update_status?.checked).length;
-  const lastChecked = projects
+function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCount, pageSize, setPage, setPageSize, runAction, isPending, runListedUpdates, checkUpdates, checkingUpdates, updatingAll, dismissUpdateNotice }) {
+  const eligibleProjects = projects.filter(project => !project.controller);
+  const checkedCount = eligibleProjects.filter(project => project.update_status?.checked).length;
+  const lastChecked = eligibleProjects
     .map(project => project.update_status?.checked_at)
     .filter(Boolean)
     .sort()
@@ -1385,7 +1380,7 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
           <p className="text-sm text-gray-600">{availableProjects.length} project{availableProjects.length === 1 ? '' : 's'} with available image updates. Last check: {lastChecked ? formatDate(lastChecked) : 'never'}.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-gray-500">{checkedCount}/{projects.length} checked</span>
+          <span className="text-gray-500">{checkedCount}/{eligibleProjects.length} checked</span>
           <button type="button" className="btn-secondary inline-flex items-center gap-2" disabled={checkingUpdates || updatingAll} onClick={checkUpdates} title="Check registries for newer image digests without pulling images.">
             {checkingUpdates && <span className="spinner" aria-hidden="true"></span>}
             Check Now
@@ -1416,12 +1411,14 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
           <tbody>
             {pagedProjects.map(project => {
               const checks = (project.update_status?.images || []).filter(check => check.update_available);
+              const blockedReason = updateBlockedReason(project);
               return (
                 <tr key={projectSelectionKey(project)} className="border-b border-gray-100 align-top">
                   <td className="py-3">
                     <ProjectLinks project={project} />
                     <div className="mt-1 flex flex-wrap gap-1">
                       {project.inactive && <Badge tone="amber">inactive</Badge>}
+                      {project.controller && <Badge tone="blue">Stack Manager</Badge>}
                       <Badge tone={projectStateTone(project)}>{projectState(project)}</Badge>
                     </div>
                   </td>
@@ -1440,14 +1437,15 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
                   </td>
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
-                      <button type="button" disabled={updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:pull`)} onClick={() => runAction(project, 'pull')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates for this project.">
+                      <button type="button" disabled={updatingAll || Boolean(blockedReason) || isPending(`${project.source_host || 'local'}:${project.name}:pull`)} onClick={() => runAction(project, 'pull')} className="mini-button inline-flex items-center gap-1" title={blockedReason || 'Pull available image updates for this project.'}>
                         {isPending(`${project.source_host || 'local'}:${project.name}:pull`) && <span className="spinner" aria-hidden="true"></span>}
                         {isPending(`${project.source_host || 'local'}:${project.name}:pull`) ? 'Pulling…' : 'Pull'}
                       </button>
-                      <button type="button" disabled={updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:update`)} onClick={() => runAction(project, 'update')} className="mini-button inline-flex items-center gap-1" title="Pull available image updates and recreate only this project.">
+                      <button type="button" disabled={updatingAll || Boolean(blockedReason) || isPending(`${project.source_host || 'local'}:${project.name}:update`)} onClick={() => runAction(project, 'update')} className="mini-button inline-flex items-center gap-1" title={blockedReason || 'Pull available image updates and recreate only this project.'}>
                         {isPending(`${project.source_host || 'local'}:${project.name}:update`) && <span className="spinner" aria-hidden="true"></span>}
                         {isPending(`${project.source_host || 'local'}:${project.name}:update`) ? 'Updating…' : 'Update This'}
                       </button>
+                      <button type="button" disabled={updatingAll} onClick={() => dismissUpdateNotice(project)} className="mini-button" title="Hide this notice until the next scheduled or manual update check.">Dismiss</button>
                     </div>
                   </td>
                 </tr>
@@ -1455,7 +1453,7 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
             })}
           </tbody>
         </table>
-        {availableProjects.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No available updates from the last check.</div>}
+        {pagedProjects.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No update notices from the last check.</div>}
       </div>
     </div>
   );

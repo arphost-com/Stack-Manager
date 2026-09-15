@@ -309,6 +309,7 @@ func main() {
 			r.Post("/projects/{name}/jobs/{action}", projectHandler.StartJob)
 			r.Get("/projects/{name}/update-policy", projectHandler.GetUpdatePolicy)
 			r.Put("/projects/{name}/update-policy", projectHandler.SetUpdatePolicy)
+			r.Delete("/projects/{name}/update-status", projectHandler.DismissUpdateStatus)
 			r.Put("/projects/{name}/inactive", projectHandler.SetInactive)
 
 			// Bulk operations

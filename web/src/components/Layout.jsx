@@ -20,7 +20,10 @@ export default function Layout() {
         localStorage.setItem('cm_user', JSON.stringify(res.data));
       }
     }).catch(() => {});
-    system.info().then(res => setVersion(res.data?.version || '')).catch(() => {});
+    const refreshVersion = () => system.info().then(res => setVersion(res.data?.version || '')).catch(() => {});
+    refreshVersion();
+    window.addEventListener('stack-manager-version-refresh', refreshVersion);
+    return () => window.removeEventListener('stack-manager-version-refresh', refreshVersion);
   }, []);
 
   const logout = async () => {
