@@ -36,6 +36,36 @@ make docker-build
 
 `web/package-lock.json` is required. Do not remove it; Docker and `make build` rely on `npm ci`.
 
+## Agent Operating Checklist
+
+Before changing code or a host, record the exact scope (read-only diagnosis,
+Docker02 development, or an explicitly authorized production host), target
+checkout, Compose path, service account, and current observed state. Treat
+local tests, GitLab pipeline, Docker02 deploy/smoke, production deployment, and
+independent host readback as separate evidence gates. Never call a change
+deployed because a command exited zero; verify the observable state the user
+asked about.
+
+For every Docker-state question, use `docker ps -a` and preserve the actual
+state string (`running`, `restarting`, `paused`, `dead`, `created`, or
+`exited`). Do not infer health from a completed init container, cached dashboard
+data, or a boolean `running` field. The Stack Manager Compose project is
+controller infrastructure: it may be displayed and inspected, but ordinary
+project, image, scheduled, or bulk pull/update actions must reject it. Its only
+update path is Settings > Update, followed by a version and service readback.
+
+When working on Nginx Proxy Manager (NPM), use the admin API origin, normally
+`http://<host>:81`; a URL copied from the browser such as `/login` or
+`/nginx/proxy` must normalize to the origin before `/api/tokens` is appended.
+Test both fresh and persisted connection values, and never put real credentials
+or credential-shaped URL fixtures in source: scanners inspect source, `.git`
+history, and generated reports differently across runners.
+
+When changing CI security jobs, scan a temporary source-only copy that excludes
+`.git` and the report being written by `tee`; retain `pipefail` and propagate
+the scanner exit code. After pushing, inspect the actual pipeline jobs and
+address security failures before relying on deploy or smoke results.
+
 ## Architecture
 
 ### CLI

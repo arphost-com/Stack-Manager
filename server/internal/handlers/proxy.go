@@ -71,6 +71,12 @@ func (h *ProxyHandler) loadPersisted() {
 	if json.Unmarshal([]byte(raw), &p) != nil || p.URL == "" {
 		return
 	}
+	// Older versions stored whatever browser URL was entered (for example
+	// /login). Keep those connections usable by reducing them to NPM's API
+	// origin before the first token refresh.
+	if normalized, err := normalizeNPMBaseURL(p.URL); err == nil {
+		p.URL = normalized
+	}
 	h.mu.Lock()
 	h.npmURL = p.URL
 	h.npmUser = p.Email
@@ -104,11 +110,12 @@ func (h *ProxyHandler) Configure(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	cfg.URL = strings.TrimRight(strings.TrimSpace(cfg.URL), "/")
-	if cfg.URL == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
+	normalizedURL, err := normalizeNPMBaseURL(cfg.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	cfg.URL = normalizedURL
 
 	token, exp, err := h.authenticate(dialURL(cfg.URL), cfg.Email, cfg.Password)
 	if err != nil {
@@ -578,6 +585,36 @@ func (h *ProxyHandler) ProjectSuggestions(w http.ResponseWriter, r *http.Request
 }
 
 // --- NPM HTTP helpers --------------------------------------------------------
+
+// normalizeNPMBaseURL accepts either NPM's API origin or a URL copied from its
+// browser UI. The latter commonly ends in /login or /nginx/proxy; appending
+// /api/tokens to those paths produces an OpenResty 405 instead of reaching the
+// NPM API. NPM is served at the origin, so discard known UI paths while keeping
+// an optional port and scheme intact.
+func normalizeNPMBaseURL(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("NPM Admin URL must include http:// or https:// and a host")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("NPM Admin URL must use http:// or https://")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("NPM Admin URL must not contain embedded credentials")
+	}
+	path := strings.TrimRight(u.Path, "/")
+	for _, uiPath := range []string{"/login", "/nginx/proxy", "/dashboard"} {
+		if path == uiPath || strings.HasPrefix(path, uiPath+"/") {
+			path = ""
+			break
+		}
+	}
+	u.Path = path
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), nil
+}
 
 // dialURL rewrites a localhost/loopback NPM URL to host.docker.internal so the
 // containerized server can actually reach NPM published on the host. This lets
