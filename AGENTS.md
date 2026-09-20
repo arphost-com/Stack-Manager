@@ -57,9 +57,25 @@ update path is Settings > Update, followed by a version and service readback.
 When working on Nginx Proxy Manager (NPM), use the admin API origin, normally
 `http://<host>:81`; a URL copied from the browser such as `/login` or
 `/nginx/proxy` must normalize to the origin before `/api/tokens` is appended.
+Interpret the response before changing code: `405` HTML usually means a UI or
+reverse-proxy path, `400 Invalid email or password` means the API origin is
+correct but the supplied NPM email/password is rejected, and a token response
+is the successful authentication signal. Use `docker ps -a` and published
+ports to identify the NPM container that actually owns port 81; a duplicate
+container without published ports is not the instance Stack Manager is testing.
 Test both fresh and persisted connection values, and never put real credentials
 or credential-shaped URL fixtures in source: scanners inspect source, `.git`
 history, and generated reports differently across runners.
+In the UI, credential inputs must start blank; examples belong in placeholders,
+hints, or documentation only and must never be submitted as default values.
+
+For the GitHub publish job, merge to the GitLab default branch and pass the
+Docker02 pipeline/deploy/smoke gates first. A fine-grained PAT must use the
+organization as its resource owner, include the target repository, and grant
+`Contents: Read and write`; organization membership or a personal token set to
+"All repositories" does not grant write access to organization-owned repos.
+Check organization SSO authorization when applicable, and never print tokens
+or embed them in repository files, logs, or documentation.
 
 When changing CI security jobs, scan a temporary source-only copy that excludes
 `.git` and the report being written by `tee`; retain `pipefail` and propagate
@@ -198,6 +214,9 @@ UI expectations:
 - Every form input needs a native `title` tooltip. In `web/src/pages/Settings.jsx` use the `Field` helper (which propagates `title` to the whole label and supports an optional `hint` for inline help under the input).
 - When a client-side serializer converts free-form input to structured JSON (e.g. `default-address-pools`), throw on malformed input with a specific per-line message. Never silently drop fields — Docker Settings previously ate `default-address-pools` when a line missed its `,size` because the mapper filtered failed parses.
 - Show destructive actions distinctly.
+- Never prefill credential fields with example or default values. Use a blank
+  controlled value plus a clearly labeled placeholder or hint, so an operator
+  cannot accidentally submit example credentials to a real service.
 - Avoid adding marketing/landing-page content.
 
 ## Docker Deployment

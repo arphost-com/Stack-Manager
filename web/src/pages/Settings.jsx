@@ -177,7 +177,9 @@ export default function Settings() {
   const [hostTz, setHostTz] = useState(null);
   const [rolledAPIKey, setRolledAPIKey] = useState('');
   const [npmStatus, setNpmStatus] = useState(null);
-  const [npmForm, setNpmForm] = useState({ url: '', email: 'admin@example.com', password: '' });
+  // Keep credential fields blank. Example credentials belong in hints/placeholders
+  // only; submitting them accidentally makes a real NPM instance look broken.
+  const [npmForm, setNpmForm] = useState({ url: '', email: '', password: '' });
   const [npmHosts, setNpmHosts] = useState([]);
   const [npmSuggestions, setNpmSuggestions] = useState([]);
   const [npmHostForm, setNpmHostForm] = useState({ domain: '', forward_host: '', forward_port: '', forward_scheme: 'http' });
@@ -477,7 +479,7 @@ export default function Settings() {
     try {
       await proxyApi.disconnect();
       showMessage('Disconnected from Nginx Proxy Manager.');
-      setNpmForm({ url: '', email: 'admin@example.com', password: '' });
+      setNpmForm({ url: '', email: '', password: '' });
       loadProxyStatus();
     } catch (err) { showError(err); }
   };
@@ -493,11 +495,11 @@ export default function Settings() {
         // NPM was auto-initialized and connected over localhost. Surface the
         // generated password persistently so the operator can save it.
         setNpmCreds({ url: res.data.url, login: res.data.login, password: res.data.password });
-        setNpmForm({ url: res.data.url || 'http://localhost:81', email: res.data.login || 'admin@example.com', password: '' });
+        setNpmForm({ url: res.data.url || 'http://localhost:81', email: '', password: '' });
         showMessage('Nginx Proxy Manager deployed and auto-connected. Save the generated password shown below.');
       } else {
         showMessage(`Nginx Proxy Manager deployed. Connect with ${res.data?.default_login || 'admin@example.com'} / ${res.data?.default_password || 'changeme'}.`);
-        setNpmForm({ url: 'http://localhost:81', email: 'admin@example.com', password: 'changeme' });
+        setNpmForm({ url: 'http://localhost:81', email: '', password: '' });
       }
       loadProxyStatus();
     } catch (err) { showError(err); }
@@ -2618,8 +2620,8 @@ export default function Settings() {
                   <Field label="NPM Admin URL" hint="e.g. http://78.109.20.111:81">
                     <input className="input" title="Nginx Proxy Manager admin API URL" value={npmForm.url} onChange={e => setNpmForm({ ...npmForm, url: e.target.value })} placeholder={npmStatus?.suggested_url || 'http://localhost:81'} />
                   </Field>
-                  <Field label="Admin Email" hint="default: admin@example.com">
-                    <input className="input" title="Nginx Proxy Manager administrator email" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} />
+                  <Field label="Admin Email" hint="Example only: admin@example.com. Enter the email actually configured in NPM.">
+                    <input className="input" title="Nginx Proxy Manager administrator email" type="email" value={npmForm.email} onChange={e => setNpmForm({ ...npmForm, email: e.target.value })} placeholder="admin@example.com" autoComplete="username" />
                   </Field>
                   <Field label="Password">
                     <input className="input" title="Nginx Proxy Manager administrator password" type="password" value={npmForm.password} onChange={e => setNpmForm({ ...npmForm, password: e.target.value })} placeholder="changeme" />
