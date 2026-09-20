@@ -62,7 +62,21 @@ func (e *Engine) Pull(project *Project, timeout int) *OpResult {
 	if e.IsControllerProject(project) {
 		return controllerImageActionResult(project, "pull")
 	}
-	return e.ExecComposeWithTimeout(project, timeout, "pull")
+	return e.ExecComposeWithTimeout(project, timeout, composePullArgs(project)...)
+}
+
+// composePullArgs keeps registry-backed services updatable when a Compose
+// project also contains locally built services. Without --ignore-buildable,
+// Docker Compose attempts to pull the local image name (for example
+// arpvpn:local) and turns an otherwise valid update into a pull failure.
+func composePullArgs(project *Project) []string {
+	args := []string{"pull"}
+	for _, source := range project.ImageSources {
+		if source.Build {
+			return append(args, "--ignore-buildable")
+		}
+	}
+	return args
 }
 
 // Up brings up containers for a project.
