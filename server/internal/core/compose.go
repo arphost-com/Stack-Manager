@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -161,6 +162,95 @@ func (e *Engine) ExecComposeWithTimeout(project *Project, timeoutSecs int, args 
 	}
 
 	return result
+}
+
+// CheckComposeServiceIdentity refuses an update when containers from the
+// existing Compose project belong to services that are no longer present in
+// the current Compose model. A service rename otherwise turns the old
+// container into an orphan and `up -d` may start a replacement that collides
+// on ports or mounts. The operator must reconcile that migration explicitly.
+func (e *Engine) CheckComposeServiceIdentity(project *Project) *OpResult {
+	start := time.Now()
+	result := &OpResult{Project: project.Name, Action: "compose service identity preflight"}
+	pname := e.getProjectName(project.Name)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	composeArgs := []string{"compose"}
+	composeArgs = append(composeArgs, composeFileArgs(project)...)
+	composeArgs = append(composeArgs, "-p", pname, "config", "--services")
+	cmd := exec.CommandContext(ctx, "docker", composeArgs...)
+	cmd.Dir = project.Dir
+	cmd.Env = projectComposeEnv(project)
+	configuredOut, err := cmd.CombinedOutput()
+	if err != nil {
+		result.ExitCode = commandExitCode(err)
+		result.Output = "unable to resolve current Compose services: " + err.Error() + "\n" + string(configuredOut)
+		result.Duration = time.Since(start).Round(time.Millisecond).String()
+		return result
+	}
+
+	containersOut, err := exec.CommandContext(ctx, "docker", "ps", "-a",
+		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", pname),
+		"--format", `{{.Label "com.docker.compose.service"}}|{{.Names}}`,
+	).CombinedOutput()
+	if err != nil {
+		result.ExitCode = commandExitCode(err)
+		result.Output = "unable to inspect existing Compose service labels: " + err.Error() + "\n" + string(containersOut)
+		result.Duration = time.Since(start).Round(time.Millisecond).String()
+		return result
+	}
+
+	orphans := findOrphanComposeServices(strings.Fields(string(configuredOut)), string(containersOut))
+	result.Duration = time.Since(start).Round(time.Millisecond).String()
+	if len(orphans) == 0 {
+		result.Success = true
+		return result
+	}
+
+	result.ExitCode = 1
+	result.Output = "refusing to update because existing containers use Compose service identities that are absent from the current compose file:\n" +
+		strings.Join(orphans, "\n") +
+		"\nReview the compose change and explicitly migrate, remove, or restore these services before retrying. Stack Manager will not remove orphans automatically.\n"
+	return result
+}
+
+func commandExitCode(err error) int {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+func findOrphanComposeServices(configured []string, containerRecords string) []string {
+	allowed := make(map[string]struct{}, len(configured))
+	for _, service := range configured {
+		if service = strings.TrimSpace(service); service != "" {
+			allowed[service] = struct{}{}
+		}
+	}
+	orphans := make(map[string]struct{})
+	for _, line := range strings.Split(strings.TrimSpace(containerRecords), "\n") {
+		parts := strings.SplitN(line, "|", 2)
+		service := strings.TrimSpace(parts[0])
+		if service == "" {
+			continue
+		}
+		if _, ok := allowed[service]; ok {
+			continue
+		}
+		container := "unknown container"
+		if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+			container = strings.TrimSpace(parts[1])
+		}
+		orphans[fmt.Sprintf("- service %q (container %q)", service, container)] = struct{}{}
+	}
+	items := make([]string, 0, len(orphans))
+	for item := range orphans {
+		items = append(items, item)
+	}
+	sort.Strings(items)
+	return items
 }
 
 // DockerExec runs a docker command (not compose) and returns the result.

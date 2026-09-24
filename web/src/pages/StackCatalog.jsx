@@ -95,7 +95,7 @@ function labelForSubcategory(sub) {
   return SUBCATEGORY_LABELS[sub] || sub;
 }
 
-const EMPTY_FORM = { name: '', compose_content: '', env_content: '', run_as_uid: '', run_as_gid: '', enforce_user: true, inactive: false, overwrite: false };
+const EMPTY_FORM = { name: '', template_id: '', compose_content: '', env_content: '', run_as_uid: '', run_as_gid: '', enforce_user: true, inactive: false, overwrite: false };
 
 export default function StackCatalog() {
   const navigate = useNavigate();
@@ -212,6 +212,7 @@ export default function StackCatalog() {
 
     setForm({
       name: template.id,
+      template_id: template.id,
       compose_content: compose,
       env_content: template.env_content || '',
       run_as_uid: '',

@@ -389,6 +389,7 @@ func (h *ProxyHandler) DeployNPM(w http.ResponseWriter, r *http.Request) {
 		// Not present yet — create it from the template.
 		project, err = h.engine.CreateProject(core.CreateProjectRequest{
 			Name:           projectName,
+			TemplateID:     tmpl.ID,
 			ComposeContent: tmpl.ComposeContent,
 			EnvContent:     tmpl.EnvContent,
 		})

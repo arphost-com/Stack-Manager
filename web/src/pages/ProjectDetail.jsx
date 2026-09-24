@@ -209,6 +209,10 @@ export default function ProjectDetail() {
   useEffect(() => { loadTmplUpdate(); }, [loadTmplUpdate]);
 
   const applyTemplateUpdate = async () => {
+    if (tmplUpdate?.persistent_mounts_changed) {
+      setActionResult({ status: 'error', label: 'update from template', error: 'This catalog template changes persistent storage mounts. Review and migrate compose.yml manually; Stack Manager will not overwrite it.' });
+      return;
+    }
     if (!window.confirm(`Update "${name}" to the current "${tmplUpdate?.template_name || 'catalog'}" template? Its compose.yml is rewritten from the template and your .env values are kept (new template keys are added). The old compose.yml and .env are backed up, then the stack is recreated.`)) return;
     setApplyingTmpl(true);
     setActionResult({ status: 'running', label: 'update from template' });
@@ -644,12 +648,13 @@ export default function ProjectDetail() {
               <div className="text-sm font-semibold text-blue-950">Catalog template updated</div>
               <p className="mt-1 text-sm text-blue-900">
                 The <span className="font-medium">{tmplUpdate.template_name}</span> template has changed since this stack was deployed.
-                Update rewrites <code className="rounded bg-blue-100 px-1">compose.yml</code> from the template and migrates your <code className="rounded bg-blue-100 px-1">.env</code> — existing values are kept{tmplUpdate.new_env_keys?.length ? <>, and new settings are added (<span className="font-mono text-xs">{tmplUpdate.new_env_keys.join(', ')}</span>)</> : ''}. The old files are backed up, then the stack is recreated.
+                This is a proposed Compose replacement, not an image update. Review its effects on ports, mounts, and runtime settings before applying it. Existing <code className="rounded bg-blue-100 px-1">.env</code> values are kept{tmplUpdate.new_env_keys?.length ? <>, and new settings are added (<span className="font-mono text-xs">{tmplUpdate.new_env_keys.join(', ')}</span>)</> : ''}.
+                {tmplUpdate.persistent_mounts_changed && <span className="mt-1 block font-medium text-red-800">Blocked: this template changes persistent-storage mounts. Stack Manager will not overwrite this Compose file; migrate it manually after reviewing the data path.</span>}
                 {tmplUpdate.gpu_applied && <span className="mt-1 block font-medium text-amber-800">⚠ This project has GPU passthrough in its compose — the template replaces it, so re-apply Enable GPU afterward if needed (the old compose is saved as .bak).</span>}
               </p>
             </div>
-            <button className="btn-primary shrink-0" onClick={applyTemplateUpdate} disabled={applyingTmpl}>
-              {applyingTmpl ? 'Updating…' : 'Update from template'}
+            <button className="btn-primary shrink-0" onClick={applyTemplateUpdate} disabled={applyingTmpl || tmplUpdate.persistent_mounts_changed} title={tmplUpdate.persistent_mounts_changed ? 'Blocked because persistent storage mounts would change.' : 'Replace compose.yml with the reviewed catalog template.'}>
+              {tmplUpdate.persistent_mounts_changed ? 'Manual migration required' : applyingTmpl ? 'Updating…' : 'Apply reviewed template'}
             </button>
           </div>
         </div>

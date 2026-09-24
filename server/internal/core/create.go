@@ -24,6 +24,11 @@ func (e *Engine) CreateProject(req CreateProjectRequest) (*Project, error) {
 	if strings.TrimSpace(req.ComposeContent) == "" {
 		return nil, fmt.Errorf("compose content is required")
 	}
+	if req.TemplateID != "" {
+		if _, ok := GetBuiltinStackTemplate(req.TemplateID); !ok {
+			return nil, fmt.Errorf("unknown catalog template: %s", req.TemplateID)
+		}
+	}
 
 	rootAbs, err := filepath.Abs(e.RootDir)
 	if err != nil {
@@ -68,6 +73,17 @@ func (e *Engine) CreateProject(req CreateProjectRequest) (*Project, error) {
 	if req.Inactive {
 		if err := os.WriteFile(filepath.Join(projectDir, inactiveMarker), []byte{}, 0640); err != nil {
 			return nil, err
+		}
+	}
+	if req.TemplateID != "" {
+		if err := writeTemplateProvenance(projectDir, req.TemplateID); err != nil {
+			return nil, err
+		}
+	} else if req.Overwrite {
+		// A generic overwrite is an operator-owned Compose replacement. Remove
+		// any old catalog provenance so future template updates cannot rewrite it.
+		if err := os.Remove(filepath.Join(projectDir, templateProvenanceFile)); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("remove stale template provenance: %w", err)
 		}
 	}
 

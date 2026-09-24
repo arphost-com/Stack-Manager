@@ -365,6 +365,7 @@ func main() {
 			r.Post("/system/gpu/setup/reboot", gpuSetupHandler.Reboot)
 			r.Get("/system/os/status", osUpdateHandler.Status)
 			r.Post("/system/os/upgrade", osUpdateHandler.Upgrade)
+			r.Get("/system/os/upgrade-status", osUpdateHandler.UpgradeStatus)
 			r.Post("/system/os/autoremove", osUpdateHandler.Autoremove)
 			r.Get("/system/os/search", osUpdateHandler.Search)
 			r.Post("/system/os/install", osUpdateHandler.Install)

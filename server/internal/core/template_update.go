@@ -1,6 +1,9 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,22 +11,86 @@ import (
 	"time"
 )
 
+const templateProvenanceFile = ".stack-manager-template.json"
+
+type templateProvenance struct {
+	TemplateID     string `json:"template_id"`
+	TemplateSHA256 string `json:"template_sha256"`
+	ComposeSHA256  string `json:"compose_sha256"`
+}
+
 // TemplateUpdatePreview reports whether a running project can be updated from
 // its matching catalog template, and what would change.
 type TemplateUpdatePreview struct {
-	HasTemplate    bool     `json:"has_template"`
-	TemplateID     string   `json:"template_id,omitempty"`
-	TemplateName   string   `json:"template_name,omitempty"`
-	ComposeChanged bool     `json:"compose_changed"`
-	NewEnvKeys     []string `json:"new_env_keys,omitempty"`
-	GPUApplied     bool     `json:"gpu_applied"`
+	HasTemplate             bool     `json:"has_template"`
+	TemplateID              string   `json:"template_id,omitempty"`
+	TemplateName            string   `json:"template_name,omitempty"`
+	ComposeChanged          bool     `json:"compose_changed"`
+	PersistentMountsChanged bool     `json:"persistent_mounts_changed"`
+	NewEnvKeys              []string `json:"new_env_keys,omitempty"`
+	GPUApplied              bool     `json:"gpu_applied"`
 }
 
-// matchTemplateForProject finds the catalog template a project came from.
-// Projects deployed from the catalog use the template ID as the project name,
-// so we match on that.
-func matchTemplateForProject(projectName string) (StackTemplate, bool) {
-	return GetBuiltinStackTemplate(projectName)
+func composeSHA256(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
+}
+
+func writeTemplateProvenance(projectDir, templateID string) error {
+	tmpl, ok := GetBuiltinStackTemplate(templateID)
+	if !ok {
+		return fmt.Errorf("catalog template %q is not available", templateID)
+	}
+	composePath := composeFileForDir(projectDir)
+	if composePath == "" {
+		return fmt.Errorf("cannot record template provenance without a compose file")
+	}
+	content, err := os.ReadFile(composePath)
+	if err != nil {
+		return fmt.Errorf("read compose for template provenance: %w", err)
+	}
+	payload, err := json.MarshalIndent(templateProvenance{
+		TemplateID:     templateID,
+		TemplateSHA256: composeSHA256([]byte(tmpl.ComposeContent)),
+		ComposeSHA256:  composeSHA256(content),
+	}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode template provenance: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, templateProvenanceFile), payload, 0640); err != nil {
+		return fmt.Errorf("write template provenance: %w", err)
+	}
+	return nil
+}
+
+func templateForManagedProject(project *Project) (StackTemplate, templateProvenance, error) {
+	var provenance templateProvenance
+	payload, err := os.ReadFile(filepath.Join(project.Dir, templateProvenanceFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return StackTemplate{}, provenance, fmt.Errorf("project is not explicitly managed by a catalog template")
+		}
+		return StackTemplate{}, provenance, fmt.Errorf("read template provenance: %w", err)
+	}
+	if err := json.Unmarshal(payload, &provenance); err != nil || provenance.TemplateID == "" || provenance.TemplateSHA256 == "" || provenance.ComposeSHA256 == "" {
+		return StackTemplate{}, provenance, fmt.Errorf("template provenance is invalid")
+	}
+	if provenance.ComposeSHA256 != provenance.TemplateSHA256 {
+		return StackTemplate{}, provenance, fmt.Errorf("project compose was customized before catalog deployment")
+	}
+	tmpl, ok := GetBuiltinStackTemplate(provenance.TemplateID)
+	if !ok {
+		return StackTemplate{}, provenance, fmt.Errorf("catalog template %q is no longer available", provenance.TemplateID)
+	}
+	current, err := os.ReadFile(project.ComposeFile)
+	if err != nil {
+		return StackTemplate{}, provenance, fmt.Errorf("read current compose: %w", err)
+	}
+	if composeSHA256(current) != provenance.ComposeSHA256 {
+		return StackTemplate{}, provenance, fmt.Errorf("project compose has local changes after catalog deployment")
+	}
+	return tmpl, provenance, nil
 }
 
 func normalizeComposeText(s string) string {
@@ -35,6 +102,81 @@ func normalizeComposeText(s string) string {
 		out = append(out, strings.TrimRight(l, " \t\r"))
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// composeServiceMounts extracts short-syntax service mounts from conventional
+// Compose YAML. If either file uses a layout this small parser cannot prove
+// equivalent, persistentMountsChanged fails closed and requires manual review.
+func composeServiceMounts(compose string) (map[string][]string, bool, bool) {
+	services := map[string][]string{}
+	inServices, inVolumes, seenVolumes := false, false, false
+	known := true
+	currentService := ""
+	for _, raw := range strings.Split(compose, "\n") {
+		line := strings.TrimRight(raw, " \t\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent == 0 {
+			inServices = trimmed == "services:"
+			currentService, inVolumes = "", false
+			continue
+		}
+		if !inServices {
+			continue
+		}
+		if indent == 2 && strings.HasSuffix(trimmed, ":") {
+			currentService = strings.TrimSuffix(trimmed, ":")
+			services[currentService] = nil
+			inVolumes = false
+			continue
+		}
+		if currentService == "" {
+			continue
+		}
+		if indent == 4 && trimmed == "volumes:" {
+			inVolumes, seenVolumes = true, true
+			continue
+		}
+		if indent == 4 && strings.HasPrefix(trimmed, "volumes:") {
+			// Inline and long syntax need a full YAML parser. Refuse an
+			// automatic rewrite rather than guessing that storage is unchanged.
+			known = false
+		}
+		if indent <= 4 {
+			inVolumes = false
+		}
+		if inVolumes && indent >= 6 && strings.HasPrefix(trimmed, "- ") {
+			mount := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			if strings.HasPrefix(mount, "type:") {
+				known = false
+			}
+			services[currentService] = append(services[currentService], mount)
+		}
+	}
+	return services, seenVolumes, known
+}
+
+func persistentMountsChanged(current, replacement string) bool {
+	currentMounts, currentHasMounts, currentKnown := composeServiceMounts(current)
+	replacementMounts, replacementHasMounts, replacementKnown := composeServiceMounts(replacement)
+	if !currentKnown || !replacementKnown || currentHasMounts != replacementHasMounts || len(currentMounts) != len(replacementMounts) {
+		return true
+	}
+	for service, mounts := range currentMounts {
+		candidate, ok := replacementMounts[service]
+		if !ok || len(mounts) != len(candidate) {
+			return true
+		}
+		for i := range mounts {
+			if mounts[i] != candidate[i] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // envKey returns the KEY of a "KEY=value" line, or "" for comments/blank lines.
@@ -114,22 +256,23 @@ func mergeEnvKeepingValues(existing, template string) string {
 	return strings.Join(out, "\n") + "\n"
 }
 
-// PreviewTemplateUpdate reports whether the project's compose differs from its
-// matching catalog template (an update is available) and which env keys are new.
+// PreviewTemplateUpdate reports whether an explicitly template-managed,
+// unmodified project differs from its recorded catalog template.
 func (e *Engine) PreviewTemplateUpdate(project *Project) *TemplateUpdatePreview {
-	tmpl, ok := matchTemplateForProject(project.Name)
-	if !ok {
+	tmpl, _, err := templateForManagedProject(project)
+	if err != nil {
 		return &TemplateUpdatePreview{HasTemplate: false}
 	}
 	curCompose, _ := os.ReadFile(project.ComposeFile)
 	curEnv, _ := os.ReadFile(filepath.Join(project.Dir, ".env"))
 	return &TemplateUpdatePreview{
-		HasTemplate:    true,
-		TemplateID:     tmpl.ID,
-		TemplateName:   tmpl.Name,
-		ComposeChanged: normalizeComposeText(string(curCompose)) != normalizeComposeText(tmpl.ComposeContent),
-		NewEnvKeys:     newEnvKeys(string(curEnv), tmpl.EnvContent),
-		GPUApplied:     composeHasGPU(string(curCompose)),
+		HasTemplate:             true,
+		TemplateID:              tmpl.ID,
+		TemplateName:            tmpl.Name,
+		ComposeChanged:          normalizeComposeText(string(curCompose)) != normalizeComposeText(tmpl.ComposeContent),
+		PersistentMountsChanged: persistentMountsChanged(string(curCompose), tmpl.ComposeContent),
+		NewEnvKeys:              newEnvKeys(string(curEnv), tmpl.EnvContent),
+		GPUApplied:              composeHasGPU(string(curCompose)),
 	}
 }
 
@@ -140,14 +283,13 @@ func composeHasGPU(compose string) bool {
 	return strings.Contains(c, "driver: nvidia") || strings.Contains(c, "[gpu]") || strings.Contains(c, "- gpu")
 }
 
-// ApplyTemplateUpdate rewrites the project's compose.yml from the catalog
-// template and migrates its .env — every existing key keeps its value, new
-// template keys are added with defaults. The old compose.yml and .env are
-// backed up (.bak-<timestamp>) first. The caller recreates the stack after.
+// ApplyTemplateUpdate rewrites an explicitly template-managed, unmodified
+// project's compose.yml and migrates its .env. The old files are backed up
+// (.bak-<timestamp>) first. The caller recreates the stack after.
 func (e *Engine) ApplyTemplateUpdate(project *Project) (*TemplateUpdatePreview, error) {
-	tmpl, ok := matchTemplateForProject(project.Name)
-	if !ok {
-		return nil, fmt.Errorf("no catalog template matches project %q", project.Name)
+	tmpl, _, err := templateForManagedProject(project)
+	if err != nil {
+		return nil, fmt.Errorf("catalog template update unavailable: %w", err)
 	}
 	ts := time.Now().UTC().Format("20060102-150405")
 
@@ -155,6 +297,9 @@ func (e *Engine) ApplyTemplateUpdate(project *Project) (*TemplateUpdatePreview, 
 		return nil, fmt.Errorf("project has no compose file to update")
 	}
 	curCompose, _ := os.ReadFile(project.ComposeFile)
+	if persistentMountsChanged(string(curCompose), tmpl.ComposeContent) {
+		return nil, fmt.Errorf("refusing catalog template apply: it changes service mount topology; review and migrate compose.yml manually")
+	}
 	if len(curCompose) > 0 {
 		if err := os.WriteFile(project.ComposeFile+".bak-"+ts, curCompose, 0640); err != nil {
 			return nil, fmt.Errorf("back up compose: %w", err)
@@ -174,6 +319,9 @@ func (e *Engine) ApplyTemplateUpdate(project *Project) (*TemplateUpdatePreview, 
 	merged := mergeEnvKeepingValues(string(curEnv), tmpl.EnvContent)
 	if err := os.WriteFile(envPath, []byte(merged), 0600); err != nil {
 		return nil, fmt.Errorf("write .env: %w", err)
+	}
+	if err := writeTemplateProvenance(project.Dir, tmpl.ID); err != nil {
+		return nil, err
 	}
 
 	return &TemplateUpdatePreview{

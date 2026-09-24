@@ -55,3 +55,20 @@ func TestOSUpdateRespondMarksCommandSuccess(t *testing.T) {
 		t.Fatalf("success = %v, want true", data["success"])
 	}
 }
+
+func TestParseOSUpgradeStatus(t *testing.T) {
+	got := parseOSUpgradeStatus("state=completed\nexit_code=0\nstarted_at=2026-09-24T16:00:00Z\nfinished_at=2026-09-24T16:05:00Z\n--- output ---\n[os-update] upgrade complete\n")
+	if got.State != "completed" || !got.Success || got.ExitCode != "0" {
+		t.Fatalf("unexpected status: %#v", got)
+	}
+	if got.Output != "[os-update] upgrade complete" {
+		t.Fatalf("output = %q", got.Output)
+	}
+}
+
+func TestParseOSUpgradeStatusDoesNotMarkRunningSuccessful(t *testing.T) {
+	got := parseOSUpgradeStatus("state=running\nexit_code=\n--- output ---\napt-get dist-upgrade\n")
+	if got.Success || got.State != "running" {
+		t.Fatalf("unexpected status: %#v", got)
+	}
+}

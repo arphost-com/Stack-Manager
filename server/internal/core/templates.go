@@ -87,7 +87,7 @@ volumes:
   web-html:
 `,
 			EnvContent: "WEB_PORT=8080\n",
-			Notes: "Drop files into the web-html volume or replace it with a `./html:/usr/share/nginx/html:ro` bind mount for host-side editing.",
+			Notes:      "Drop files into the web-html volume or replace it with a `./html:/usr/share/nginx/html:ro` bind mount for host-side editing.",
 		},
 		{
 			ID:          "postgres",
@@ -293,7 +293,7 @@ volumes:
   caddy-config:
 `,
 			EnvContent: "HTTP_PORT=80\nHTTPS_PORT=443\n",
-			Notes: "Starts with a built-in file server. For reverse proxy or custom config, create a Caddyfile, add a `./Caddyfile:/etc/caddy/Caddyfile:ro` volume mount, and remove the command line.",
+			Notes:      "Starts with a built-in file server. For reverse proxy or custom config, create a Caddyfile, add a `./Caddyfile:/etc/caddy/Caddyfile:ro` volume mount, and remove the command line.",
 		},
 		{
 			ID:          "nginx-proxy-manager",
@@ -1615,7 +1615,7 @@ volumes:
   caddy-data:
 `,
 			EnvContent: "CADDY_STATIC_PORT=8080\n",
-			Notes: "Drop files into the caddy-site volume or replace it with a `./site:/usr/share/caddy:ro` bind mount.",
+			Notes:      "Drop files into the caddy-site volume or replace it with a `./site:/usr/share/caddy:ro` bind mount.",
 		},
 		{
 			ID:          "crowdsec",
@@ -2714,6 +2714,7 @@ func RenderStackTemplate(id string) (CreateProjectRequest, error) {
 	}
 	return CreateProjectRequest{
 		Name:           template.ID,
+		TemplateID:     template.ID,
 		ComposeContent: template.ComposeContent,
 		EnvContent:     template.EnvContent,
 	}, nil
@@ -3183,4 +3184,3 @@ volumes:
 		},
 	}
 }
-

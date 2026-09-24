@@ -21,9 +21,8 @@ type Project struct {
 	// Controller marks the Compose project that is running this Stack Manager
 	// instance. It stays visible, but must use the dedicated self-update path.
 	Controller bool `json:"controller,omitempty"`
-	// TemplateUpdateAvailable is set for local projects whose matching catalog
-	// template's compose has changed since deploy (a one-click template update
-	// is available on the project's detail page).
+	// TemplateUpdateAvailable is set only for explicitly template-managed local
+	// projects whose unchanged Compose differs from the recorded catalog version.
 	TemplateUpdateAvailable bool `json:"template_update_available,omitempty"`
 }
 
@@ -109,6 +108,7 @@ type ImageUpdateCheck struct {
 // CreateProjectRequest creates a compose project folder under the configured root.
 type CreateProjectRequest struct {
 	Name           string `json:"name"`
+	TemplateID     string `json:"template_id,omitempty"`
 	ComposeContent string `json:"compose_content"`
 	EnvContent     string `json:"env_content,omitempty"`
 	RunAsUID       string `json:"run_as_uid,omitempty"`

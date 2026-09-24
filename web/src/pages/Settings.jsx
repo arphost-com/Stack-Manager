@@ -286,7 +286,16 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    if (admin && activeTab === 'os' && !osStatus) runOsCheck();
+    if (admin && activeTab === 'os' && !osStatus) {
+      runOsCheck();
+      system.osUpgradeStatus().then(r => {
+        if (r.data?.state === 'queued' || r.data?.state === 'running') {
+          setOsResult(r.data);
+          setOsBusy('upgrade');
+          pollOsUpgrade();
+        }
+      }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin, activeTab]);
 
@@ -299,10 +308,37 @@ export default function Settings() {
     }
     finally { setOsBusy(''); }
   };
+  const pollOsUpgrade = (attempt = 0) => {
+    window.setTimeout(async () => {
+      try {
+        const r = await system.osUpgradeStatus();
+        const status = r.data || {};
+        setOsResult(status);
+        if (status.state === 'queued' || status.state === 'running') {
+          setOsBusy('upgrade');
+          pollOsUpgrade(attempt + 1);
+          return;
+        }
+        setOsBusy('');
+        await runOsCheck(true);
+      } catch (err) {
+        // A Docker package upgrade can briefly make the API unreachable while
+        // the daemon restarts. Keep polling the host-persisted job state.
+        if (attempt < 2400) {
+          setOsResult({ state: 'running', success: false, output: 'Upgrade is running; waiting for the Stack Manager API to reconnect…' });
+          setOsBusy('upgrade');
+          pollOsUpgrade(attempt + 1);
+        } else {
+          setOsBusy('');
+          setOsResult({ ...(err.data || {}), success: false, error: `Could not read upgrade status: ${err.message}` });
+        }
+      }
+    }, 3000);
+  };
   const runOsUpgrade = async () => {
     if (!window.confirm('Run a full base-OS upgrade (apt update + dist-upgrade + autoremove) on this host? This can take a while.')) return;
     setOsBusy('upgrade'); setOsResult(null);
-    try { const r = await system.osUpgrade(); setOsResult(r.data); await runOsCheck(true); }
+    try { const r = await system.osUpgrade(); setOsResult(r.data); pollOsUpgrade(); }
     catch (err) { setOsResult({ ...(err.data || {}), success: false, error: err.message }); }
     finally { setOsBusy(''); }
   };
@@ -2328,7 +2364,11 @@ export default function Settings() {
           )}
           {osResult && (
             <div className="section-panel">
-              <div className={`mb-1 text-sm font-medium ${osResult.success ? 'text-green-700' : 'text-red-700'}`}>{osResult.success ? 'Done' : 'Failed'}{osResult.error ? `: ${osResult.error}` : ''}</div>
+			  <div className={`mb-1 text-sm font-medium ${osResult.state === 'queued' || osResult.state === 'running' ? 'text-blue-700' : osResult.success ? 'text-green-700' : 'text-red-700'}`}>
+				{osResult.state === 'queued' || osResult.state === 'running' ? 'Running' : osResult.success ? 'Done' : 'Failed'}
+				{osResult.exit_code && !osResult.success ? ` (exit ${osResult.exit_code})` : ''}
+				{osResult.error ? `: ${osResult.error}` : ''}
+			  </div>
               {osResult.output && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{osResult.output}</pre>}
             </div>
           )}

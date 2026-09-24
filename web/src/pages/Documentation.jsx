@@ -948,6 +948,9 @@ export function DockerComposeDocs() {
         <p className="text-sm leading-6 text-gray-700">
           Stack Manager runs everything as plain Docker Compose projects. Pick a template from the Stack Catalog, set its <code className="rounded bg-gray-100 px-1">.env</code>, and Spin it Up — or manage any stack by hand with the commands below. Each project is just a folder with a <code className="rounded bg-gray-100 px-1">compose.yml</code> under your <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code>.
         </p>
+		<p className="text-sm leading-6 text-gray-700">
+		  Catalog template replacement is available only for projects explicitly created from an unmodified catalog Compose file that has remained unchanged afterward. Stack Manager never infers template ownership from a project folder name. Catalog templates customized before deployment, imported projects, and hand-managed projects remain operator-owned and receive ordinary image updates only.
+		</p>
         <div className="flex flex-wrap gap-2">
           <DocLink href="https://docs.docker.com/compose/" compact>Docker Compose docs</DocLink>
           <DocLink href="https://docs.docker.com/compose/how-tos/gpu-support/" compact>Compose GPU support</DocLink>

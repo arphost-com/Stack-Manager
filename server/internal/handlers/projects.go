@@ -351,8 +351,8 @@ func (h *ProjectHandler) Up(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// TemplateUpdateStatus reports whether the project can be updated from its
-// matching catalog template (the template's compose has changed since deploy).
+// TemplateUpdateStatus reports whether an explicitly managed, unchanged
+// catalog project can be updated from its recorded template.
 func (h *ProjectHandler) TemplateUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	project, err := h.getProject(w, r)
 	if err != nil {
@@ -361,12 +361,19 @@ func (h *ProjectHandler) TemplateUpdateStatus(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, h.Engine.PreviewTemplateUpdate(project))
 }
 
-// ApplyTemplateUpdate rewrites the project's compose.yml from its catalog
-// template, migrates the .env (keeps existing values, adds new template keys),
-// backs up the originals, and recreates the stack.
+// ApplyTemplateUpdate requires an explicit acknowledgement because a catalog
+// template can change ports, runtime settings, and other operator-owned Compose
+// configuration. Persistent mount changes are rejected by the core guard.
 func (h *ProjectHandler) ApplyTemplateUpdate(w http.ResponseWriter, r *http.Request) {
 	project, err := h.getProject(w, r)
 	if err != nil {
+		return
+	}
+	var req struct {
+		ConfirmComposeReplacement bool `json:"confirm_compose_replacement"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.ConfirmComposeReplacement {
+		writeError(w, http.StatusBadRequest, "catalog template replacement requires explicit confirmation after reviewing compose changes")
 		return
 	}
 	applied, err := h.Engine.ApplyTemplateUpdate(project)
@@ -623,14 +630,22 @@ func (h *ProjectHandler) BulkAction(w http.ResponseWriter, r *http.Request) {
 		} else {
 			failures++
 		}
+		if h.Jobs != nil {
+			_, _ = h.Jobs.RecordResult(r)
+		}
 	}
 
-	writeJSON(w, http.StatusOK, core.BulkResult{
+	bulkResult := core.BulkResult{
 		Results: results,
 		Total:   len(results),
 		Success: successes,
 		Failed:  failures,
-	})
+	}
+	if failures > 0 {
+		writeErrorWithData(w, http.StatusConflict, "one or more project actions failed", bulkResult)
+		return
+	}
+	writeJSON(w, http.StatusOK, bulkResult)
 }
 
 func opResultsSucceeded(results []core.OpResult) bool {

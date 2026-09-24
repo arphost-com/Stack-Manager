@@ -10,7 +10,7 @@ Manage all your Docker Compose stacks from one dashboard. Discover, deploy, upda
 
 - **200+ one-click stack templates** — AI, databases, CMS, monitoring, proxies, dev tools, media, and more. Pick a template, review the compose and env, and spin it up.
 - **In-browser config editor** — edit compose.yml, .env, Caddyfile, and other project files directly from the dashboard with automatic .bak backups.
-- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view shows every connected host; open and manage their projects, and act across all of them from one controller. Behind-NAT **callback agents** are managed through a command queue that runs on their next check-in. All cross-server traffic uses TLS 1.3.
+- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view is a read-only aggregate; select one server before changing projects. Behind-NAT **callback agents** are managed through a command queue that runs on their next check-in. All cross-server traffic uses TLS 1.3.
 - **GPU for AI stacks** — Settings > GPU detects the host GPU, one-click-installs the NVIDIA driver + toolkit, and runs a real `--gpus all` test container (nvidia-smi) to prove passthrough works. "Add GPU passthrough" is a checkbox on both the Stack Catalog and the Create Project form (baked in before deploy), or an **Enable GPU** action after the fact.
 - **Per-stack volumes & networks** — inspect a project's Docker volumes and networks (with in-use containers) and safely delete them, scoped to that stack, from its detail page.
 - **One-click self-update** — Settings > Update pulls and rebuilds the controller on the host (detached, survives the restart) and shows **what's in the update** (the pending commit subjects) before you run it.
@@ -104,6 +104,8 @@ Browse and deploy from a curated catalog organized into 20 categories and 10 AI 
 | **Management** | Homepage, Dashy, Homarr, Portainer, Dockge, Yacht, Watchtower |
 
 Templates load into an editable Create Project form — review ports, volumes, passwords, and env vars before deploying. Nothing deploys until you click Create. Templates that need a config file ship a working starter config embedded in the compose (via `configs:`), so they boot out of the box and you can edit the config any time from a project's Config tab.
+
+Catalog template replacement is opt-in and separate from image updates. Stack Manager records template provenance only when a project is created through the Stack Catalog, and offers a later replacement only when the deployed Compose exactly matched the recorded catalog version and has remained unchanged. A template customized in the editor, a hand-managed/imported project, or a generic Compose overwrite is never eligible; folder names alone grant no template ownership. Storage-topology changes still require manual migration.
 
 <details>
 <summary><b>Full catalog — all 275 apps</b> (click to expand)</summary>
@@ -521,7 +523,7 @@ Manage Docker hosts across your network from one controller. The dashboard's **S
 
 Agents are a lightweight runtime (no database, Redis, or UI) installed with `./scripts/prepare-state.sh --agent --mode <callback\|inbound\|both> --controller https://<controller>:8993` — which auto-generates the `.env` (including `AGENT_TOKEN`), fills the controller URL (no `change-me` left behind), and prints the exact name/token to register. **Peer controllers** are two full installs that each add the other as a peer, so both dashboards see and (via the agent proxy) act on both hosts over direct HTTPS. All server-to-server traffic uses TLS 1.3.
 
-Open any project in the "All Servers" view — including ones on a peer or agent. Peer/inbound projects are managed live. **Callback agents** can't be reached inbound, so opening their project shows a **Queued commands** panel: your up/down/pull/update/restart actions are queued and run on the agent's next check-in, with the output reported back. When a specific server is selected in the dropdown, bulk actions, Create Project, and Prune target *that* server.
+Open any project in the "All Servers" view — including ones on a peer or agent — to inspect it. Select a specific server before changing projects. Peer/inbound projects are then managed live. **Callback agents** can't be reached inbound, so opening their project shows a **Queued commands** panel: actions run on the agent's next check-in with reported output. Bulk actions, Create Project, and Prune target the selected server.
 
 ### Interactive Shell
 

@@ -35,6 +35,16 @@ type OSUpdateHandler struct {
 	baseImagePrefix string
 }
 
+type osUpgradeStatus struct {
+	HelperInstalled bool   `json:"helper_installed"`
+	State           string `json:"state"`
+	ExitCode        string `json:"exit_code,omitempty"`
+	StartedAt       string `json:"started_at,omitempty"`
+	FinishedAt      string `json:"finished_at,omitempty"`
+	Output          string `json:"output,omitempty"`
+	Success         bool   `json:"success"`
+}
+
 func NewOSUpdateHandler() *OSUpdateHandler {
 	return &OSUpdateHandler{baseImagePrefix: os.Getenv("BASE_IMAGE_PREFIX")}
 }
@@ -99,13 +109,64 @@ func (h *OSUpdateHandler) Status(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, out, err)
 }
 
-// Upgrade runs update + dist-upgrade + autoremove.
+// Upgrade starts update + dist-upgrade + autoremove in a detached host systemd
+// unit. This request must return before a Docker package upgrade restarts the
+// daemon and disconnects the helper container that launched it.
 func (h *OSUpdateHandler) Upgrade(w http.ResponseWriter, r *http.Request) {
 	if !middleware.RequireAdmin(w, r) {
 		return
 	}
-	out, err := h.runHelper(r.Context(), osLongTimeout, "upgrade")
-	h.respond(w, out, err)
+	out, err := h.runHelper(r.Context(), osQuickTimeout, "upgrade-start")
+	if errors.Is(err, errOSHelperMissing) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"helper_installed": false, "helper_hint": osHelperHint()})
+		return
+	}
+	if err != nil {
+		h.respond(w, out, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, osUpgradeStatus{HelperInstalled: true, State: "queued", Output: out})
+}
+
+// UpgradeStatus reports the persistent detached upgrade state and recent log.
+func (h *OSUpdateHandler) UpgradeStatus(w http.ResponseWriter, r *http.Request) {
+	if !middleware.RequireAdmin(w, r) {
+		return
+	}
+	out, err := h.runHelper(r.Context(), osQuickTimeout, "upgrade-status")
+	if errors.Is(err, errOSHelperMissing) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"helper_installed": false, "helper_hint": osHelperHint()})
+		return
+	}
+	if err != nil {
+		h.respond(w, out, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, parseOSUpgradeStatus(out))
+}
+
+func parseOSUpgradeStatus(out string) osUpgradeStatus {
+	status := osUpgradeStatus{HelperInstalled: true}
+	metadata, logOutput, _ := strings.Cut(out, "--- output ---")
+	for _, line := range strings.Split(metadata, "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "state":
+			status.State = strings.TrimSpace(value)
+		case "exit_code":
+			status.ExitCode = strings.TrimSpace(value)
+		case "started_at":
+			status.StartedAt = strings.TrimSpace(value)
+		case "finished_at":
+			status.FinishedAt = strings.TrimSpace(value)
+		}
+	}
+	status.Output = strings.TrimSpace(logOutput)
+	status.Success = status.State == "completed" && status.ExitCode == "0"
+	return status
 }
 
 // Autoremove removes unused packages only.

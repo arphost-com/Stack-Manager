@@ -4,7 +4,7 @@ package version
 
 // Base is the human release version. Keep it in sync with web/package.json's
 // "version" field — they name the same release.
-const Base = "1.5.9"
+const Base = "1.5.10"
 
 // GitSHA is stamped at build time via:
 //

@@ -81,6 +81,9 @@ func composePullArgs(project *Project) []string {
 
 // Up brings up containers for a project.
 func (e *Engine) Up(project *Project) *OpResult {
+	if preflight := e.CheckComposeServiceIdentity(project); !preflight.Success {
+		return preflight
+	}
 	return e.ExecCompose(project, "up", "-d")
 }
 
@@ -104,6 +107,9 @@ func (e *Engine) Update(project *Project, timeout int) []OpResult {
 		hookResult := e.RunHook("post", "update", project)
 		hookResult.Action = "update (hook)"
 		return []OpResult{*hookResult}
+	}
+	if preflight := e.CheckComposeServiceIdentity(project); !preflight.Success {
+		return []OpResult{*preflight}
 	}
 
 	var results []OpResult

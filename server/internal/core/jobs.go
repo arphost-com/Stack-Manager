@@ -103,6 +103,35 @@ func (m *JobManager) StartSkipped(project *Project, action, output string) (*Act
 	return JobSnapshot(job), nil
 }
 
+// RecordResult persists a synchronous operation (including bulk operations)
+// in the same history used by asynchronous action jobs.
+func (m *JobManager) RecordResult(result OpResult) (*ActionJob, error) {
+	id, err := randomJobID()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	status := "completed"
+	if !result.Success {
+		status = "failed"
+	}
+	job := &ActionJob{
+		ID: id, Project: result.Project, Action: result.Action, Status: status,
+		Success: result.Success, ExitCode: result.ExitCode, Output: result.Output,
+		StartedAt: now, EndedAt: now, Duration: result.Duration,
+	}
+	if !result.Success {
+		job.Error = "operation failed"
+	}
+	m.mu.Lock()
+	m.jobs[id] = job
+	m.mu.Unlock()
+	if err := m.save(job); err != nil {
+		return nil, err
+	}
+	return JobSnapshot(job), nil
+}
+
 func (m *JobManager) Get(id string) (*ActionJob, bool) {
 	m.mu.RLock()
 	job, ok := m.jobs[id]
@@ -171,6 +200,15 @@ func (m *JobManager) run(engine *Engine, project *Project, job *ActionJob, timeo
 			j.ExitCode = exitCode
 		})
 	case "up":
+		if preflight := engine.CheckComposeServiceIdentity(project); !preflight.Success {
+			appendJobOutput(job, preflight.Output)
+			updateJob(job, func(j *ActionJob) {
+				j.Success = false
+				j.ExitCode = preflight.ExitCode
+				j.Error = "compose service identity preflight failed"
+			})
+			break
+		}
 		success, exitCode := runComposeJob(engine, project, job, 0, "up", "-d")
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
@@ -219,6 +257,15 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
+		})
+		return
+	}
+	if preflight := engine.CheckComposeServiceIdentity(project); !preflight.Success {
+		appendJobOutput(job, "=== compose service identity preflight ===\n"+preflight.Output)
+		updateJob(job, func(j *ActionJob) {
+			j.Success = false
+			j.ExitCode = preflight.ExitCode
+			j.Error = "compose service identity preflight failed"
 		})
 		return
 	}
