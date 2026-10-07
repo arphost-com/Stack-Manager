@@ -60,11 +60,26 @@ func (e *Engine) CheckProjectUpdates(ctx context.Context, project *Project) Proj
 		if check.Error != "" && status.Error == "" {
 			status.Error = check.Error
 		}
+		if IsRegistryRateLimitError(check.Error) {
+			break
+		}
 	}
 	if len(status.Images) > 0 {
 		status.CheckedAt = &now
 	}
 	return status
+}
+
+// IsRegistryRateLimitError identifies registry responses that should stop a
+// fleet-wide check before Stack Manager burns more of the shared pull budget.
+func IsRegistryRateLimitError(message string) bool {
+	message = strings.ToLower(message)
+	for _, marker := range []string{"toomanyrequests", "too many requests", "rate limit", "retry-after", "status code: 429", "status 429"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkGitUpdates runs git fetch --dry-run and compares HEAD to the

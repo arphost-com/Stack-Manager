@@ -81,15 +81,19 @@ type ProjectUpdatePolicy struct {
 
 // ProjectUpdateStatus is the last known registry image update result for a project.
 type ProjectUpdateStatus struct {
-	Checked         bool               `json:"checked"`
-	Available       bool               `json:"available"`
-	Count           int                `json:"count"`
-	CheckedAt       *time.Time         `json:"checked_at,omitempty"`
-	NextCheckAt     *time.Time         `json:"next_check_at,omitempty"`
-	Error           string             `json:"error,omitempty"`
-	Images          []ImageUpdateCheck `json:"images,omitempty"`
-	RegistryImages  int                `json:"registry_images"`
-	SkippedServices int                `json:"skipped_services"`
+	Checked           bool               `json:"checked"`
+	Available         bool               `json:"available"`
+	Count             int                `json:"count"`
+	CheckedAt         *time.Time         `json:"checked_at,omitempty"`
+	NextCheckAt       *time.Time         `json:"next_check_at,omitempty"`
+	RefreshAllowedAt  *time.Time         `json:"refresh_allowed_at,omitempty"`
+	Cached            bool               `json:"cached,omitempty"`
+	RetryAfterSeconds int                `json:"retry_after_seconds,omitempty"`
+	Message           string             `json:"message,omitempty"`
+	Error             string             `json:"error,omitempty"`
+	Images            []ImageUpdateCheck `json:"images,omitempty"`
+	RegistryImages    int                `json:"registry_images"`
+	SkippedServices   int                `json:"skipped_services"`
 }
 
 // ImageUpdateCheck records local-vs-remote digest state for one compose service image.

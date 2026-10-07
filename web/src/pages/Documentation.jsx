@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { projects, stackTemplates } from '../api/client';
 
 const CATEGORY_LABELS = {
@@ -833,6 +833,7 @@ docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code
           <li><strong>Manual:</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/prepare-state.sh .env &amp;&amp; docker compose --env-file .env up -d --build</code></li>
           <li><strong>Controller guard:</strong> Stack Manager&rsquo;s own Compose project is visible on the dashboard but cannot be pulled or updated as an ordinary stack. Use Settings → Update, which verifies the running version after the rebuild.</li>
           <li><strong>Dismiss notices:</strong> Dismiss hides an image-update or check-warning notice only until a future check reports it again. It does not pull images, restart containers, or alter Compose files.</li>
+          <li><strong>Registry protection:</strong> repeated update checks within five minutes use the last completed result. If a registry rate limit is reached, Stack Manager stops the remaining scan, preserves known update notices, and shows when another refresh is allowed.</li>
         </ul>
         <p className="text-sm text-amber-700">Always use <code className="rounded bg-white/60 px-1">up -d --build</code> after pulling — a bare <code className="rounded bg-white/60 px-1">up -d</code> reuses stale images (wrong footer version / "invalid request body").</p>
       </DocSection>

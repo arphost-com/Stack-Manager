@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { auth, users, backup, projects, agents, schedules, jobsForSource, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';

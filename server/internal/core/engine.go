@@ -21,13 +21,17 @@ type Engine struct {
 	RootDir    string
 	ExtraRoots []string
 	HooksDir   string
+	dockerExec func(args ...string) (*ExecResult, error)
+	hostname   func() (string, error)
 }
 
 // NewEngine creates a new Engine.
 func NewEngine(rootDir, hooksDir string) *Engine {
 	return &Engine{
-		RootDir:  rootDir,
-		HooksDir: hooksDir,
+		RootDir:    rootDir,
+		HooksDir:   hooksDir,
+		dockerExec: DockerExec,
+		hostname:   os.Hostname,
 	}
 }
 
@@ -171,7 +175,8 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 	if err != nil {
 		return nil, err
 	}
-	insideAnyRoot := false
+	var containingRoot string
+	var projectRel string
 	for _, root := range e.AllRoots() {
 		rootAbs, err := filepath.Abs(root)
 		if err != nil {
@@ -185,11 +190,12 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 			continue
 		}
 		if !strings.Contains(rel, string(os.PathSeparator)) {
-			insideAnyRoot = true
+			containingRoot = rootAbs
+			projectRel = rel
 			break
 		}
 	}
-	if !insideAnyRoot {
+	if containingRoot == "" {
 		return nil, fmt.Errorf("project directory is outside the configured Docker roots")
 	}
 
@@ -220,7 +226,7 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 			result.Output += "=== docker compose down ===\nno running containers, skipping\n"
 		}
 	}
-	if err := os.RemoveAll(projectAbs); err != nil {
+	if err := e.removeProjectDirectory(projectAbs, containingRoot, projectRel); err != nil {
 		result.Success = false
 		result.ExitCode = 1
 		result.Output += err.Error() + "\n"
@@ -228,6 +234,94 @@ func (e *Engine) DeleteProject(name string, req DeleteProjectRequest) (*OpResult
 	}
 	result.Output += "deleted directory: " + projectAbs + "\n"
 	return result, nil
+}
+
+// removeProjectDirectory deletes a validated direct child of a configured
+// Docker root. Production controllers run as an unprivileged host UID, while a
+// managed container may legitimately create root-owned or service-owned files.
+// The controller already has Docker-daemon authority, so use its current,
+// locally available image as a short-lived root helper instead of making the
+// long-running API process root. Only the validated Docker root is mounted and
+// the helper has no network access.
+func (e *Engine) removeProjectDirectory(projectAbs, rootAbs, projectRel string) error {
+	dockerExec := e.dockerExec
+	if dockerExec == nil {
+		dockerExec = DockerExec
+	}
+	hostname := e.hostname
+	if hostname == nil {
+		hostname = os.Hostname
+	}
+
+	containerID, err := hostname()
+	containerID = strings.TrimSpace(containerID)
+	if err != nil || !looksLikeContainerID(containerID) {
+		return os.RemoveAll(projectAbs)
+	}
+
+	inspect, inspectErr := dockerExec("inspect", "--format", "{{.Image}}", containerID)
+	if inspectErr != nil {
+		return fmt.Errorf("privileged deletion helper unavailable: cannot inspect controller container: %w", inspectErr)
+	}
+	if inspect == nil {
+		return fmt.Errorf("privileged deletion helper unavailable: controller inspection returned no result")
+	}
+	imageID := strings.TrimSpace(inspect.Stdout)
+	if !validDockerImageID(imageID) {
+		return fmt.Errorf("privileged deletion helper unavailable: controller image ID was invalid")
+	}
+
+	target := filepath.Join("/managed-root", projectRel)
+	remove, removeErr := dockerExec(
+		"run", "--rm", "--pull=never", "--user", "0:0",
+		"--network", "none", "--read-only", "--pids-limit", "64",
+		"--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
+		"--security-opt", "no-new-privileges",
+		"--mount", "type=bind,source="+rootAbs+",target=/managed-root",
+		"--entrypoint", "/bin/rm", imageID,
+		"-rf", "--", target,
+	)
+	if removeErr != nil {
+		return deletionHelperError(removeErr, remove)
+	}
+	if _, err := os.Lstat(projectAbs); err == nil {
+		return fmt.Errorf("privileged deletion helper exited successfully but the project directory still exists")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("cannot verify project directory removal: %w", err)
+	}
+	return nil
+}
+
+func deletionHelperError(runErr error, result *ExecResult) error {
+	if result != nil {
+		detail := strings.TrimSpace(result.Stderr)
+		if detail == "" {
+			detail = strings.TrimSpace(result.Stdout)
+		}
+		if detail != "" {
+			return fmt.Errorf("privileged deletion helper failed: %s", detail)
+		}
+	}
+	return fmt.Errorf("privileged deletion helper failed: %w", runErr)
+}
+
+func looksLikeContainerID(value string) bool {
+	if len(value) < 12 || len(value) > 64 {
+		return false
+	}
+	for _, c := range value {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func validDockerImageID(value string) bool {
+	if !strings.HasPrefix(value, "sha256:") || len(value) != len("sha256:")+64 {
+		return false
+	}
+	return looksLikeContainerID(strings.TrimPrefix(value, "sha256:"))
 }
 
 // Prune runs a selected Docker prune command.

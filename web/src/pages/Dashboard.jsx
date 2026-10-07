@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, backupForSource, updates as updatesApi, updatesForSource } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone } from '../utils/projectState';
@@ -677,7 +677,8 @@ export default function Dashboard() {
           try {
             const res = await scoped.updates.check();
             const count = res.data?.count || 0;
-            results.push(`${source}: ${count} update${count === 1 ? '' : 's'} available`);
+            const detail = res.data?.message || `${count} update${count === 1 ? '' : 's'} available`;
+            results.push(`${source}: ${detail}`);
           } catch (err) {
             failures.push(`${source}: ${err.message}`);
           }
@@ -690,7 +691,9 @@ export default function Dashboard() {
         });
       } else {
         const res = await cmdUpdates.check();
-        setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'done', result: res.data });
+        const count = res.data?.count || 0;
+        const output = res.data?.message || `${count} update${count === 1 ? '' : 's'} available.`;
+        setActionResult({ label: `check updates${cmdTargetLabel}`, status: 'done', result: { ...res.data, output } });
       }
       await fetchData({ background: true });
     } catch (err) {

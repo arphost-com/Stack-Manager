@@ -496,6 +496,8 @@ Each schedule targets a project (local or on a registered agent) and runs update
 
 Projects with an enabled scheduled update are automatically excluded from the nightly background update check — no wasted Docker Hub pulls for manifests that the scheduler will check anyway.
 
+Manual update checks have a five-minute cooldown. Repeated requests during that window return the last completed result instead of querying registries again. If a registry reports a rate limit, Stack Manager stops the remaining fleet scan, keeps prior update-available results visible, and returns a warning with the next allowed refresh time.
+
 ### Backup Endpoints
 
 Create backups from the project detail page or on a schedule. Archives are created locally first, then copied to any configured endpoint:

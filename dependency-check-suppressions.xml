@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd
+                                  https://dependency-check.github.io/DependencyCheck/dependency-suppression.1.4.xsd">
+  <suppress until="2026-11-15Z">
+    <notes><![CDATA[
+      GHSA-vfj7-8cjw-p6xm has no patched braces release as of 2026-10-06.
+      braces is present only through Tailwind 3's development/build tooling;
+      it is not shipped in the nginx runtime assets and does not process
+      request-controlled patterns. Reassess upstream or migrate to Tailwind 4
+      before this temporary suppression expires.
+    ]]></notes>
+    <packageUrl regex="true">^pkg:npm/braces@3\.0\.3$</packageUrl>
+    <vulnerabilityName>GHSA-vfj7-8cjw-p6xm</vulnerabilityName>
+  </suppress>
+</suppressions>
