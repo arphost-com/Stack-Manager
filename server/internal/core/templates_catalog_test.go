@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuiltinStackTemplatesFullCatalog(t *testing.T) {
 	templates := BuiltinStackTemplates()
@@ -32,4 +35,20 @@ func TestBuiltinStackTemplatesFullCatalog(t *testing.T) {
 	if !categories["ai"] || !categories["cms"] || !categories["database"] || !categories["media"] || !categories["proxy"] {
 		t.Fatalf("catalog categories missing expected non-AI groups: %#v", categories)
 	}
+}
+
+func TestOpenBrainVoiceMem0AvoidsFalcoDefaultPort(t *testing.T) {
+	for _, template := range BuiltinStackTemplates() {
+		if template.ID != "openbrain-voice" {
+			continue
+		}
+		if !strings.Contains(template.ComposeContent, `"${MEM0_PORT:-18765}:8765"`) {
+			t.Fatal("OpenBrain Voice mem0 should publish host port 18765 to container port 8765 by default")
+		}
+		if !strings.Contains(template.EnvContent, "MEM0_PORT=18765\n") {
+			t.Fatal("OpenBrain Voice env defaults should match the mem0 host port mapping")
+		}
+		return
+	}
+	t.Fatal("OpenBrain Voice template not found")
 }

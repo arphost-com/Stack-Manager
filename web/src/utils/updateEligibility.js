@@ -8,6 +8,19 @@ export const updateBlockedReason = (project) => {
 
 export const canRunImageUpdate = (project) => updateBlockedReason(project) === '';
 
+// Manual Pull downloads images without recreating containers and does not
+// depend on scheduled check results or the automatic update policy.
+export const projectActionBlockedReason = (project, action) => {
+  if (action === 'pull') return project?.controller ? 'Use Settings > Update to update Stack Manager itself.' : '';
+  if (action === 'update') {
+    if (project?.controller) return 'Use Settings > Update to update Stack Manager itself.';
+    if (project?.update_policy?.effective_policy === 'no_updates') return project.update_policy?.no_updates_reason || 'Updates are disabled for this project.';
+  }
+  return '';
+};
+
+export const canRunProjectAction = (project, action) => projectActionBlockedReason(project, action) === '';
+
 export const updateStatusLabel = (project) => {
   const status = project?.update_status || {};
   if (project?.controller) return 'self-update only';

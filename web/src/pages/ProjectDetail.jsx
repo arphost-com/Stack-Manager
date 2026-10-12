@@ -26,7 +26,8 @@ function parsePublishedPorts(project) {
 }
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone, stateTone } from '../utils/projectState';
-import { canRunImageUpdate, updateBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import { projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import ProjectActionButton from '../components/ProjectActionButton.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -599,11 +600,12 @@ export default function ProjectDetail() {
       <div className="section-panel">
         <div className="flex flex-wrap gap-2">
           {ACTIONS.map(action => {
-            const imageActionBlocked = (action.key === 'update' || action.key === 'pull') && !canRunImageUpdate(project);
+            const blockedReason = projectActionBlockedReason(project, action.key);
+            const imageActionBlocked = !!blockedReason;
             return (
-            <button key={action.key} disabled={imageActionBlocked} title={imageActionBlocked ? updateBlockedReason(project) : action.title} onClick={() => runAction(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} ${imageActionBlocked ? 'opacity-50' : ''}`}>
+            <ProjectActionButton key={action.key} project={project} action={action.key} title={action.title} onClick={() => runAction(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} ${imageActionBlocked ? 'opacity-50' : ''}`}>
               {action.label}
-            </button>
+            </ProjectActionButton>
           )})}
           <select title="Optional backup endpoint to copy the backup to after it is created locally." value={backupDestinationId} onChange={e => setBackupDestinationId(e.target.value)} className="input max-w-[220px]">
             <option value="">Local only</option>

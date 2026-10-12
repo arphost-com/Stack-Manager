@@ -3,7 +3,8 @@ import { Link } from 'react-router';
 import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, system, systemForSource, registries, agents as agentsApi, schedules as schedulesApi, metrics as metricsApi, backup as backupApi, backupForSource, updates as updatesApi, updatesForSource } from '../api/client';
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone } from '../utils/projectState';
-import { canRunImageUpdate, updateBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import { canRunImageUpdate, canRunProjectAction, projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import ProjectActionButton from '../components/ProjectActionButton.js';
 
 // GPU passthrough deploy block + a toggle that injects/removes it in a compose
 // (same behaviour as the Stack Catalog checkbox). Anchors on the first
@@ -541,9 +542,9 @@ export default function Dashboard() {
     }
     const key = `bulk:${action}`;
     const targetProjects = selected.length > 0 ? projectList.filter(p => selected.includes(projectSelectionKey(p))) : filteredProjects;
-    const runnableTargets = action === 'update' || action === 'pull' ? targetProjects.filter(canRunImageUpdate) : targetProjects;
+    const runnableTargets = targetProjects.filter(project => canRunProjectAction(project, action));
     if (runnableTargets.length === 0) {
-      setActionResult({ label: `bulk ${action}`, status: 'error', error: action === 'update' || action === 'pull' ? 'No checked projects have available updates.' : 'No projects selected.' });
+      setActionResult({ label: `bulk ${action}`, status: 'error', error: action === 'update' ? 'No projects eligible for Update. Check the update policy; Stack Manager uses Settings > Update.' : action === 'pull' ? 'No projects eligible for Pull. Stack Manager uses Settings > Update.' : 'No projects selected.' });
       return;
     }
     // Confirm disruptive bulk actions. `down` stops containers; `restart`
@@ -1194,12 +1195,12 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             {ACTIONS.map(action => {
               const actionProjects = selected.length > 0 ? projectList.filter(p => selected.includes(projectSelectionKey(p))) : filteredProjects;
-              const runnableCount = action.key === 'update' || action.key === 'pull' ? actionProjects.filter(canRunImageUpdate).length : actionProjects.length;
+              const runnableCount = actionProjects.filter(project => canRunProjectAction(project, action.key)).length;
               return (
-              <button key={action.key} disabled={serverSource === 'all' || isPending(`bulk:${action.key}`) || runnableCount === 0} title={serverSource === 'all' ? 'Select one server before changing projects. All Servers is read-only.' : action.key === 'update' || action.key === 'pull' ? `${action.title} Enabled only for projects with checked available updates.` : `${action.title} Applies to selected rows, or the current filtered list if none are selected.`} onClick={() => runBulk(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} ${(serverSource === 'all' || runnableCount === 0) ? 'opacity-50' : ''} inline-flex items-center gap-2`}>
+              <ProjectActionButton key={action.key} projects={actionProjects} action={action.key} disabled={serverSource === 'all' || isPending(`bulk:${action.key}`)} disabledReason={serverSource === 'all' ? 'Select one server before changing projects. All Servers is read-only.' : ''} title={`${action.title} Applies to selected rows, or the current filtered list if none are selected.`} onClick={() => runBulk(action.key)} className={`${action.key === 'down' ? 'btn-danger' : 'btn-secondary'} ${(serverSource === 'all' || runnableCount === 0) ? 'opacity-50' : ''} inline-flex items-center gap-2`}>
                 {isPending(`bulk:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
                 {action.label} {runnableCount}
-              </button>
+              </ProjectActionButton>
             )})}
           </div>
         </div>
@@ -1260,12 +1261,13 @@ export default function Dashboard() {
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
                       {ACTIONS.map(action => {
-                        const imageActionBlocked = serverSource === 'all' || ((action.key === 'update' || action.key === 'pull') && !canRunImageUpdate(p));
+                        const blockedReason = projectActionBlockedReason(p, action.key);
+                        const imageActionBlocked = serverSource === 'all' || !!blockedReason;
                         return (
-                        <button key={action.key} disabled={isPending(`${p.source_host || 'local'}:${p.name}:${action.key}`) || imageActionBlocked} title={serverSource === 'all' ? 'Select one server before changing projects. All Servers is read-only.' : imageActionBlocked ? updateBlockedReason(p) : action.title} onClick={() => runAction(p, action.key)} className={`${action.key === 'down' ? 'mini-danger' : 'mini-button'} ${imageActionBlocked ? 'opacity-50' : ''} inline-flex items-center gap-1`}>
+                        <ProjectActionButton key={action.key} project={p} action={action.key} disabled={isPending(`${p.source_host || 'local'}:${p.name}:${action.key}`) || serverSource === 'all'} disabledReason={serverSource === 'all' ? 'Select one server before changing projects. All Servers is read-only.' : ''} title={action.title} onClick={() => runAction(p, action.key)} className={`${action.key === 'down' ? 'mini-danger' : 'mini-button'} ${imageActionBlocked ? 'opacity-50' : ''} inline-flex items-center gap-1`}>
                           {isPending(`${p.source_host || 'local'}:${p.name}:${action.key}`) && <span className="spinner" aria-hidden="true"></span>}
                           {action.label}
-                        </button>
+                        </ProjectActionButton>
                       )})}
                       <button disabled={!p.inactive} title={p.inactive ? 'Delete the whole project directory after exact-name confirmation.' : 'Mark the project inactive before deleting its directory.'} onClick={() => deleteProject(p)} className={p.inactive ? 'mini-danger' : 'mini-button opacity-50'}>
                         Delete
@@ -1435,7 +1437,6 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
           <tbody>
             {pagedProjects.map(project => {
               const checks = (project.update_status?.images || []).filter(check => check.update_available);
-              const blockedReason = updateBlockedReason(project);
               return (
                 <tr key={projectSelectionKey(project)} className="border-b border-gray-100 align-top">
                   <td className="py-3">
@@ -1461,14 +1462,14 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
                   </td>
                   <td className="py-3">
                     <div className="flex justify-end gap-1">
-                      <button type="button" disabled={aggregateView || updatingAll || Boolean(blockedReason) || isPending(`${project.source_host || 'local'}:${project.name}:pull`)} onClick={() => runAction(project, 'pull')} className="mini-button inline-flex items-center gap-1" title={aggregateView ? 'Select one server before changing projects. All Servers is read-only.' : blockedReason || 'Pull available image updates for this project.'}>
+                      <ProjectActionButton type="button" project={project} action="pull" disabled={aggregateView || updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:pull`)} disabledReason={aggregateView ? 'Select one server before changing projects. All Servers is read-only.' : ''} onClick={() => runAction(project, 'pull')} className="mini-button inline-flex items-center gap-1" title="Pull images for this project without restarting containers.">
                         {isPending(`${project.source_host || 'local'}:${project.name}:pull`) && <span className="spinner" aria-hidden="true"></span>}
                         {isPending(`${project.source_host || 'local'}:${project.name}:pull`) ? 'Pulling…' : 'Pull'}
-                      </button>
-                      <button type="button" disabled={aggregateView || updatingAll || Boolean(blockedReason) || isPending(`${project.source_host || 'local'}:${project.name}:update`)} onClick={() => runAction(project, 'update')} className="mini-button inline-flex items-center gap-1" title={aggregateView ? 'Select one server before changing projects. All Servers is read-only.' : blockedReason || 'Pull available image updates and recreate only this project.'}>
+                      </ProjectActionButton>
+                      <ProjectActionButton type="button" project={project} action="update" disabled={aggregateView || updatingAll || isPending(`${project.source_host || 'local'}:${project.name}:update`)} disabledReason={aggregateView ? 'Select one server before changing projects. All Servers is read-only.' : ''} onClick={() => runAction(project, 'update')} className="mini-button inline-flex items-center gap-1" title="Pull images and recreate only this project using its existing configuration.">
                         {isPending(`${project.source_host || 'local'}:${project.name}:update`) && <span className="spinner" aria-hidden="true"></span>}
                         {isPending(`${project.source_host || 'local'}:${project.name}:update`) ? 'Updating…' : 'Update This'}
-                      </button>
+                      </ProjectActionButton>
                       <button type="button" disabled={updatingAll} onClick={() => dismissUpdateNotice(project)} className="mini-button" title="Hide this notice until the next scheduled or manual update check.">Dismiss</button>
                     </div>
                   </td>

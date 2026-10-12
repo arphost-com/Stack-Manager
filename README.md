@@ -871,6 +871,11 @@ Per-project setting stored in MariaDB, cached in Redis:
 
 Scheduled updates and bulk actions respect this policy.
 
+Registry/source checks are read-only and run only for projects with an enabled
+`check` schedule. They do not pull images, restart services, or edit Compose or
+environment files. Production backup, update, readback, and rollback guidance is
+in [Managed stack updates](docs/STACK_UPDATES.md).
+
 ### Project Deletion Guardrails
 
 Directory deletion (CLI and API) enforces:
