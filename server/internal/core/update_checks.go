@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"time"
 )
+
+var errLocalImageNotFound = errors.New("local image not found")
 
 const (
 	ImageUpdateStatusAvailable = "update_available"
@@ -136,23 +139,35 @@ func (e *Engine) CheckImageUpdate(ctx context.Context, project, service, image, 
 		CheckedAt: checkedAt.UTC(),
 	}
 	local, localErr := localImageRepoDigest(ctx, image)
-	if localErr != nil {
-		check.Status = ImageUpdateStatusMissing
-		check.UpdateAvailable = true
-		check.Error = localErr.Error()
-	}
 	remote, remoteErr := remoteImageDigest(ctx, image, HasStoredAuthForRegistry(registry))
+	return classifyImageUpdateCheck(check, local, localErr, remote, remoteErr)
+}
+
+func classifyImageUpdateCheck(check ImageUpdateCheck, local string, localErr error, remote string, remoteErr error) ImageUpdateCheck {
+	localMissing := false
+	if localErr != nil {
+		if errors.Is(localErr, errLocalImageNotFound) {
+			check.Status = ImageUpdateStatusMissing
+			localMissing = true
+		} else {
+			check.Error = localErr.Error()
+		}
+	}
 	if remoteErr != nil {
-		check.Error = remoteErr.Error()
+		if check.Error == "" {
+			check.Error = remoteErr.Error()
+		}
 		if local != "" {
 			check.LocalDigest = local
 		}
 		return check
 	}
 	check.RemoteDigest = remote
+	if localErr != nil && !localMissing {
+		return check
+	}
 	if local == "" {
 		check.Status = ImageUpdateStatusMissing
-		check.UpdateAvailable = true
 		return check
 	}
 	check.LocalDigest = local
@@ -177,7 +192,10 @@ func localImageRepoDigest(ctx context.Context, image string) (string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("local image not found: %s", msg)
+		if strings.Contains(strings.ToLower(msg), "no such image") {
+			return "", fmt.Errorf("%w: %s", errLocalImageNotFound, msg)
+		}
+		return "", fmt.Errorf("local image inspect failed: %s", msg)
 	}
 	var digests []string
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &digests); err != nil {

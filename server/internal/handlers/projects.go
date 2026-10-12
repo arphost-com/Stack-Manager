@@ -440,13 +440,13 @@ func (h *ProjectHandler) StartJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := chi.URLParam(r, "action")
-	if (action == "update" || action == "pull") && h.rejectControllerImageAction(w, project) {
+	if (action == "check" || action == "update" || action == "pull") && h.rejectControllerImageAction(w, project) {
 		return
 	}
 	timeout := h.getTimeout(r)
-	if action == "update" && h.noUpdates(project) {
+	if (action == "check" || action == "update") && h.noUpdates(project) {
 		policy := h.Store.ResolveUpdatePolicy(*project)
-		output := "updates skipped: " + policy.NoUpdatesReason + "\n"
+		output := action + " skipped: " + policy.NoUpdatesReason + "\n"
 		job, err := h.Jobs.StartSkipped(project, action, output)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

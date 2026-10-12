@@ -1,5 +1,5 @@
 ARG BASE_IMAGE_PREFIX=
-FROM ${BASE_IMAGE_PREFIX}golang:1.25.13-alpine AS builder
+FROM ${BASE_IMAGE_PREFIX}golang:1.26.9-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /build
 COPY go.mod go.sum ./

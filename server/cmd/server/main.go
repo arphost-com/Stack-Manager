@@ -148,7 +148,6 @@ func main() {
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	scheduler.Start(schedulerCtx)
 	metricsCollector.Start(schedulerCtx)
-	updateChecker.Start(schedulerCtx)
 	userStore, err := cmauth.NewStore(appStore, cfg.AdminUsername, cfg.AdminPassword)
 	if err != nil {
 		log.Fatalf("users init: %v", err)
@@ -435,7 +434,6 @@ func main() {
 
 	stopScheduler()
 	metricsCollector.Stop()
-	updateChecker.Stop()
 	registry.ShutdownAll(shutCtx)
 	srv.Shutdown(shutCtx)
 	log.Println("server stopped")

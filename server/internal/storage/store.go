@@ -1041,12 +1041,11 @@ func (s *Store) DeleteSchedule(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ScheduledProjectNames returns the set of local project names that have
-// at least one enabled update schedule. Used by the daily update checker
-// to skip projects that are already covered by a schedule.
-func (s *Store) ScheduledProjectNames(ctx context.Context) map[string]bool {
+// ScheduledCheckProjectNames returns local projects explicitly opted into
+// non-mutating registry/source checks through an enabled check schedule.
+func (s *Store) ScheduledCheckProjectNames(ctx context.Context) map[string]bool {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT DISTINCT project FROM update_schedules WHERE enabled=TRUE AND agent_id IS NULL AND action IN ('update','pull')`)
+		`SELECT DISTINCT project FROM update_schedules WHERE enabled=TRUE AND agent_id IS NULL AND action='check'`)
 	if err != nil {
 		return nil
 	}

@@ -492,11 +492,11 @@ Set human-readable schedules from Settings or the Dashboard:
 - **Monthly** on a day-of-month at a specific time
 - **Every N minutes** for custom intervals
 
-Each schedule targets a project (local or on a registered agent) and runs update, pull, up, restart, down, or status. Projects with a `no_updates` policy record a skipped session instead of pulling.
+Each schedule targets a project (local or on a registered agent) and runs check, update, pull, up, restart, down, or status. **Check for updates** is non-mutating: it compares registry manifests or source state without pulling images or restarting containers. Projects with a `no_updates` policy record a skipped session instead of checking or pulling.
 
-Projects with an enabled scheduled update are automatically excluded from the nightly background update check — no wasted Docker Hub pulls for manifests that the scheduler will check anyway.
+Registry and source checks are opt-in. Stack Manager does not scan projects at startup or on a nightly timer. Add an enabled **Check for updates** schedule to each project that should be checked; the dashboard's **Check Scheduled Now** button uses the same allowlist.
 
-Manual update checks have a five-minute cooldown. Repeated requests during that window return the last completed result instead of querying registries again. If a registry reports a rate limit, Stack Manager stops the remaining fleet scan, keeps prior update-available results visible, and returns a warning with the next allowed refresh time.
+Manual scheduled checks have a five-minute cooldown. Repeated requests during that window return the last completed result instead of querying registries again. If a registry reports a rate limit, Stack Manager stops the remaining fleet scan, keeps prior update-available results visible, and returns a warning with the next allowed refresh time. An image that is not present locally is reported as `missing_local`; it is not labeled as an available update merely because the local image is absent.
 
 ### Backup Endpoints
 

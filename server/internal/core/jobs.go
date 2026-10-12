@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -234,12 +235,45 @@ func (m *JobManager) run(engine *Engine, project *Project, job *ActionJob, timeo
 		})
 	case "update":
 		runUpdateJob(engine, project, job, timeoutSecs)
+	case "check":
+		runCheckJob(m.store, engine, project, job, timeoutSecs)
 	}
 	if !JobSnapshot(job).Success {
 		updateJob(job, func(j *ActionJob) {
 			j.Status = "failed"
 		})
 	}
+}
+
+type projectUpdateStatusSaver interface {
+	SaveProjectUpdateStatus(context.Context, string, ProjectUpdateStatus) error
+}
+
+func runCheckJob(store JobStore, engine *Engine, project *Project, job *ActionJob, timeoutSecs int) {
+	ctx := context.Background()
+	if timeoutSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+		defer cancel()
+	}
+
+	status := engine.CheckProjectUpdates(ctx, project)
+	if saver, ok := store.(projectUpdateStatusSaver); ok {
+		if err := saver.SaveProjectUpdateStatus(ctx, project.Name, status); err != nil {
+			status.Error = fmt.Sprintf("save update-check result: %v", err)
+		}
+	}
+	encoded, _ := json.MarshalIndent(status, "", "  ")
+	appendJobOutput(job, "=== check updates ===\n"+string(encoded)+"\n")
+	updateJob(job, func(j *ActionJob) {
+		j.Success = status.Error == ""
+		if j.Success {
+			j.ExitCode = 0
+			return
+		}
+		j.ExitCode = 1
+		j.Error = status.Error
+	})
 }
 
 func (m *JobManager) save(job *ActionJob) error {
@@ -418,7 +452,7 @@ func validJobAction(action string) bool {
 
 func ValidJobAction(action string) bool {
 	switch action {
-	case "pull", "up", "down", "restart", "status", "update":
+	case "check", "pull", "up", "down", "restart", "status", "update":
 		return true
 	default:
 		return false

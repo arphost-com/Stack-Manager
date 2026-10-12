@@ -5,6 +5,7 @@ import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';
 
 const ACTIONS = [
+  { key: 'check', label: 'Check for updates' },
   { key: 'update', label: 'Update' },
   { key: 'pull', label: 'Pull' },
   { key: 'up', label: 'Start' },
@@ -1866,7 +1867,7 @@ export default function Settings() {
                 {availableProjects.map(project => <option key={project.name} value={project.name}>{project.name}</option>)}
               </select>
             </Field>
-            <Field label="Action" title="Scheduled compose action. Update respects no-update project policy.">
+            <Field label="Action" title="Check for updates is non-mutating and opts this project into registry or source checks. Update respects no-update project policy.">
               <select value={scheduleForm.action} onChange={e => setScheduleForm({ ...scheduleForm, action: e.target.value })} className="input">
                 {ACTIONS.map(action => <option key={action.key} value={action.key}>{action.label}</option>)}
               </select>

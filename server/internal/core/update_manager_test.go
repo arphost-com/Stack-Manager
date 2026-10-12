@@ -120,3 +120,29 @@ func TestRegistryRateLimitDetection(t *testing.T) {
 		t.Fatal("ordinary manifest error must not stop the fleet check")
 	}
 }
+
+func TestEligibleForScheduledUpdateCheckRequiresExplicitOptIn(t *testing.T) {
+	allowed := ProjectUpdatePolicy{EffectivePolicy: UpdatePolicyAllow}
+	tests := []struct {
+		name       string
+		project    *Project
+		controller bool
+		scheduled  bool
+		policy     ProjectUpdatePolicy
+		want       bool
+	}{
+		{name: "scheduled active project", project: &Project{Name: "app"}, scheduled: true, policy: allowed, want: true},
+		{name: "unscheduled project", project: &Project{Name: "app"}, scheduled: false, policy: allowed},
+		{name: "inactive project", project: &Project{Name: "app", Inactive: true}, scheduled: true, policy: allowed},
+		{name: "controller project", project: &Project{Name: "stack-manager"}, controller: true, scheduled: true, policy: allowed},
+		{name: "no updates policy", project: &Project{Name: "app"}, scheduled: true, policy: ProjectUpdatePolicy{EffectivePolicy: UpdatePolicyNoUpdates}},
+		{name: "nil project", project: nil, scheduled: true, policy: allowed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := eligibleForScheduledUpdateCheck(tt.project, tt.controller, tt.scheduled, tt.policy); got != tt.want {
+				t.Fatalf("eligibleForScheduledUpdateCheck() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -1405,9 +1405,9 @@ function UpdatesPanel({ projects, availableProjects, pagedProjects, page, pageCo
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-gray-500">{checkedCount}/{eligibleProjects.length} checked</span>
-          <button type="button" className="btn-secondary inline-flex items-center gap-2" disabled={checkingUpdates || updatingAll} onClick={checkUpdates} title="Check registries for newer image digests without pulling images.">
+          <button type="button" className="btn-secondary inline-flex items-center gap-2" disabled={checkingUpdates || updatingAll} onClick={checkUpdates} title="Check only projects that have an enabled check-only schedule. No images are pulled.">
             {checkingUpdates && <span className="spinner" aria-hidden="true"></span>}
-            Check Now
+            Check Scheduled Now
           </button>
           <button type="button" className="btn-primary inline-flex items-center gap-2" disabled={aggregateView || availableProjects.length === 0 || updatingAll} onClick={runListedUpdates} title={aggregateView ? 'Select one server before updating projects. All Servers is read-only.' : `Update all ${availableProjects.length} listed project${availableProjects.length === 1 ? '' : 's'}, one project at a time.`}>
             {updatingAll && <span className="spinner" aria-hidden="true"></span>}

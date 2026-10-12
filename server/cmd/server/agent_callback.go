@@ -44,7 +44,7 @@ func runAgentCallbackLoop(ctx context.Context, cfg *config.Config, engine *core.
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{ // nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
-				InsecureSkipVerify: true,  //nolint:gosec // intentional for self-signed controllers
+				InsecureSkipVerify: true,             //nolint:gosec // intentional for self-signed controllers
 				MinVersion:         tls.VersionTLS13, // agent/peer traffic must use TLS 1.3
 			},
 		},
@@ -153,7 +153,7 @@ func sendAgentCheckin(ctx context.Context, client *http.Client, endpoint, result
 func runAgentCommands(ctx context.Context, client *http.Client, resultsEndpoint, name, token string, engine *core.Engine, commands []core.AgentCommandDispatch) {
 	results := make([]core.AgentCommandResult, 0, len(commands))
 	for _, cmd := range commands {
-		success, output := executeAgentCommand(engine, cmd)
+		success, output := executeAgentCommand(ctx, engine, cmd)
 		log.Printf("agent command #%d %s %q -> success=%v", cmd.ID, cmd.Action, cmd.Project, success)
 		results = append(results, core.AgentCommandResult{ID: cmd.ID, Success: success, Output: output})
 	}
@@ -162,7 +162,7 @@ func runAgentCommands(ctx context.Context, client *http.Client, resultsEndpoint,
 	}
 }
 
-func executeAgentCommand(engine *core.Engine, cmd core.AgentCommandDispatch) (bool, string) {
+func executeAgentCommand(ctx context.Context, engine *core.Engine, cmd core.AgentCommandDispatch) (bool, string) {
 	project, err := engine.GetProject(cmd.Project)
 	if err != nil {
 		return false, "project not found: " + err.Error()
@@ -177,6 +177,13 @@ func executeAgentCommand(engine *core.Engine, cmd core.AgentCommandDispatch) (bo
 		}
 	}
 	switch cmd.Action {
+	case "check":
+		status := engine.CheckProjectUpdates(ctx, project)
+		output, marshalErr := json.MarshalIndent(status, "", "  ")
+		if marshalErr != nil {
+			return false, marshalErr.Error()
+		}
+		return status.Error == "", string(output)
 	case "up":
 		r := engine.Up(project)
 		return r.Success, r.Output

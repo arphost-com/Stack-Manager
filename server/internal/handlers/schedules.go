@@ -251,9 +251,9 @@ func (h *AgentHandler) EnqueueCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Action {
-	case "up", "down", "pull", "update", "restart":
+	case "check", "up", "down", "pull", "update", "restart":
 	default:
-		writeError(w, http.StatusBadRequest, "action must be up, down, pull, update, or restart")
+		writeError(w, http.StatusBadRequest, "action must be check, up, down, pull, update, or restart")
 		return
 	}
 	cmd, err := h.Store.EnqueueAgentCommand(r.Context(), agent.ID, req)

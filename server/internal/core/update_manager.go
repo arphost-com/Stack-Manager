@@ -14,13 +14,12 @@ type UpdateCheckStore interface {
 	SaveProjectUpdateStatus(context.Context, string, ProjectUpdateStatus) error
 	ProjectUpdateStatus(context.Context, string) (ProjectUpdateStatus, error)
 	ResolveUpdatePolicy(Project) ProjectUpdatePolicy
-	ScheduledProjectNames(context.Context) map[string]bool
+	ScheduledCheckProjectNames(context.Context) map[string]bool
 }
 
 type UpdateCheckManager struct {
 	engine      *Engine
 	store       UpdateCheckStore
-	stop        chan struct{}
 	mu          sync.Mutex
 	lastRunAt   time.Time
 	lastSummary ProjectUpdateStatus
@@ -31,43 +30,8 @@ func NewUpdateCheckManager(engine *Engine, store UpdateCheckStore) *UpdateCheckM
 	return &UpdateCheckManager{
 		engine: engine,
 		store:  store,
-		stop:   make(chan struct{}),
 		now:    time.Now,
 	}
-}
-
-func (m *UpdateCheckManager) Start(ctx context.Context) {
-	if m == nil || m.engine == nil || m.store == nil {
-		return
-	}
-	go func() {
-		startup := time.NewTimer(15 * time.Second)
-		for {
-			timer := time.NewTimer(time.Until(nextLocalMidnight(time.Now())))
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				startup.Stop()
-				return
-			case <-m.stop:
-				timer.Stop()
-				startup.Stop()
-				return
-			case <-startup.C:
-				timer.Stop()
-				m.Run(ctx)
-			case <-timer.C:
-				m.Run(ctx)
-			}
-		}
-	}()
-}
-
-func (m *UpdateCheckManager) Stop() {
-	if m == nil {
-		return
-	}
-	close(m.stop)
 }
 
 func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
@@ -94,10 +58,9 @@ func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
 		m.rememberResult(m.currentTime(), summary)
 		return summary
 	}
-	// Skip projects that have an enabled scheduled update — the
-	// scheduler will check for updates when it runs, so burning
-	// Docker Hub pull budget on a daily manifest inspect is waste.
-	scheduledProjects := m.store.ScheduledProjectNames(ctx)
+	// Fleet checks are intentionally opt-in. Only an enabled, non-mutating
+	// check schedule authorizes registry/source traffic for a project.
+	scheduledProjects := m.store.ScheduledCheckProjectNames(ctx)
 
 	for i := range projects {
 		project := &projects[i]
@@ -107,14 +70,8 @@ func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
 			_ = m.store.SaveProjectUpdateStatus(ctx, project.Name, ProjectUpdateStatus{})
 			continue
 		}
-		if project.Inactive {
-			continue
-		}
-		if scheduledProjects[project.Name] {
-			continue
-		}
 		policy := m.store.ResolveUpdatePolicy(*project)
-		if policy.EffectivePolicy == UpdatePolicyNoUpdates {
+		if !eligibleForScheduledUpdateCheck(project, false, scheduledProjects[project.Name], policy) {
 			continue
 		}
 		status := m.engine.CheckProjectUpdates(ctx, project)
@@ -128,7 +85,7 @@ func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
 		if IsRegistryRateLimitError(status.Error) {
 			for j := i + 1; j < len(projects); j++ {
 				cachedProject := &projects[j]
-				if cachedProject.Inactive || m.engine.IsControllerProject(cachedProject) || scheduledProjects[cachedProject.Name] {
+				if cachedProject.Inactive || m.engine.IsControllerProject(cachedProject) || !scheduledProjects[cachedProject.Name] {
 					continue
 				}
 				if policy := m.store.ResolveUpdatePolicy(*cachedProject); policy.EffectivePolicy == UpdatePolicyNoUpdates {
@@ -150,10 +107,15 @@ func (m *UpdateCheckManager) Run(ctx context.Context) ProjectUpdateStatus {
 		allowed := completedAt.Add(updateCheckCooldown)
 		summary.RefreshAllowedAt = &allowed
 	}
-	next := nextLocalMidnight(completedAt)
-	summary.NextCheckAt = &next
+	if summary.RegistryImages == 0 && len(summary.Images) == 0 && summary.Error == "" {
+		summary.Message = "No active projects have an enabled check-only schedule."
+	}
 	m.rememberResult(completedAt, summary)
 	return summary
+}
+
+func eligibleForScheduledUpdateCheck(project *Project, controller, scheduled bool, policy ProjectUpdatePolicy) bool {
+	return project != nil && !project.Inactive && !controller && scheduled && policy.EffectivePolicy != UpdatePolicyNoUpdates
 }
 
 func (m *UpdateCheckManager) currentTime() time.Time {
@@ -268,10 +230,4 @@ func preservePreviousUpdateResults(previous, current ProjectUpdateStatus) Projec
 		}
 	}
 	return current
-}
-
-func nextLocalMidnight(now time.Time) time.Time {
-	local := now.Local()
-	next := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, local.Location())
-	return next.UTC()
 }

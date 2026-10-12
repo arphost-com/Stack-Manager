@@ -155,19 +155,30 @@ func (m *ScheduleManager) runSchedule(ctx context.Context, schedule UpdateSchedu
 	if err != nil {
 		return fail(err)
 	}
-	if action == "update" {
+	if action == "update" || action == "check" {
 		policy := m.store.ResolveUpdatePolicy(*project)
 		if policy.EffectivePolicy == UpdatePolicyNoUpdates {
 			reason := policy.NoUpdatesReason
 			if reason == "" {
 				reason = "updates disabled"
 			}
-			job, err := m.jobs.StartSkipped(project, action, "scheduled update skipped: "+reason+"\n")
+			job, err := m.jobs.StartSkipped(project, action, "scheduled "+action+" skipped: "+reason+"\n")
 			if err != nil {
 				return fail(err)
 			}
 			return m.store.MarkScheduleDispatched(ctx, schedule.ID, next, job.ID, "skipped", "")
 		}
+	}
+	if action == "check" && (project.Inactive || m.engine.IsControllerProject(project)) {
+		reason := "inactive projects are not checked"
+		if m.engine.IsControllerProject(project) {
+			reason = "the Stack Manager controller uses its dedicated self-update path"
+		}
+		job, err := m.jobs.StartSkipped(project, action, "scheduled check skipped: "+reason+"\n")
+		if err != nil {
+			return fail(err)
+		}
+		return m.store.MarkScheduleDispatched(ctx, schedule.ID, next, job.ID, "skipped", "")
 	}
 	job, err := m.jobs.Start(m.engine, project, action, schedule.TimeoutSeconds)
 	if err != nil {

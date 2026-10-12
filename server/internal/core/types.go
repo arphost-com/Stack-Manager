@@ -391,7 +391,7 @@ type AgentCommand struct {
 	ID        int64     `json:"id"`
 	AgentID   int64     `json:"agent_id"`
 	Project   string    `json:"project"`
-	Action    string    `json:"action"` // up | down | pull | update | restart
+	Action    string    `json:"action"` // check | up | down | pull | update | restart
 	Params    string    `json:"params,omitempty"`
 	Status    string    `json:"status"` // pending | dispatched | done | error
 	Success   bool      `json:"success"`
