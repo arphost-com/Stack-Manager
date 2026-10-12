@@ -5,6 +5,7 @@ import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone } from '../utils/projectState';
 import { canRunImageUpdate, canRunProjectAction, projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
 import ProjectActionButton from '../components/ProjectActionButton.js';
+import PortConflictWarning from '../components/PortConflictWarning.js';
 
 // GPU passthrough deploy block + a toggle that injects/removes it in a compose
 // (same behaviour as the Stack Catalog checkbox). Anchors on the first
@@ -1965,6 +1966,7 @@ function ActionResult({ result, onDismiss }) {
             </span>
           </div>
           {result.error && <div className="mt-1 font-mono text-xs">{result.error}</div>}
+          {!bulk && <PortConflictWarning result={{...result, ...result.result, ...result.job, error: result.job?.error || result.result?.error || result.error}} />}
           {result.job && <div className="mt-1 text-xs">Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}{typeof result.job.exit_code === 'number' && ` · exit ${result.job.exit_code}`}</div>}
           {bulk && failedProjects.length > 0 && (
             <div className="mt-2">
@@ -1976,6 +1978,7 @@ function ActionResult({ result, onDismiss }) {
                   {failedProjects.map((r, i) => (
                     <li key={`f${i}`} className="rounded bg-red-100/60 p-2">
                       <div className="font-mono text-xs font-semibold">{r.project} — {r.action} (exit {r.exit_code ?? '?'})</div>
+                      <PortConflictWarning result={r} />
                       {r.output && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 font-mono text-[11px] text-gray-100">{r.output}</pre>}
                     </li>
                   ))}

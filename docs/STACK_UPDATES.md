@@ -49,6 +49,18 @@ backup before a scheduled update. For production, use a manual update after a
 verified backup; treat automatic backup-before-update enforcement as an
 unimplemented safeguard, not as something a separate backup schedule guarantees.
 
+## Startup host-port conflicts
+
+If Compose cannot start because a published host port is already in use, the
+dashboard shows a warning beside the failed action/session output. Identify the
+port owner on that stack's server. If needed, the operator can choose a free
+**host** port using the stack's documented port variable or Compose mapping,
+keeping the container port unchanged and updating any external client URLs.
+Stack Manager must not change default ports, rewrite configuration, or stop
+another service to resolve a host-specific conflict. OpenBrain Voice retains
+its original Mem0 host default of 8765; a collision does not justify changing
+that default for everyone.
+
 ## Catalog template replacement
 
 Applying a catalog template is a configuration migration, not a routine image

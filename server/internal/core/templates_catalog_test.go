@@ -37,15 +37,15 @@ func TestBuiltinStackTemplatesFullCatalog(t *testing.T) {
 	}
 }
 
-func TestOpenBrainVoiceMem0AvoidsFalcoDefaultPort(t *testing.T) {
+func TestOpenBrainVoiceMem0PreservesOriginalDefaultPort(t *testing.T) {
 	for _, template := range BuiltinStackTemplates() {
 		if template.ID != "openbrain-voice" {
 			continue
 		}
-		if !strings.Contains(template.ComposeContent, `"${MEM0_PORT:-18765}:8765"`) {
-			t.Fatal("OpenBrain Voice mem0 should publish host port 18765 to container port 8765 by default")
+		if !strings.Contains(template.ComposeContent, `"${MEM0_PORT:-8765}:8765"`) {
+			t.Fatal("OpenBrain Voice must preserve original host port 8765; conflicts require operator choice, not changed defaults")
 		}
-		if !strings.Contains(template.EnvContent, "MEM0_PORT=18765\n") {
+		if !strings.Contains(template.EnvContent, "MEM0_PORT=8765\n") {
 			t.Fatal("OpenBrain Voice env defaults should match the mem0 host port mapping")
 		}
 		return

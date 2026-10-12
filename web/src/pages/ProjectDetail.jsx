@@ -28,6 +28,7 @@ import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone, stateTone } from '../utils/projectState';
 import { projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
 import ProjectActionButton from '../components/ProjectActionButton.js';
+import PortConflictWarning from '../components/PortConflictWarning.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -1007,6 +1008,7 @@ function QueuedCommands({ commands, agentName, onRefresh }) {
                 <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone(c)}`}>{label(c)}</span>
                 <span className="ml-auto text-xs text-gray-400">{c.updated_at ? new Date(c.updated_at).toLocaleString() : ''}</span>
               </div>
+              <PortConflictWarning result={c} />
               {c.output && (c.status === 'done' || c.status === 'error') && (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-gray-950 p-2 text-xs text-gray-100">{c.output}</pre>
               )}
@@ -1400,6 +1402,7 @@ function Sessions({ data, projectName }) {
               <span className="font-mono text-xs text-gray-500">{open.id}</span>
               {open.duration && <span className="text-xs text-gray-500">{open.duration}</span>}
             </div>
+            <PortConflictWarning result={open} />
             <pre ref={sessionPreRef} className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs text-gray-100 whitespace-pre-wrap">{open.output || 'No output yet.'}</pre>
           </>
         ) : null}
@@ -1646,6 +1649,7 @@ function ActionResult({ result, onDismiss }) {
         <div>
           <div className="font-medium">{result.status === 'running' ? `Running ${result.label}...` : result.status === 'error' ? `Error during ${result.label}` : `${result.label} completed`}</div>
           {result.error && <div className="mt-1">{result.error}</div>}
+          <PortConflictWarning result={{...result, ...result.result, ...result.job, error: result.job?.error || result.result?.error || result.error}} />
           {result.job && <div className="mt-1 text-xs">Session: <span className="font-mono">{result.job.id}</span> · {result.job.status}</div>}
           {result.result?.destination && (
             <div className="mt-1 text-xs">
@@ -1813,6 +1817,7 @@ function WatchTab({ data, projectName, reload }) {
           {selected.size_bytes > 0 && <span>{selected.size_bytes.toLocaleString()} bytes</span>}
         </div>
       )}
+      <PortConflictWarning result={{output: lines.map(line => line.text).join('\n'), error, success: selected && !selected.running && selected.exit_code === 0}} />
       <pre ref={preRef} className="max-h-[560px] overflow-auto rounded-md bg-gray-950 p-4 font-mono text-xs leading-relaxed">
         {lines.length === 0 ? (
           <span className="text-gray-500">{streaming ? 'Waiting for first log line…' : selectedId ? 'Empty log for this session.' : 'Click Up + Watch to start a new session.'}</span>

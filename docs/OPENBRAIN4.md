@@ -42,7 +42,7 @@ Chat and code won't work until `ollama-init` has finished pulling.
 | Qdrant | `http://HOST:6333` | Vector DB (RAG + memory) |
 | Flowise | `http://HOST:3001` | Visual agent/flow builder |
 | n8n | `http://HOST:5678` | Workflow automation |
-| OpenMemory (mem0) | `http://HOST:18765` | Persistent memory API/UI |
+| OpenMemory (mem0) | `http://HOST:8765` | Persistent memory API/UI |
 | Piper | `HOST:10200` | Bonus TTS (Wyoming protocol) |
 
 You only *log into* Open WebUI, Flowise, and n8n. The rest are wired internally
@@ -134,7 +134,7 @@ Knowledge collection under **Workspace → Knowledge**), then reference it with
 
 ---
 
-## 6. Persistent memory — mem0 / OpenMemory (`http://HOST:18765`)
+## 6. Persistent memory — mem0 / OpenMemory (`http://HOST:8765`)
 
 OpenMemory stores long-term memories in Qdrant. It needs an LLM to extract
 memories — pick one:
