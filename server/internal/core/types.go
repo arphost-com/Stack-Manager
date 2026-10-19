@@ -198,6 +198,10 @@ type BackupSchedule struct {
 	Projects        []string   `json:"projects,omitempty"`
 	DestinationIDs  []int64    `json:"destination_ids,omitempty"`
 	IntervalMinutes int        `json:"interval_minutes"`
+	Cadence         string     `json:"cadence"`
+	TimeOfDay       string     `json:"time_of_day"`
+	DayOfWeek       int        `json:"day_of_week"`
+	DayOfMonth      int        `json:"day_of_month"`
 	NextRunAt       time.Time  `json:"next_run_at"`
 	LastRunAt       *time.Time `json:"last_run_at,omitempty"`
 	LastStatus      string     `json:"last_status,omitempty"`
@@ -215,6 +219,10 @@ type BackupScheduleRequest struct {
 	Projects        []string   `json:"projects,omitempty"`
 	DestinationIDs  []int64    `json:"destination_ids,omitempty"`
 	IntervalMinutes int        `json:"interval_minutes"`
+	Cadence         string     `json:"cadence,omitempty"`
+	TimeOfDay       string     `json:"time_of_day,omitempty"`
+	DayOfWeek       int        `json:"day_of_week,omitempty"`
+	DayOfMonth      int        `json:"day_of_month,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
 }
 
@@ -453,18 +461,19 @@ type UpdateSchedule struct {
 
 // UpdateScheduleRequest creates or updates an automatic compose action schedule.
 type UpdateScheduleRequest struct {
-	ID              int64      `json:"id,omitempty"`
-	AgentID         *int64     `json:"agent_id,omitempty"`
-	Project         string     `json:"project"`
-	Action          string     `json:"action,omitempty"`
-	Enabled         *bool      `json:"enabled,omitempty"`
-	Cadence         string     `json:"cadence,omitempty"`
-	TimeOfDay       string     `json:"time_of_day,omitempty"`
-	DayOfWeek       int        `json:"day_of_week,omitempty"`
-	DayOfMonth      int        `json:"day_of_month,omitempty"`
-	IntervalMinutes int        `json:"interval_minutes"`
-	TimeoutSeconds  int        `json:"timeout_seconds,omitempty"`
-	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
+	ID                 int64      `json:"id,omitempty"`
+	AgentID            *int64     `json:"agent_id,omitempty"`
+	Project            string     `json:"project"`
+	Action             string     `json:"action,omitempty"`
+	Enabled            *bool      `json:"enabled,omitempty"`
+	Cadence            string     `json:"cadence,omitempty"`
+	TimeOfDay          string     `json:"time_of_day,omitempty"`
+	DayOfWeek          int        `json:"day_of_week,omitempty"`
+	DayOfMonth         int        `json:"day_of_month,omitempty"`
+	IntervalMinutes    int        `json:"interval_minutes"`
+	TimeoutSeconds     int        `json:"timeout_seconds,omitempty"`
+	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
+	ConfirmDestructive bool       `json:"confirm_destructive,omitempty"`
 }
 
 // UpdateScheduleRun is one persisted execution attempt for an update schedule.

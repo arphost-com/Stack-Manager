@@ -155,6 +155,19 @@ func (h *AgentRuntimeHandler) StartJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, job)
 }
 
+func (h *AgentRuntimeHandler) StartSystemJob(w http.ResponseWriter, r *http.Request) {
+	if chi.URLParam(r, "action") != "prune-system-all" {
+		writeError(w, http.StatusBadRequest, "invalid system action")
+		return
+	}
+	job, err := h.Jobs.StartSystemPrune(h.Engine)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
 func (h *AgentRuntimeHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.Jobs.List())
 }
@@ -276,7 +289,11 @@ func (h *AgentRuntimeHandler) DeleteRegistryLogin(w http.ResponseWriter, r *http
 }
 
 func (h *AgentRuntimeHandler) Prune(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.Engine.Prune("safe"))
+	var req core.PruneRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	writeJSON(w, http.StatusOK, h.Engine.Prune(req.Mode))
 }
 
 func (h *AgentRuntimeHandler) projectFromRequest(w http.ResponseWriter, r *http.Request) (*core.Project, error) {

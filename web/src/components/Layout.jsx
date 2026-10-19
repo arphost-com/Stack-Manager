@@ -45,6 +45,7 @@ export default function Layout() {
             Stack Manager
           </Link>
           <Link to="/" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/')}`}>Dashboard</Link>
+          <Link to="/backups" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/backups')}`}>Backups</Link>
           <Link to="/catalog" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/catalog')}`}>Stack Catalog</Link>
           <Link to="/audit" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/audit')}`}>Audit Log</Link>
           <Link to="/docs" className={`rounded-md px-3 py-1.5 text-sm hover:bg-gray-100 ${isActive('/docs')}`}>Documentation</Link>

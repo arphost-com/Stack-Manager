@@ -134,7 +134,7 @@ func (m *ScheduleManager) runSchedule(ctx context.Context, schedule UpdateSchedu
 	if action == "" {
 		action = "update"
 	}
-	if !ValidJobAction(action) {
+	if !ValidScheduleAction(action) {
 		return fail(fmt.Errorf("invalid scheduled action: %s", action))
 	}
 	if schedule.AgentID != nil {
@@ -147,6 +147,21 @@ func (m *ScheduleManager) runSchedule(ctx context.Context, schedule UpdateSchedu
 		}
 		if pollRemote {
 			go m.watchAgentJob(schedule, jobID)
+		} else if current, ok := m.jobs.Get(jobID); ok && current.Status != "running" {
+			_ = m.store.CompleteScheduleRun(ctx, current.ID, current.Status, current.Output, current.Error, current.EndedAt, current.Duration)
+		}
+		return nil
+	}
+	if action == "prune-system-all" {
+		job, err := m.jobs.StartSystemPrune(m.engine)
+		if err != nil {
+			return fail(err)
+		}
+		if err := m.store.MarkScheduleDispatched(ctx, schedule.ID, next, job.ID, "started", ""); err != nil {
+			return err
+		}
+		if current, ok := m.jobs.Get(job.ID); ok && current.Status != "running" {
+			_ = m.store.CompleteScheduleRun(ctx, current.ID, current.Status, current.Output, current.Error, current.EndedAt, current.Duration)
 		}
 		return nil
 	}
@@ -203,6 +218,9 @@ func (m *ScheduleManager) runAgentSchedule(ctx context.Context, schedule UpdateS
 	if !agent.Enabled {
 		return "", false, fmt.Errorf("agent %s is disabled", agent.Name)
 	}
+	if agent.Mode == "peer" && action == "prune-system-all" {
+		return m.runPeerSystemPrune(ctx, agent)
+	}
 	if agent.BaseURL == "" || agent.Mode == "callback" {
 		// Callback agents can't be driven live — queue the action so the agent
 		// runs it on its next check-in (the same command queue the UI uses).
@@ -223,8 +241,13 @@ func (m *ScheduleManager) runAgentSchedule(ctx context.Context, schedule UpdateS
 	if base.Scheme != "http" && base.Scheme != "https" {
 		return "", false, fmt.Errorf("agent URL must use http or https")
 	}
-	escapedProject := url.PathEscape(schedule.Project)
-	path := strings.TrimRight(base.String(), "/") + "/agent/v1/projects/" + escapedProject + "/jobs/" + url.PathEscape(action)
+	path := ""
+	if action == "prune-system-all" {
+		path = strings.TrimRight(base.String(), "/") + "/agent/v1/system/jobs/" + url.PathEscape(action)
+	} else {
+		escapedProject := url.PathEscape(schedule.Project)
+		path = strings.TrimRight(base.String(), "/") + "/agent/v1/projects/" + escapedProject + "/jobs/" + url.PathEscape(action)
+	}
 	if schedule.TimeoutSeconds > 0 {
 		path += "?timeout=" + strconv.Itoa(schedule.TimeoutSeconds)
 	}
@@ -256,6 +279,47 @@ func (m *ScheduleManager) runAgentSchedule(ctx context.Context, schedule UpdateS
 		return "", false, fmt.Errorf("agent did not return a job id")
 	}
 	return envelope.Data.ID, true, nil
+}
+
+func (m *ScheduleManager) runPeerSystemPrune(ctx context.Context, agent *ComposeAgent) (string, bool, error) {
+	base, err := url.Parse(agent.BaseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return "", false, fmt.Errorf("invalid peer URL")
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return "", false, fmt.Errorf("peer URL must use http or https")
+	}
+	body, _ := json.Marshal(PruneRequest{Mode: "system-all"})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base.String(), "/")+"/api/v1/prune", bytes.NewReader(body))
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("X-API-Key", agent.Token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := m.client.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer res.Body.Close()
+	var envelope struct {
+		Status string    `json:"status"`
+		Error  string    `json:"error"`
+		Data   *OpResult `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&envelope); err != nil {
+		return "", false, err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 || envelope.Status == "error" || envelope.Data == nil {
+		if envelope.Error == "" {
+			envelope.Error = res.Status
+		}
+		return "", false, errors.New(envelope.Error)
+	}
+	job, err := m.jobs.RecordResult(*envelope.Data)
+	if err != nil {
+		return "", false, err
+	}
+	return job.ID, false, nil
 }
 
 func (m *ScheduleManager) watchAgentJob(schedule UpdateSchedule, jobID string) {

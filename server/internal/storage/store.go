@@ -263,6 +263,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 			projects_json JSON NOT NULL,
 			destination_ids_json JSON NOT NULL,
 			interval_minutes INT NOT NULL,
+			cadence VARCHAR(16) NOT NULL DEFAULT 'interval',
+			time_of_day VARCHAR(5) NOT NULL DEFAULT '03:00',
+			day_of_week TINYINT NOT NULL DEFAULT 6,
+			day_of_month TINYINT NOT NULL DEFAULT 1,
 			next_run_at DATETIME(6) NOT NULL,
 			last_run_at DATETIME(6) NULL,
 			last_status VARCHAR(64) NOT NULL DEFAULT '',
@@ -306,6 +310,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT FALSE AFTER totp_secret`,
 		`ALTER TABLE users ADD COLUMN totp_backup_codes TEXT NULL AFTER totp_enabled`,
 		`ALTER TABLE compose_agents ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT '' AFTER base_url`,
+		`ALTER TABLE backup_schedules ADD COLUMN cadence VARCHAR(16) NOT NULL DEFAULT 'interval' AFTER interval_minutes`,
+		`ALTER TABLE backup_schedules ADD COLUMN time_of_day VARCHAR(5) NOT NULL DEFAULT '03:00' AFTER cadence`,
+		`ALTER TABLE backup_schedules ADD COLUMN day_of_week TINYINT NOT NULL DEFAULT 6 AFTER time_of_day`,
+		`ALTER TABLE backup_schedules ADD COLUMN day_of_month TINYINT NOT NULL DEFAULT 1 AFTER day_of_week`,
 	}
 	for _, stmt := range alterStmts {
 		_, err := s.DB.ExecContext(ctx, stmt)
@@ -1096,7 +1104,7 @@ func (s *Store) ListBackupSchedules(ctx context.Context) ([]core.BackupSchedule,
 	if s.GetJSON(ctx, "backup_schedules:list", &cached) {
 		return cached, nil
 	}
-	schedules, err := s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
+	schedules, err := s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, cadence, time_of_day, day_of_week, day_of_month, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
 		FROM backup_schedules
 		ORDER BY enabled DESC, next_run_at ASC`)
 	if err != nil {
@@ -1107,14 +1115,14 @@ func (s *Store) ListBackupSchedules(ctx context.Context) ([]core.BackupSchedule,
 }
 
 func (s *Store) ListDueBackupSchedules(ctx context.Context, now time.Time) ([]core.BackupSchedule, error) {
-	return s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
+	return s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, cadence, time_of_day, day_of_week, day_of_month, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
 		FROM backup_schedules
 		WHERE enabled=TRUE AND next_run_at <= ?
 		ORDER BY next_run_at ASC`, now)
 }
 
 func (s *Store) GetBackupSchedule(ctx context.Context, id int64) (*core.BackupSchedule, error) {
-	schedules, err := s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
+	schedules, err := s.queryBackupSchedules(ctx, `SELECT id, name, enabled, projects_json, destination_ids_json, interval_minutes, cadence, time_of_day, day_of_week, day_of_month, next_run_at, last_run_at, last_status, last_error, last_backup_ids_json, created_at, updated_at
 		FROM backup_schedules
 		WHERE id=?`, id)
 	if err != nil {
@@ -1135,7 +1143,18 @@ func (s *Store) SaveBackupSchedule(ctx context.Context, req core.BackupScheduleR
 	if req.IntervalMinutes < 5 {
 		req.IntervalMinutes = 1440
 	}
-	nextRun := now.Add(time.Duration(req.IntervalMinutes) * time.Minute)
+	cadence := strings.TrimSpace(req.Cadence)
+	if cadence == "" {
+		cadence = "interval"
+	}
+	timeOfDay := strings.TrimSpace(req.TimeOfDay)
+	if timeOfDay == "" {
+		timeOfDay = "03:00"
+	}
+	nextRun := core.NextScheduleRunExported(core.UpdateSchedule{
+		Cadence: cadence, TimeOfDay: timeOfDay, DayOfWeek: req.DayOfWeek,
+		DayOfMonth: req.DayOfMonth, IntervalMinutes: req.IntervalMinutes, NextRunAt: now,
+	}, now)
 	if req.NextRunAt != nil && !req.NextRunAt.IsZero() {
 		nextRun = req.NextRunAt.UTC()
 	}
@@ -1143,9 +1162,9 @@ func (s *Store) SaveBackupSchedule(ctx context.Context, req core.BackupScheduleR
 	destinationsJSON, _ := json.Marshal(req.DestinationIDs)
 	if req.ID > 0 {
 		res, err := s.DB.ExecContext(ctx, `UPDATE backup_schedules
-			SET name=?, enabled=?, projects_json=?, destination_ids_json=?, interval_minutes=?, next_run_at=?, updated_at=?
+			SET name=?, enabled=?, projects_json=?, destination_ids_json=?, interval_minutes=?, cadence=?, time_of_day=?, day_of_week=?, day_of_month=?, next_run_at=?, updated_at=?
 			WHERE id=?`,
-			req.Name, enabled, projectsJSON, destinationsJSON, req.IntervalMinutes, nextRun, now, req.ID)
+			req.Name, enabled, projectsJSON, destinationsJSON, req.IntervalMinutes, cadence, timeOfDay, req.DayOfWeek, req.DayOfMonth, nextRun, now, req.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -1158,9 +1177,9 @@ func (s *Store) SaveBackupSchedule(ctx context.Context, req core.BackupScheduleR
 	}
 	emptyIDs, _ := json.Marshal([]string{})
 	res, err := s.DB.ExecContext(ctx, `INSERT INTO backup_schedules
-		(name, enabled, projects_json, destination_ids_json, interval_minutes, next_run_at, last_backup_ids_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		req.Name, enabled, projectsJSON, destinationsJSON, req.IntervalMinutes, nextRun, emptyIDs, now, now)
+		(name, enabled, projects_json, destination_ids_json, interval_minutes, cadence, time_of_day, day_of_week, day_of_month, next_run_at, last_backup_ids_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		req.Name, enabled, projectsJSON, destinationsJSON, req.IntervalMinutes, cadence, timeOfDay, req.DayOfWeek, req.DayOfMonth, nextRun, emptyIDs, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1367,7 +1386,7 @@ func scanBackupSchedule(scanner jobScanner) (*core.BackupSchedule, error) {
 	var backupIDsRaw []byte
 	var lastRun sql.NullTime
 	var lastError sql.NullString
-	if err := scanner.Scan(&schedule.ID, &schedule.Name, &schedule.Enabled, &projectsRaw, &destinationsRaw, &schedule.IntervalMinutes, &schedule.NextRunAt, &lastRun, &schedule.LastStatus, &lastError, &backupIDsRaw, &schedule.CreatedAt, &schedule.UpdatedAt); err != nil {
+	if err := scanner.Scan(&schedule.ID, &schedule.Name, &schedule.Enabled, &projectsRaw, &destinationsRaw, &schedule.IntervalMinutes, &schedule.Cadence, &schedule.TimeOfDay, &schedule.DayOfWeek, &schedule.DayOfMonth, &schedule.NextRunAt, &lastRun, &schedule.LastStatus, &lastError, &backupIDsRaw, &schedule.CreatedAt, &schedule.UpdatedAt); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal(projectsRaw, &schedule.Projects)

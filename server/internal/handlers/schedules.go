@@ -393,6 +393,9 @@ func normalizeSchedule(req *core.UpdateScheduleRequest) {
 	if req.Action == "" {
 		req.Action = "update"
 	}
+	if req.Action == "prune-system-all" {
+		req.Project = "(system)"
+	}
 	req.Cadence = strings.ToLower(strings.TrimSpace(req.Cadence))
 	if req.Cadence == "" {
 		req.Cadence = "interval"
@@ -411,8 +414,16 @@ func validateSchedule(req core.UpdateScheduleRequest) error {
 	if req.Project == "" {
 		return errors.New("project is required")
 	}
-	if !core.ValidJobAction(req.Action) {
+	if !core.ValidScheduleAction(req.Action) {
 		return errors.New("invalid action")
+	}
+	if req.Action == "prune-system-all" {
+		if req.Project != "(system)" {
+			return errors.New("full system prune must target the host")
+		}
+		if !req.ConfirmDestructive {
+			return errors.New("full system prune requires destructive-action acknowledgement")
+		}
 	}
 	switch req.Cadence {
 	case "interval":

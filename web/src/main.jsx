@@ -36,6 +36,7 @@ function App() {
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/backups" element={<Dashboard initialTab="backups" />} />
               <Route path="/catalog" element={<StackCatalog />} />
               <Route path="/audit" element={<AuditLog />} />
               <Route path="/docs" element={<Documentation />} />

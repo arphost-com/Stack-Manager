@@ -337,7 +337,11 @@ func (e *Engine) Prune(mode string) *OpResult {
 
 	var outputs []string
 	run := func(label string, args ...string) bool {
-		cmdResult, _ := DockerExec(args...)
+		dockerExec := e.dockerExec
+		if dockerExec == nil {
+			dockerExec = DockerExec
+		}
+		cmdResult, _ := dockerExec(args...)
 		if cmdResult == nil {
 			outputs = append(outputs, "=== "+label+" ===\nfailed to run command")
 			return false

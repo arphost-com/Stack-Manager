@@ -262,6 +262,11 @@ can't read project data (Postgres/MariaDB/Redis bind mounts), backup falls back
 to a short-lived root helper container — this is intentional; do not chown
 project bind mounts to "fix" it.
 
+Use the dedicated **Backups** page for single-project, selected-project, or all
+active-project runs and for daily, weekly, monthly, or interval schedules.
+Settings keeps the latest endpoint test result visible on the endpoint row so a
+failed connection cannot be mistaken for a successful test.
+
 ---
 
 ## Base-image routing

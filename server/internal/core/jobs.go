@@ -80,6 +80,49 @@ func (m *JobManager) Start(engine *Engine, project *Project, action string, time
 	return JobSnapshot(job), nil
 }
 
+// StartSystemPrune tracks a host-level Docker cleanup as an asynchronous job.
+// Only the explicitly scheduled full-prune action is accepted here so project
+// job endpoints cannot accidentally expose arbitrary prune modes.
+func (m *JobManager) StartSystemPrune(engine *Engine) (*ActionJob, error) {
+	id, err := randomJobID()
+	if err != nil {
+		return nil, err
+	}
+	job := &ActionJob{
+		ID: id, Project: "(system)", Action: "prune-system-all",
+		Status: "running", StartedAt: time.Now().UTC(),
+	}
+	m.mu.Lock()
+	m.jobs[id] = job
+	m.mu.Unlock()
+	go m.runSystemPrune(engine, job)
+	return JobSnapshot(job), nil
+}
+
+func (m *JobManager) runSystemPrune(engine *Engine, job *ActionJob) {
+	result := engine.Prune("system-all")
+	updateJob(job, func(j *ActionJob) {
+		j.Success = result.Success
+		j.ExitCode = result.ExitCode
+		j.Output = result.Output
+		if !result.Success {
+			j.Status = "failed"
+			j.Error = "full Docker system prune failed"
+		} else {
+			j.Status = "completed"
+		}
+		j.EndedAt = time.Now().UTC()
+		j.Duration = j.EndedAt.Sub(j.StartedAt).Round(time.Millisecond).String()
+	})
+	_ = m.save(job)
+	m.mu.RLock()
+	handlers := append([]func(*ActionJob){}, m.completionHandlers...)
+	m.mu.RUnlock()
+	for _, handler := range handlers {
+		handler(JobSnapshot(job))
+	}
+}
+
 func (m *JobManager) StartSkipped(project *Project, action, output string) (*ActionJob, error) {
 	id, err := randomJobID()
 	if err != nil {
@@ -457,6 +500,10 @@ func ValidJobAction(action string) bool {
 	default:
 		return false
 	}
+}
+
+func ValidScheduleAction(action string) bool {
+	return ValidJobAction(action) || action == "prune-system-all"
 }
 
 func randomJobID() (string, error) {

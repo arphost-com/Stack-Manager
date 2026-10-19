@@ -163,6 +163,10 @@ func runAgentCommands(ctx context.Context, client *http.Client, resultsEndpoint,
 }
 
 func executeAgentCommand(ctx context.Context, engine *core.Engine, cmd core.AgentCommandDispatch) (bool, string) {
+	if cmd.Action == "prune-system-all" {
+		result := engine.Prune("system-all")
+		return result.Success, result.Output
+	}
 	project, err := engine.GetProject(cmd.Project)
 	if err != nil {
 		return false, "project not found: " + err.Error()

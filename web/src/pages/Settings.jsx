@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { auth, users, backup, projects, agents, schedules, jobsForSource, registries, dockerSettings, ssl as sslApi, firewall as firewallApi, totp as totpApi, envSettings, proxy as proxyApi, system } from '../api/client';
 import { getThemePreference, setThemePreference } from '../theme';
 import { buildDockerConfig, formFromDockerConfig, pruneMap } from '../utils/dockerSettings';
+import BackupEndpointTestStatus, { backupEndpointTestState } from '../components/BackupEndpointTestStatus.js';
 
 const ACTIONS = [
   { key: 'check', label: 'Check for updates' },
@@ -12,6 +13,7 @@ const ACTIONS = [
   { key: 'restart', label: 'Restart' },
   { key: 'down', label: 'Stop' },
   { key: 'status', label: 'Status' },
+  { key: 'prune-system-all', label: 'Full system prune (--all + volumes)' },
 ];
 
 function hostFromURL(rawURL) {
@@ -74,6 +76,7 @@ const emptyScheduleForm = {
   day_of_month: 1,
   interval_minutes: 1440,
   timeout_seconds: 300,
+  confirm_destructive: false,
 };
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -120,6 +123,7 @@ export default function Settings() {
   const [savingServerName, setSavingServerName] = useState(false);
   const [userList, setUserList] = useState([]);
   const [destinationList, setDestinationList] = useState([]);
+  const [destinationTests, setDestinationTests] = useState({});
   const [projectList, setProjectList] = useState([]);
   const [agentList, setAgentList] = useState([]);
   const [agentProjects, setAgentProjects] = useState({});
@@ -203,7 +207,7 @@ export default function Settings() {
       { key: 'general', label: 'General', title: 'Ports, cache, API key, and host settings.' },
       { key: 'users', label: 'Users', title: 'Manage dashboard users and passwords.' },
       { key: 'agents', label: 'Agents', title: 'Register and edit remote Stack Manager agents.' },
-      { key: 'schedules', label: 'Scheduled Updates', title: 'Schedule local or agent project updates.' },
+      { key: 'schedules', label: 'Schedules', title: 'Schedule project actions and host cleanup.' },
       { key: 'registries', label: 'Registry Logins', title: 'Docker Hub account and private registry logins.' },
       { key: 'docker', label: 'Docker Settings', title: 'Edit Docker daemon.json settings for this host.' },
       { key: 'gpu', label: 'GPU', title: 'Detect and test NVIDIA GPU passthrough for AI stacks.' },
@@ -974,6 +978,7 @@ export default function Settings() {
       day_of_month: Number(scheduleForm.day_of_month),
       interval_minutes: Number(scheduleForm.interval_minutes),
       timeout_seconds: Number(scheduleForm.timeout_seconds),
+      confirm_destructive: Boolean(scheduleForm.confirm_destructive),
     };
     try {
       const res = await schedules.save(body);
@@ -999,6 +1004,7 @@ export default function Settings() {
       day_of_month: schedule.day_of_month ?? 1,
       interval_minutes: schedule.interval_minutes || 1440,
       timeout_seconds: schedule.timeout_seconds || 300,
+      confirm_destructive: false,
     });
     loadAgentProjects(agentID);
   };
@@ -1300,10 +1306,15 @@ export default function Settings() {
   };
 
   const testDestination = async (destination) => {
+    setDestinationTests(current => ({ ...current, [destination.id]: { status: 'testing', message: 'Testing connection…' } }));
     try {
       const res = await backup.testDestination(destination.id);
-      showMessage(`Backup endpoint ${destination.name}: ${res.data.success ? 'success' : res.data.error || 'failed'}`);
+      const result = backupEndpointTestState(res.data);
+      setDestinationTests(current => ({ ...current, [destination.id]: result }));
+      if (result.status === 'success') showMessage(`Backup endpoint ${destination.name}: success`);
+      else showError(new Error(`Backup endpoint ${destination.name}: ${result.message}`));
     } catch (err) {
+      setDestinationTests(current => ({ ...current, [destination.id]: backupEndpointTestState(null, err) }));
       showError(err);
     }
   };
@@ -1829,8 +1840,8 @@ export default function Settings() {
           <div className="section-panel">
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-gray-950">Scheduled Updates</h2>
-              <p className="text-sm text-gray-600">Filter the schedules by server, then choose one target host and one of that host's discovered projects.</p>
+              <h2 className="text-lg font-semibold text-gray-950">Schedules</h2>
+              <p className="text-sm text-gray-600">Schedule project actions or an explicitly acknowledged full Docker cleanup on one target host. Backup schedules are managed on the Backups page.</p>
             </div>
             <div className="flex items-end gap-2">
               <Field label="View server" title="Show schedules and run history for all servers, this controller, or one registered server.">
@@ -1861,14 +1872,15 @@ export default function Settings() {
                 {agentList.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
               </select>
             </Field>
-            <Field label="Project" title="Available projects from the selected server or agent.">
-              <select required value={scheduleForm.project} onChange={e => setScheduleForm({ ...scheduleForm, project: e.target.value })} className="input">
+            <Field label="Project" title={scheduleForm.action === 'prune-system-all' ? 'Full system prune targets the selected host, not one Compose project.' : 'Available projects from the selected server or agent.'}>
+              <select required={scheduleForm.action !== 'prune-system-all'} disabled={scheduleForm.action === 'prune-system-all'} value={scheduleForm.action === 'prune-system-all' ? '(system)' : scheduleForm.project} onChange={e => setScheduleForm({ ...scheduleForm, project: e.target.value })} className="input">
                 <option value="">Choose project</option>
+                {scheduleForm.action === 'prune-system-all' && <option value="(system)">Entire Docker host</option>}
                 {availableProjects.map(project => <option key={project.name} value={project.name}>{project.name}</option>)}
               </select>
             </Field>
-            <Field label="Action" title="Check for updates is non-mutating and opts this project into registry or source checks. Update respects no-update project policy.">
-              <select value={scheduleForm.action} onChange={e => setScheduleForm({ ...scheduleForm, action: e.target.value })} className="input">
+            <Field label="Action" title="Check for updates is non-mutating. Full system prune permanently deletes all unused Docker resources, including volumes.">
+              <select value={scheduleForm.action} onChange={e => setScheduleForm({ ...scheduleForm, action: e.target.value, project: e.target.value === 'prune-system-all' ? '(system)' : '', confirm_destructive: false })} className="input">
                 {ACTIONS.map(action => <option key={action.key} value={action.key}>{action.label}</option>)}
               </select>
             </Field>
@@ -1910,8 +1922,15 @@ export default function Settings() {
                 <input type="checkbox" checked={scheduleForm.enabled} onChange={e => setScheduleForm({ ...scheduleForm, enabled: e.target.checked })} />
                 Enabled
               </label>
-              <button type="submit" className="btn-primary">{scheduleForm.id ? 'Update' : 'Add'}</button>
+              <button type="submit" disabled={scheduleForm.action === 'prune-system-all' && !scheduleForm.confirm_destructive} className="btn-primary">{scheduleForm.id ? 'Update' : 'Add'}</button>
             </div>
+            {scheduleForm.action === 'prune-system-all' && (
+              <label className="lg:col-span-6 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900" title="Required acknowledgement for scheduled destructive cleanup.">
+                <input type="checkbox" className="mt-0.5" checked={scheduleForm.confirm_destructive} onChange={e => setScheduleForm({ ...scheduleForm, confirm_destructive: e.target.checked })} />
+                <span><strong>Required:</strong> I understand this schedule runs <code>docker system prune --all --volumes -f</code> without prompting. It permanently deletes stopped containers, unused images and networks, build cache, and unused volumes—including data volumes belonging to stopped stacks. There is no automatic rollback.</span>
+              </label>
+            )}
+            <div className="lg:col-span-6 text-sm text-gray-600">Manage single-project, all-project, and scheduled backups on the <Link to="/backups" className="text-blue-700 underline">Backups page</Link>.</div>
           </form>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[840px] text-left text-sm">
@@ -2797,9 +2816,12 @@ export default function Settings() {
                       <td className="py-2 pr-2 font-medium break-all">{destination.name}</td>
                       <td className="pr-2">{destination.type}</td>
                       <td className="pr-2 font-mono text-xs text-gray-600 break-all">{destinationSummary(destination)}</td>
-                      <td className="pr-2 break-words">{destination.enabled ? 'enabled' : 'disabled'}{destination.has_secret ? ' - secret saved' : ''}</td>
+                      <td className="pr-2 break-words">
+                        <div>{destination.enabled ? 'enabled' : 'disabled'}{destination.has_secret ? ' - secret saved' : ''}</div>
+                        <BackupEndpointTestStatus result={destinationTests[destination.id]} />
+                      </td>
                       <td className="space-x-1 text-right whitespace-nowrap">
-                        <button onClick={() => testDestination(destination)} className="mini-button" title="Create and remove a small test file or run a remote upload test with this endpoint.">Test</button>
+                        <button disabled={destinationTests[destination.id]?.status === 'testing'} onClick={() => testDestination(destination)} className="mini-button" title="Create and remove a small test file or run a remote upload test with this endpoint.">{destinationTests[destination.id]?.status === 'testing' ? 'Testing…' : 'Test'}</button>
                         <button onClick={() => editDestination(destination)} className="mini-button" title="Load this endpoint into the edit form. Saved secrets are kept unless replaced.">Edit</button>
                         <button onClick={() => deleteDestination(destination)} className="mini-danger" title="Delete this backup endpoint configuration. Existing backup files are not removed.">Delete</button>
                       </td>

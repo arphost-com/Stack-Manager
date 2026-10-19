@@ -482,6 +482,7 @@ func runAgent(cfg *config.Config, engine *core.Engine) {
 		r.Delete("/projects/{name}/networks/{network}", agentHandler.DeleteNetwork)
 		r.Get("/projects/{name}/status", agentHandler.Status)
 		r.Post("/projects/{name}/jobs/{action}", agentHandler.StartJob)
+		r.Post("/system/jobs/{action}", agentHandler.StartSystemJob)
 		r.Get("/jobs", agentHandler.ListJobs)
 		r.Get("/jobs/{jobId}", agentHandler.GetJob)
 		r.Get("/debug/logs/{name}", agentHandler.Logs)

@@ -662,18 +662,11 @@ func (s *Skill) projectsForBackupSchedule(schedule core.BackupSchedule) ([]*core
 }
 
 func nextBackupRun(schedule core.BackupSchedule, after time.Time) time.Time {
-	next := schedule.NextRunAt
-	step := time.Duration(schedule.IntervalMinutes) * time.Minute
-	if step <= 0 {
-		step = 24 * time.Hour
-	}
-	if next.IsZero() || !next.After(after) {
-		next = after.Add(step)
-	}
-	for !next.After(after) {
-		next = next.Add(step)
-	}
-	return next.UTC()
+	return core.NextScheduleRunExported(core.UpdateSchedule{
+		Cadence: schedule.Cadence, TimeOfDay: schedule.TimeOfDay,
+		DayOfWeek: schedule.DayOfWeek, DayOfMonth: schedule.DayOfMonth,
+		IntervalMinutes: schedule.IntervalMinutes, NextRunAt: schedule.NextRunAt,
+	}, after)
 }
 
 func destinationIDs(req core.BackupCreateRequest) []int64 {
@@ -774,6 +767,14 @@ func normalizeBackupSchedule(req *core.BackupScheduleRequest) {
 	if req.IntervalMinutes <= 0 {
 		req.IntervalMinutes = 1440
 	}
+	req.Cadence = strings.ToLower(strings.TrimSpace(req.Cadence))
+	if req.Cadence == "" {
+		req.Cadence = "interval"
+	}
+	req.TimeOfDay = strings.TrimSpace(req.TimeOfDay)
+	if req.TimeOfDay == "" {
+		req.TimeOfDay = "03:00"
+	}
 	if req.NextRunAt != nil {
 		next := req.NextRunAt.UTC().Truncate(time.Second)
 		req.NextRunAt = &next
@@ -784,8 +785,25 @@ func validateBackupSchedule(req core.BackupScheduleRequest) error {
 	if req.Name == "" {
 		return errors.New("schedule name is required")
 	}
-	if req.IntervalMinutes < 5 {
-		return errors.New("interval must be at least 5 minutes")
+	switch req.Cadence {
+	case "interval":
+		if req.IntervalMinutes < 5 {
+			return errors.New("interval must be at least 5 minutes")
+		}
+	case "daily":
+		if !validBackupTimeOfDay(req.TimeOfDay) {
+			return errors.New("time_of_day is required for daily cadence (HH:MM)")
+		}
+	case "weekly":
+		if !validBackupTimeOfDay(req.TimeOfDay) || req.DayOfWeek < 0 || req.DayOfWeek > 6 {
+			return errors.New("weekly cadence requires a valid time and day_of_week from 0 through 6")
+		}
+	case "monthly":
+		if !validBackupTimeOfDay(req.TimeOfDay) || req.DayOfMonth < 1 || req.DayOfMonth > 31 {
+			return errors.New("monthly cadence requires a valid time and day_of_month from 1 through 31")
+		}
+	default:
+		return errors.New("cadence must be interval, daily, weekly, or monthly")
 	}
 	for _, project := range req.Projects {
 		if project == "" || strings.Contains(project, "/") || strings.Contains(project, "\\") || strings.Contains(project, "..") {
@@ -798,6 +816,16 @@ func validateBackupSchedule(req core.BackupScheduleRequest) error {
 		}
 	}
 	return nil
+}
+
+func validBackupTimeOfDay(value string) bool {
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	hour, hourErr := strconv.Atoi(parts[0])
+	minute, minuteErr := strconv.Atoi(parts[1])
+	return hourErr == nil && minuteErr == nil && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59
 }
 
 func cleanStringList(values []string) []string {

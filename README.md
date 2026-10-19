@@ -485,14 +485,16 @@ The **Config** tab on each project detail page lets you edit compose.yml, .env, 
 
 ### Scheduled Updates
 
-Set human-readable schedules from Settings or the Dashboard:
+Set human-readable schedules from Settings or the Dashboard. Calendar times use the selected server's configured timezone:
 
 - **Daily** at a specific time (UTC)
 - **Weekly** on a chosen day at a specific time
 - **Monthly** on a day-of-month at a specific time
 - **Every N minutes** for custom intervals
 
-Each schedule targets a project (local or on a registered agent) and runs check, update, pull, up, restart, down, or status. **Check for updates** is non-mutating: it compares registry manifests or source state without pulling images or restarting containers. Projects with a `no_updates` policy record a skipped session instead of checking or pulling.
+Project schedules run check, update, pull, up, restart, down, or status. **Check for updates** is non-mutating: it compares registry manifests or source state without pulling images or restarting containers. Projects with a `no_updates` policy record a skipped session instead of checking or pulling.
+
+Host schedules can run **Full system prune** (`docker system prune --all --volumes -f`). Creating or editing that schedule requires an explicit destructive-action acknowledgement because stopped containers, unused images, build cache, networks, and unused volumes are permanently removed. Stack Manager never creates or enables this schedule automatically.
 
 Registry and source checks are opt-in. Stack Manager does not scan projects at startup or on a nightly timer. Add an enabled **Check for updates** schedule to each project that should be checked; the dashboard's **Check Scheduled Now** button uses the same allowlist.
 
@@ -500,7 +502,7 @@ Manual scheduled checks have a five-minute cooldown. Repeated requests during th
 
 ### Backup Endpoints
 
-Create backups from the project detail page or on a schedule. Archives are created locally first, then copied to any configured endpoint:
+The dedicated **Backups** page supports one-project backups, selected-project batches, all-active-project backups, and daily, weekly, monthly, or custom-interval backup schedules. Archives are created locally first, then copied to any configured endpoint. Endpoint connection tests keep a visible success or failure result beside the tested endpoint in Settings:
 
 | Endpoint Type | Authentication |
 |---------------|----------------|

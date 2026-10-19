@@ -192,7 +192,7 @@ function ServerSelector({ value, onChange, agents = [], projects = [], selfName 
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ initialTab = 'projects' }) {
   // Initial state hydrates from localStorage snapshot when one exists so
   // the page paints instantly on a return visit.
   const initialFilters = { includeInactive: true, runningOnly: false, query: '' };
@@ -210,7 +210,8 @@ export default function Dashboard() {
   const [backupDestinations, setBackupDestinations] = useState(initialSnapshot?.backupDestinations || []);
   const [backupSchedules, setBackupSchedules] = useState(initialSnapshot?.backupSchedules || []);
   const [backupScopeWarning, setBackupScopeWarning] = useState(initialSnapshot?.backupScopeWarning || '');
-  const [mainTab, setMainTab] = useState('projects');
+  const [mainTab, setMainTab] = useState(initialTab);
+  useEffect(() => setMainTab(initialTab), [initialTab]);
   const [serverSource, setServerSource] = useState(initialServerSource);
   const [serverName, setServerName] = useState('');
   const [loading, setLoading] = useState(!initialSnapshot);
@@ -311,6 +312,10 @@ export default function Dashboard() {
     destination_ids: [],
     enabled: true,
     interval_minutes: 1440,
+    cadence: 'daily',
+    time_of_day: '03:00',
+    day_of_week: 6,
+    day_of_month: 1,
   });
 
   // Force the server to re-discover projects + refresh the Redis cache, then
@@ -969,12 +974,16 @@ export default function Dashboard() {
       projects: backupScheduleForm.all_projects ? [] : backupScheduleForm.projects,
       destination_ids: backupScheduleForm.destination_ids,
       interval_minutes: Number(backupScheduleForm.interval_minutes),
+      cadence: backupScheduleForm.cadence,
+      time_of_day: backupScheduleForm.time_of_day,
+      day_of_week: Number(backupScheduleForm.day_of_week),
+      day_of_month: Number(backupScheduleForm.day_of_month),
     };
     try {
       setActionResult({ label: 'save backup schedule', status: 'running' });
       const res = await scoped.api.saveSchedule(body);
       setActionResult({ label: `save backup schedule on ${scoped.label}`, status: 'done', result: res.data });
-      setBackupScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440 });
+      setBackupScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440, cadence: 'daily', time_of_day: '03:00', day_of_week: 6, day_of_month: 1 });
       fetchData();
     } catch (err) {
       setActionResult({ label: 'save backup schedule', status: 'error', error: err.message });
@@ -994,6 +1003,10 @@ export default function Dashboard() {
       destination_ids: schedule.destination_ids || [],
       enabled: Boolean(schedule.enabled),
       interval_minutes: schedule.interval_minutes || 1440,
+      cadence: schedule.cadence || 'interval',
+      time_of_day: schedule.time_of_day || '03:00',
+      day_of_week: schedule.day_of_week ?? 6,
+      day_of_month: schedule.day_of_month ?? 1,
       source_host: schedule.source_host || serverSource,
     });
   };
@@ -1597,9 +1610,36 @@ function BackupsPanel({
           <Field label="Name" title="Friendly schedule name.">
             <input className="input" value={scheduleForm.name} onChange={e => setScheduleForm({ ...scheduleForm, name: e.target.value })} placeholder="nightly backups" required />
           </Field>
-          <Field label="Interval minutes" title="Minimum 5 minutes. Use 1440 for daily.">
-            <input className="input" type="number" min="5" value={scheduleForm.interval_minutes} onChange={e => setScheduleForm({ ...scheduleForm, interval_minutes: Number(e.target.value) })} required />
+          <Field label="Cadence" title="Choose a daily, weekly, monthly, or custom interval backup schedule.">
+            <select className="input" title="Choose a daily, weekly, monthly, or custom interval backup schedule." value={scheduleForm.cadence} onChange={e => setScheduleForm({ ...scheduleForm, cadence: e.target.value })}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="interval">Every N minutes</option>
+            </select>
           </Field>
+          {scheduleForm.cadence !== 'interval' && (
+            <Field label="Time (server timezone)" title="Time when this backup starts, using the selected server's configured timezone.">
+              <input className="input" title="Time when this backup starts in the selected server's timezone." type="time" value={scheduleForm.time_of_day} onChange={e => setScheduleForm({ ...scheduleForm, time_of_day: e.target.value })} required />
+            </Field>
+          )}
+          {scheduleForm.cadence === 'weekly' && (
+            <Field label="Day of week" title="Weekday when this backup runs.">
+              <select className="input" title="Weekday when this backup runs." value={scheduleForm.day_of_week} onChange={e => setScheduleForm({ ...scheduleForm, day_of_week: Number(e.target.value) })}>
+                {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => <option key={day} value={index}>{day}</option>)}
+              </select>
+            </Field>
+          )}
+          {scheduleForm.cadence === 'monthly' && (
+            <Field label="Day of month" title="Day 1 through 31; shorter months run on their last day.">
+              <input className="input" title="Day 1 through 31; shorter months run on their last day." type="number" min="1" max="31" value={scheduleForm.day_of_month} onChange={e => setScheduleForm({ ...scheduleForm, day_of_month: Number(e.target.value) })} required />
+            </Field>
+          )}
+          {scheduleForm.cadence === 'interval' && (
+            <Field label="Every minutes" title="Minimum 5 minutes.">
+              <input className="input" title="Number of minutes between backups; minimum 5." type="number" min="5" value={scheduleForm.interval_minutes} onChange={e => setScheduleForm({ ...scheduleForm, interval_minutes: Number(e.target.value) })} required />
+            </Field>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-700" title="Run this schedule automatically.">
             <input type="checkbox" checked={scheduleForm.enabled} onChange={e => setScheduleForm({ ...scheduleForm, enabled: e.target.checked })} />
             Enabled
@@ -1631,7 +1671,7 @@ function BackupsPanel({
           <div className="flex gap-2">
             <button className="btn-primary flex-1" title="Save this backup schedule.">Save Schedule</button>
             {scheduleForm.id > 0 && (
-              <button type="button" className="btn-secondary" onClick={() => setScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440 })} title="Clear the edit form.">New</button>
+              <button type="button" className="btn-secondary" onClick={() => setScheduleForm({ id: 0, name: '', projects: [], all_projects: true, destination_ids: [], enabled: true, interval_minutes: 1440, cadence: 'daily', time_of_day: '03:00', day_of_week: 6, day_of_month: 1 })} title="Clear the edit form.">New</button>
             )}
           </div>
         </form>
@@ -1646,7 +1686,7 @@ function BackupsPanel({
                   <th className="py-2">Name</th>
                   {serverSource === 'all' && <th>Server</th>}
                   <th>Scope</th>
-                  <th>Interval</th>
+                  <th>Cadence</th>
                   <th>Next Run</th>
                   <th>Last Run</th>
                   <th>Status</th>
@@ -1659,7 +1699,7 @@ function BackupsPanel({
                     <td className="py-3 font-medium">{schedule.name}</td>
                     {serverSource === 'all' && <td className="py-3 text-xs text-gray-600">{schedule.source_host === 'local' ? 'This server' : schedule.source_host}</td>}
                     <td className="py-3 text-xs text-gray-600">{schedule.projects?.length ? schedule.projects.join(', ') : 'all active projects'}</td>
-                    <td>{schedule.interval_minutes}m</td>
+                    <td>{formatCadence(schedule)}</td>
                     <td className="text-xs text-gray-500">{formatDate(schedule.next_run_at)}</td>
                     <td className="text-xs text-gray-500">{formatDate(schedule.last_run_at)}</td>
                     <td>

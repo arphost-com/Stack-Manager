@@ -19,9 +19,9 @@ FROM ${BASE_IMAGE_PREFIX}alpine:3.22
 # cached install layer when Alpine publishes a fix without changing the base
 # image tag.
 RUN apk add --no-cache \
-    ca-certificates curl docker-cli docker-cli-compose bash tar \
+    ca-certificates 'curl>=8.14.1-r4' docker-cli docker-cli-compose bash tar \
     'gzip>=1.14-r2' git openssh-client rclone 'util-linux>=2.41.6-r1' \
-    'libexpat>=2.8.4-r0' 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0' && \
+    'libexpat>=2.9.0-r0' 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0' && \
     apk upgrade --no-cache
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
