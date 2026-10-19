@@ -8,8 +8,10 @@ import (
 
 func TestFullSystemPruneUsesAllVolumesAndForce(t *testing.T) {
 	var got []string
+	var gotTimeout time.Duration
 	engine := NewEngine(t.TempDir(), "")
-	engine.dockerExec = func(args ...string) (*ExecResult, error) {
+	engine.dockerExecWithTimeout = func(timeout time.Duration, args ...string) (*ExecResult, error) {
+		gotTimeout = timeout
 		got = append([]string(nil), args...)
 		return &ExecResult{}, nil
 	}
@@ -21,11 +23,14 @@ func TestFullSystemPruneUsesAllVolumesAndForce(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("docker args = %#v, want %#v", got, want)
 	}
+	if gotTimeout != 30*time.Minute {
+		t.Fatalf("timeout = %s, want 30m", gotTimeout)
+	}
 }
 
 func TestSystemPruneJobIsTrackedAsHostAction(t *testing.T) {
 	engine := NewEngine(t.TempDir(), "")
-	engine.dockerExec = func(args ...string) (*ExecResult, error) { return &ExecResult{}, nil }
+	engine.dockerExecWithTimeout = func(time.Duration, ...string) (*ExecResult, error) { return &ExecResult{}, nil }
 	jobs := NewJobManager(nil)
 	job, err := jobs.StartSystemPrune(engine)
 	if err != nil {

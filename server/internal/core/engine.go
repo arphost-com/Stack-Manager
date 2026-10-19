@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const inactiveMarker = ".inactive"
+
+const fullSystemPruneTimeout = 30 * time.Minute
 
 // ErrNotFound is returned when a project or resource is not found.
 type ErrNotFound struct {
@@ -18,20 +21,22 @@ func (e *ErrNotFound) Error() string { return e.Msg }
 
 // Engine is the core compose management engine.
 type Engine struct {
-	RootDir    string
-	ExtraRoots []string
-	HooksDir   string
-	dockerExec func(args ...string) (*ExecResult, error)
-	hostname   func() (string, error)
+	RootDir               string
+	ExtraRoots            []string
+	HooksDir              string
+	dockerExec            func(args ...string) (*ExecResult, error)
+	dockerExecWithTimeout func(timeout time.Duration, args ...string) (*ExecResult, error)
+	hostname              func() (string, error)
 }
 
 // NewEngine creates a new Engine.
 func NewEngine(rootDir, hooksDir string) *Engine {
 	return &Engine{
-		RootDir:    rootDir,
-		HooksDir:   hooksDir,
-		dockerExec: DockerExec,
-		hostname:   os.Hostname,
+		RootDir:               rootDir,
+		HooksDir:              hooksDir,
+		dockerExec:            DockerExec,
+		dockerExecWithTimeout: DockerExecWithTimeout,
+		hostname:              os.Hostname,
 	}
 }
 
@@ -336,12 +341,18 @@ func (e *Engine) Prune(mode string) *OpResult {
 	}
 
 	var outputs []string
-	run := func(label string, args ...string) bool {
-		dockerExec := e.dockerExec
-		if dockerExec == nil {
-			dockerExec = DockerExec
+	run := func(label string, timeout time.Duration, args ...string) bool {
+		dockerExecWithTimeout := e.dockerExecWithTimeout
+		var cmdResult *ExecResult
+		if dockerExecWithTimeout != nil {
+			cmdResult, _ = dockerExecWithTimeout(timeout, args...)
+		} else {
+			dockerExec := e.dockerExec
+			if dockerExec == nil {
+				dockerExec = DockerExec
+			}
+			cmdResult, _ = dockerExec(args...)
 		}
-		cmdResult, _ := dockerExec(args...)
 		if cmdResult == nil {
 			outputs = append(outputs, "=== "+label+" ===\nfailed to run command")
 			return false
@@ -356,21 +367,21 @@ func (e *Engine) Prune(mode string) *OpResult {
 	success := true
 	switch mode {
 	case "safe":
-		success = run("Image Prune", "image", "prune", "-f") && success
-		success = run("Network Prune", "network", "prune", "-f") && success
-		success = run("Volume Prune", "volume", "prune", "-f") && success
+		success = run("Image Prune", 2*time.Minute, "image", "prune", "-f") && success
+		success = run("Network Prune", 2*time.Minute, "network", "prune", "-f") && success
+		success = run("Volume Prune", 2*time.Minute, "volume", "prune", "-f") && success
 	case "system":
-		success = run("System Prune", "system", "prune", "-f")
+		success = run("System Prune", 2*time.Minute, "system", "prune", "-f")
 	case "system-all":
-		success = run("System Prune All", "system", "prune", "--all", "--volumes", "-f")
+		success = run("System Prune All", fullSystemPruneTimeout, "system", "prune", "--all", "--volumes", "-f")
 	case "images":
-		success = run("Image Prune All", "image", "prune", "--all", "-f")
+		success = run("Image Prune All", 2*time.Minute, "image", "prune", "--all", "-f")
 	case "volumes":
-		success = run("Volume Prune", "volume", "prune", "-f")
+		success = run("Volume Prune", 2*time.Minute, "volume", "prune", "-f")
 	case "networks":
-		success = run("Network Prune", "network", "prune", "-f")
+		success = run("Network Prune", 2*time.Minute, "network", "prune", "-f")
 	case "builder":
-		success = run("Builder Prune", "builder", "prune", "--all", "-f")
+		success = run("Builder Prune", 2*time.Minute, "builder", "prune", "--all", "-f")
 	default:
 		result.Success = false
 		result.ExitCode = 1

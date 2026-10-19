@@ -255,7 +255,12 @@ func findOrphanComposeServices(configured []string, containerRecords string) []s
 
 // DockerExec runs a docker command (not compose) and returns the result.
 func DockerExec(args ...string) (*ExecResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	return DockerExecWithTimeout(2*time.Minute, args...)
+}
+
+// DockerExecWithTimeout runs a docker command with an operation-appropriate timeout.
+func DockerExecWithTimeout(timeout time.Duration, args ...string) (*ExecResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
@@ -270,6 +275,11 @@ func DockerExec(args ...string) (*ExecResult, error) {
 	}
 
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.ExitCode = 124
+			result.Stderr += fmt.Sprintf("docker command timed out after %s\n", timeout)
+			return result, err
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			result.ExitCode = exitErr.ExitCode()
 		} else {
