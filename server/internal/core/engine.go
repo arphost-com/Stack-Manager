@@ -127,12 +127,27 @@ func (e *Engine) Update(project *Project, timeout int) []OpResult {
 	results = append(results, *pullResult)
 
 	if pullResult.Success {
+		upStarted := time.Now()
 		upResult := e.Up(project)
 		upResult.Action = "up"
+		if upResult.Success {
+			verification := e.VerifyUpdate(project)
+			upResult.Output += "\n=== verify update ===\n" + verification.Output
+			upResult.Success = verification.Success
+			upResult.ExitCode = verification.ExitCode
+			upResult.Duration = time.Since(upStarted).Round(time.Millisecond).String()
+		}
 		results = append(results, *upResult)
 	}
 
 	return results
+}
+
+// VerifyUpdate checks that Compose services remain stable after an update.
+// A successful `up -d` only means Docker accepted the request; a container
+// that immediately restarts can still make the application unusable.
+func (e *Engine) VerifyUpdate(project *Project) *OpResult {
+	return e.verifyUpdateServices(project, time.Sleep)
 }
 
 // Status returns the compose ps output for a project.

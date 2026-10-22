@@ -19,7 +19,7 @@ Watch progress from the project's **Logs** tab (or on the host):
 
 ```bash
 docker compose logs -f ollama-init      # model pulls; exits 0 when done
-docker compose ps                        # everything should be "Up"/"healthy"
+docker compose ps -a                     # long-running services Up; init services may exit 0
 ```
 
 Chat and code won't work until `ollama-init` has finished pulling.
@@ -150,6 +150,19 @@ call its API from n8n/Flowise).
 ---
 
 ## 7. Flowise — build agents (`http://HOST:3001`)
+
+Before accepting a Flowise image update, verify more than `docker compose up -d`:
+check `docker ps -a` for a stable `running` state, confirm its restart count does
+not rise over 30 seconds, request `/api/v1/ping`, and load an existing agent
+node or a disposable test chatflow. Review startup logs for package import or
+missing-module errors. A successful Compose command or a momentary HTTP 200
+does not prove the agent nodes initialized.
+
+The official Flowise repository was [archived in August 2026](https://github.com/FlowiseAI/Flowise/discussions/6727).
+Its 3.1.4 image has [reported startup dependency failures](https://github.com/FlowiseAI/Flowise/issues/6688).
+Do not roll back to an older image merely to restore startup: assess published
+security advisories and validate a maintained, compatible replacement with a
+backup and a development stack first.
 
 1. Log in with `FLOWISE_USERNAME` / `FLOWISE_PASSWORD` (from `.env`).
 2. In a chatflow, add a **ChatOllama** node → Base URL `http://ollama:11434`,

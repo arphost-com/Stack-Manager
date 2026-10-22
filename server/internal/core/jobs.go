@@ -358,9 +358,22 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 	}
 	appendJobOutput(job, "\n=== docker compose up -d ===\n")
 	upOK, upExit := runComposeJob(engine, project, job, 0, "up", "-d")
+	if !upOK {
+		updateJob(job, func(j *ActionJob) {
+			j.Success = false
+			j.ExitCode = upExit
+		})
+		return
+	}
+	appendJobOutput(job, "\n=== verify update ===\n")
+	verification := engine.VerifyUpdate(project)
+	appendJobOutput(job, verification.Output)
 	updateJob(job, func(j *ActionJob) {
-		j.Success = upOK
-		j.ExitCode = upExit
+		j.Success = verification.Success
+		j.ExitCode = verification.ExitCode
+		if !verification.Success {
+			j.Error = "post-update container verification failed"
+		}
 	})
 }
 

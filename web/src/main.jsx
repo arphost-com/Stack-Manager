@@ -1,9 +1,10 @@
 import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
 import './index.css';
 import Layout from './components/Layout';
 import { applyThemePreference } from './theme';
+import RouteErrorBoundary from './components/RouteErrorBoundary';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
@@ -22,13 +23,14 @@ if (window.matchMedia) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyThemePreference());
 }
 
-function App() {
+function AppContent() {
   const credential = localStorage.getItem('cm_token');
+  const location = useLocation();
 
   // BrowserRouter must wrap BOTH branches: the login/landing page reuses doc
   // components that render <Link>, which throws without a Router context.
   return (
-    <BrowserRouter>
+    <RouteErrorBoundary routeKey={location.pathname}>
       <Suspense fallback={<PageFallback />}>
         {!credential ? (
           <Login />
@@ -47,8 +49,12 @@ function App() {
           </Routes>
         )}
       </Suspense>
-    </BrowserRouter>
+    </RouteErrorBoundary>
   );
+}
+
+function App() {
+  return <BrowserRouter><AppContent /></BrowserRouter>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
