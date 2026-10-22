@@ -264,7 +264,7 @@ networks:
 			Category:    "ai",
 			Subcategory: "workflow-rag",
 			Source:      "arphost",
-			Image:       "flowiseai/flowise:3.1.3@sha256:fa39f54c82ebecabb817cbd2d01fc9fa7bb26d58a7e818c36bb6c2bad44b366a",
+			Image:       "flowiseai/flowise:3.0.6@sha256:382b54bac3d9853f61b5d4ba588edd7826d8617ababcfe3378e894ec280d7c0e",
 			Tags:        []string{"ai", "agents", "rag", "low-code", "ollama", "flowise", "qdrant"},
 			ComposeContent: `services:
   ollama:
@@ -318,7 +318,7 @@ networks:
   # to Ollama (http://ollama:11434) and Qdrant (http://qdrant:6333) from inside
   # the flows. Persists to Postgres.
   flowise:
-    image: flowiseai/flowise:3.1.3@sha256:fa39f54c82ebecabb817cbd2d01fc9fa7bb26d58a7e818c36bb6c2bad44b366a
+    image: flowiseai/flowise:3.0.6@sha256:382b54bac3d9853f61b5d4ba588edd7826d8617ababcfe3378e894ec280d7c0e
     restart: unless-stopped
     ports:
       - "${FLOWISE_PORT:-3000}:3000"
@@ -350,7 +350,7 @@ networks:
   openbrain:
 `,
 			EnvContent: "OLLAMA_PORT=11436\nWEBUI_PORT=8082\nQDRANT_PORT=6335\nFLOWISE_PORT=3000\nPOSTGRES_PASSWORD=change-me\nFLOWISE_USERNAME=admin\nFLOWISE_PASSWORD=change-me\n",
-			Notes:      "Startup checklist: Flowise on FLOWISE_PORT (persists to Postgres), Qdrant on QDRANT_PORT, Ollama on 11434, Open WebUI on WEBUI_PORT. Flowise is pinned to the verified 3.1.3 manifest because later mutable builds can crash during startup; verify stable container state, /api/v1/ping, and agent-node loading before accepting any version change. Change POSTGRES_PASSWORD and FLOWISE_PASSWORD first. In Flowise, add an Ollama chat model (base URL http://ollama:11434) and a Qdrant vector store (http://qdrant:6333) inside your chatflows. Pull a model first: docker exec <ollama-container> ollama pull llama3.1.",
+			Notes:      "Startup checklist: Flowise on FLOWISE_PORT (persists to Postgres), Qdrant on QDRANT_PORT, Ollama on 11434, Open WebUI on WEBUI_PORT. Flowise is pinned to the verified 3.0.6 manifest because later builds can crash or fail to load agent components; verify stable container state, /api/v1/ping, clean startup logs, and agent-node loading before accepting any version change. Change POSTGRES_PASSWORD and FLOWISE_PASSWORD first. In Flowise, add an Ollama chat model (base URL http://ollama:11434) and a Qdrant vector store (http://qdrant:6333) inside your chatflows. Pull a model first: docker exec <ollama-container> ollama pull llama3.1.",
 		},
 		{
 			ID:          "openbrain-voice",
@@ -558,7 +558,7 @@ networks:
 
   # Visual agent/flow builder.
   flowise:
-    image: flowiseai/flowise:3.1.3@sha256:fa39f54c82ebecabb817cbd2d01fc9fa7bb26d58a7e818c36bb6c2bad44b366a
+    image: flowiseai/flowise:3.0.6@sha256:382b54bac3d9853f61b5d4ba588edd7826d8617ababcfe3378e894ec280d7c0e
     restart: unless-stopped
     ports:
       - "${FLOWISE_PORT:-3001}:3000"

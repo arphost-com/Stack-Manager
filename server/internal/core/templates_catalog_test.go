@@ -54,7 +54,7 @@ func TestOpenBrainVoiceMem0PreservesOriginalDefaultPort(t *testing.T) {
 }
 
 func TestOpenBrainTemplatesPinKnownWorkingFlowiseImage(t *testing.T) {
-	const pinnedImage = "flowiseai/flowise:3.1.3@sha256:fa39f54c82ebecabb817cbd2d01fc9fa7bb26d58a7e818c36bb6c2bad44b366a"
+	const pinnedImage = "flowiseai/flowise:3.0.6@sha256:382b54bac3d9853f61b5d4ba588edd7826d8617ababcfe3378e894ec280d7c0e"
 	wanted := map[string]bool{
 		"openbrain-flowise": false,
 		"openbrain-voice":   false,

@@ -161,7 +161,7 @@ does not prove the agent nodes initialized.
 The official Flowise repository was [archived in August 2026](https://github.com/FlowiseAI/Flowise/discussions/6727).
 Its later mutable images have [reported startup dependency failures](https://github.com/FlowiseAI/Flowise/issues/6688),
 including failures caused by transitive dependencies changing after a release.
-The built-in OpenBrain templates therefore pin the known-working 3.1.3
+The built-in OpenBrain templates therefore pin the known-working 3.0.6
 multi-platform manifest instead of tracking `latest`. Treat any Flowise version
 or digest change as a tested migration: review published security advisories,
 take a backup, and validate startup plus an agent workflow in development first.
