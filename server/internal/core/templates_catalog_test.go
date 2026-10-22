@@ -52,3 +52,30 @@ func TestOpenBrainVoiceMem0PreservesOriginalDefaultPort(t *testing.T) {
 	}
 	t.Fatal("OpenBrain Voice template not found")
 }
+
+func TestOpenBrainTemplatesPinKnownWorkingFlowiseImage(t *testing.T) {
+	const pinnedImage = "flowiseai/flowise:3.1.3@sha256:fa39f54c82ebecabb817cbd2d01fc9fa7bb26d58a7e818c36bb6c2bad44b366a"
+	wanted := map[string]bool{
+		"openbrain-flowise": false,
+		"openbrain-voice":   false,
+	}
+
+	for _, template := range BuiltinStackTemplates() {
+		if _, ok := wanted[template.ID]; !ok {
+			continue
+		}
+		if strings.Contains(template.ComposeContent, "flowiseai/flowise:latest") {
+			t.Fatalf("%s must not track the mutable Flowise latest tag", template.ID)
+		}
+		if !strings.Contains(template.ComposeContent, "image: "+pinnedImage) {
+			t.Fatalf("%s must pin the verified Flowise image and manifest digest", template.ID)
+		}
+		wanted[template.ID] = true
+	}
+
+	for id, found := range wanted {
+		if !found {
+			t.Fatalf("%s template not found", id)
+		}
+	}
+}

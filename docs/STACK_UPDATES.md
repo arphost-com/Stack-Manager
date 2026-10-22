@@ -9,6 +9,14 @@ Manual **Update** also does not require a prior check or an available-update
 notice. It respects the project's explicit update policy and uses its existing
 Compose/environment files for pull and up (or its configured update hook).
 
+Individual manual Pull and Update buttons start tracked background jobs. Their
+default pull timeout is `0` (no deadline), so a large image can finish after
+the operator leaves the page. Set a positive timeout in seconds when a limit is
+needed. The job and its output remain available in action history when it
+finishes. A controller restart can interrupt a running job; check Docker state
+before retrying. Bulk actions and scheduled updates retain their configured
+time limits and should be planned separately for large images.
+
 This procedure applies to Docker Compose projects managed by Stack Manager. It
 does not describe upgrading Stack Manager itself; see [the platform guide](PLATFORM.md).
 

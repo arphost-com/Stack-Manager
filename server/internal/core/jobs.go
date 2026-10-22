@@ -60,6 +60,9 @@ func (m *JobManager) Start(engine *Engine, project *Project, action string, time
 	if !validJobAction(action) {
 		return nil, fmt.Errorf("invalid action: %s", action)
 	}
+	if timeoutSecs < 0 {
+		return nil, fmt.Errorf("timeout cannot be negative")
+	}
 	id, err := randomJobID()
 	if err != nil {
 		return nil, err
@@ -238,7 +241,7 @@ func (m *JobManager) run(engine *Engine, project *Project, job *ActionJob, timeo
 
 	switch job.Action {
 	case "pull":
-		success, exitCode := runComposeJob(engine, project, job, timeoutSecs, "pull")
+		success, exitCode := runComposeJob(engine, project, job, timeoutSecs, composePullArgs(project)...)
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
@@ -253,25 +256,25 @@ func (m *JobManager) run(engine *Engine, project *Project, job *ActionJob, timeo
 			})
 			break
 		}
-		success, exitCode := runComposeJob(engine, project, job, 0, "up", "-d")
+		success, exitCode := runComposeJob(engine, project, job, 300, "up", "-d")
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
 		})
 	case "down":
-		success, exitCode := runComposeJob(engine, project, job, 0, "down")
+		success, exitCode := runComposeJob(engine, project, job, 300, "down")
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
 		})
 	case "restart":
-		success, exitCode := runComposeJob(engine, project, job, 0, "restart")
+		success, exitCode := runComposeJob(engine, project, job, 300, "restart")
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
 		})
 	case "status":
-		success, exitCode := runComposeJob(engine, project, job, 0, "ps")
+		success, exitCode := runComposeJob(engine, project, job, 300, "ps")
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
@@ -330,7 +333,7 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 	if engine.HasHook("post", "update", project.Name) {
 		appendJobOutput(job, "=== update hook ===\n")
 		path := engine.hookPath("post", "update", project.Name)
-		success, exitCode := runCommandJob(job, project.Dir, 0, path, project.Name, project.Dir)
+		success, exitCode := runCommandJob(job, project.Dir, 300, path, project.Name, project.Dir)
 		updateJob(job, func(j *ActionJob) {
 			j.Success = success
 			j.ExitCode = exitCode
@@ -348,7 +351,7 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 	}
 
 	appendJobOutput(job, "=== docker compose pull ===\n")
-	pullOK, pullExit := runComposeJob(engine, project, job, timeoutSecs, "pull")
+	pullOK, pullExit := runComposeJob(engine, project, job, timeoutSecs, composePullArgs(project)...)
 	if !pullOK {
 		updateJob(job, func(j *ActionJob) {
 			j.Success = false
@@ -357,7 +360,7 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 		return
 	}
 	appendJobOutput(job, "\n=== docker compose up -d ===\n")
-	upOK, upExit := runComposeJob(engine, project, job, 0, "up", "-d")
+	upOK, upExit := runComposeJob(engine, project, job, 300, "up", "-d")
 	if !upOK {
 		updateJob(job, func(j *ActionJob) {
 			j.Success = false
@@ -387,11 +390,7 @@ func runComposeJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs
 }
 
 func runCommandJob(job *ActionJob, dir string, timeoutSecs int, name string, args ...string) (bool, int) {
-	timeout := 5 * time.Minute
-	if timeoutSecs > 0 {
-		timeout = time.Duration(timeoutSecs) * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := commandJobContext(timeoutSecs)
 	defer cancel()
 
 	// Callers pass fixed Docker commands or validated hook paths; arguments are not shell-expanded.
@@ -443,6 +442,15 @@ func runCommandJob(job *ActionJob, dir string, timeoutSecs int, name string, arg
 		return false, 1
 	}
 	return true, 0
+}
+
+func commandJobContext(timeoutSecs int) (context.Context, context.CancelFunc) {
+	if timeoutSecs > 0 {
+		return context.WithTimeout(context.Background(), time.Duration(timeoutSecs)*time.Second)
+	}
+	// Pulls can outlast a browser session and take hours for large images.
+	// Zero means no deadline for this tracked background job.
+	return context.WithCancel(context.Background())
 }
 
 func copyJobOutput(job *ActionJob, reader io.Reader, wg *sync.WaitGroup) {

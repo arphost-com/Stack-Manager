@@ -141,7 +141,7 @@ function makeProjects(prefix = '') {
     down: (name) => request(p(`/projects/${encodeURIComponent(name)}/down`), { method: 'POST' }),
     update: (name, timeout) => request(p(`/projects/${encodeURIComponent(name)}/update${timeout ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
     restart: (name) => request(p(`/projects/${encodeURIComponent(name)}/restart`), { method: 'POST' }),
-    startJob: (name, action, timeout) => request(p(`/projects/${encodeURIComponent(name)}/jobs/${encodeURIComponent(action)}${timeout ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
+    startJob: (name, action, timeout) => request(p(`/projects/${encodeURIComponent(name)}/jobs/${encodeURIComponent(action)}${Number.isInteger(timeout) && timeout >= 0 ? '?timeout=' + timeout : ''}`), { method: 'POST' }),
     templateUpdate: (name) => request(p(`/projects/${encodeURIComponent(name)}/template-update`)),
     applyTemplateUpdate: (name) => request(p(`/projects/${encodeURIComponent(name)}/template-update`), { method: 'POST', body: JSON.stringify({ confirm_compose_replacement: true }) }),
     updatePolicy: (name) => request(p(`/projects/${encodeURIComponent(name)}/update-policy`)),

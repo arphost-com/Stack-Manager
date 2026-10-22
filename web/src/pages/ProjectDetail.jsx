@@ -27,6 +27,7 @@ function parsePublishedPorts(project) {
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone, stateTone } from '../utils/projectState';
 import { projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import { DEFAULT_MANUAL_ACTION_TIMEOUT_SECONDS } from '../utils/manualActionTimeout';
 import ProjectActionButton from '../components/ProjectActionButton.js';
 import PortConflictWarning from '../components/PortConflictWarning.js';
 import { Terminal } from '@xterm/xterm';
@@ -71,7 +72,7 @@ export default function ProjectDetail() {
   const [actionResult, setActionResult] = useState(null);
   const [tmplUpdate, setTmplUpdate] = useState(null);
   const [applyingTmpl, setApplyingTmpl] = useState(false);
-  const [timeout, setTimeoutValue] = useState(300);
+  const [timeout, setTimeoutValue] = useState(DEFAULT_MANUAL_ACTION_TIMEOUT_SECONDS);
   const [logOptions, setLogOptions] = useState({ tail: 200, container: '', watch: false });
   const [policyForm, setPolicyForm] = useState({ mode: 'auto', notes: '' });
   const [backupDestinationId, setBackupDestinationId] = useState('');
@@ -582,8 +583,8 @@ export default function ProjectDetail() {
           <p className="mt-1 font-mono text-xs text-gray-500">{project.dir}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <label className="flex items-center gap-2 text-sm text-gray-700" title="Seconds before pull/update commands time out.">
-            Timeout
+          <label className="flex items-center gap-2 text-sm text-gray-700" title="Optional pull/update limit in seconds. Zero lets a background job continue until Docker finishes, even if you leave this page.">
+            Timeout (0 = none)
             <input type="number" min="0" value={timeout} onChange={e => setTimeoutValue(Number(e.target.value))} className="input w-24" />
           </label>
           <button title={project.inactive ? 'Remove the .inactive marker so normal operations include this project.' : 'Create .inactive so normal operations skip this project.'} onClick={toggleInactive} className="btn-secondary">

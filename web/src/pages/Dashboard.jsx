@@ -4,6 +4,7 @@ import { projects, projectsForSource, jobs, jobsForSource, skills as skillsApi, 
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
 import { projectState, projectStateTone } from '../utils/projectState';
 import { canRunImageUpdate, canRunProjectAction, projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
+import { DEFAULT_MANUAL_ACTION_TIMEOUT_SECONDS } from '../utils/manualActionTimeout';
 import ProjectActionButton from '../components/ProjectActionButton.js';
 import PortConflictWarning from '../components/PortConflictWarning.js';
 
@@ -272,7 +273,7 @@ export default function Dashboard({ initialTab = 'projects' }) {
   const [quickFilter, setQuickFilter] = useState('all');
   const [updatePageSize, setUpdatePageSize] = useState(10);
   const [updatePage, setUpdatePage] = useState(1);
-  const [timeout, setTimeoutValue] = useState(300);
+  const [timeout, setTimeoutValue] = useState(DEFAULT_MANUAL_ACTION_TIMEOUT_SECONDS);
   const [pruneMode, setPruneMode] = useState('safe');
   const [showPruneMenu, setShowPruneMenu] = useState(false);
   const pruneMenuRef = useRef(null);
@@ -580,7 +581,7 @@ export default function Dashboard({ initialTab = 'projects' }) {
           continue;
         }
         try {
-          const res = await scoped.projects.bulk(action, { projects: names, timeout });
+          const res = await scoped.projects.bulk(action, { projects: names, timeout: timeout || 300 });
           for (const item of (res.data?.results || [])) {
             results.push({ ...item, project: source === 'selected' ? item.project : `${source}: ${item.project}` });
           }
@@ -637,7 +638,7 @@ export default function Dashboard({ initialTab = 'projects' }) {
           continue;
         }
         try {
-          const res = await scoped.projects.bulk('update', { projects: names, timeout });
+          const res = await scoped.projects.bulk('update', { projects: names, timeout: timeout || 300 });
           for (const item of (res.data?.results || [])) {
             results.push({ ...item, project: source === 'selected' ? item.project : `${source}: ${item.project}` });
           }
@@ -1187,7 +1188,7 @@ export default function Dashboard({ initialTab = 'projects' }) {
             <Field label="Search" title="Filter projects by name or directory.">
               <input value={filters.query} onChange={e => setFilters({ ...filters, query: e.target.value })} className="input" placeholder="project or path" />
             </Field>
-            <Field label="Timeout" title="Seconds to wait for pull or update operations before stopping the command.">
+            <Field label="Single action timeout (0 = none)" title="Optional seconds for individual pull/update jobs. Zero has no deadline. Bulk actions still use a 300 second minimum because they use a synchronous API.">
               <input type="number" min="0" value={timeout} onChange={e => setTimeoutValue(Number(e.target.value))} className="input" />
             </Field>
             <div className="flex items-end gap-4 pb-2">

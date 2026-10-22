@@ -159,10 +159,12 @@ missing-module errors. A successful Compose command or a momentary HTTP 200
 does not prove the agent nodes initialized.
 
 The official Flowise repository was [archived in August 2026](https://github.com/FlowiseAI/Flowise/discussions/6727).
-Its 3.1.4 image has [reported startup dependency failures](https://github.com/FlowiseAI/Flowise/issues/6688).
-Do not roll back to an older image merely to restore startup: assess published
-security advisories and validate a maintained, compatible replacement with a
-backup and a development stack first.
+Its later mutable images have [reported startup dependency failures](https://github.com/FlowiseAI/Flowise/issues/6688),
+including failures caused by transitive dependencies changing after a release.
+The built-in OpenBrain templates therefore pin the known-working 3.1.3
+multi-platform manifest instead of tracking `latest`. Treat any Flowise version
+or digest change as a tested migration: review published security advisories,
+take a backup, and validate startup plus an agent workflow in development first.
 
 1. Log in with `FLOWISE_USERNAME` / `FLOWISE_PASSWORD` (from `.env`).
 2. In a chatflow, add a **ChatOllama** node → Base URL `http://ollama:11434`,
