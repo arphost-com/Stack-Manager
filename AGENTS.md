@@ -297,7 +297,7 @@ Server env vars:
 
 | Variable | Default | Required | Purpose |
 | --- | --- | --- | --- |
-| `BASE_IMAGE_PREFIX` | empty | no | Prefix prepended to every Docker Hub base image (`FROM` lines, compose `image:` refs, runtime `alpine:3.22` helpers). Empty = pull straight from Docker Hub. On docker02 the pipeline sets `10.10.10.96:8929/arphost/dependency_proxy/containers/library/` to route through the GitLab dependency proxy. Must end with a trailing slash. |
+| `BASE_IMAGE_PREFIX` | empty | no | Prefix prepended to every Docker Hub base image (`FROM` lines, compose `image:` refs, runtime `alpine:3.22` helpers). Empty = pull straight from Docker Hub. On docker02 the pipeline leaves it empty unless `STACK_MANAGER_BASE_IMAGE_PREFIX` is set in CI, for example to `10.10.10.96:8929/arphost/dependency_proxy/containers/library/`, and only when the host has persistent pull credentials for that registry. Must end with a trailing slash. |
 | `API_KEY` | none | yes | Legacy/API key and first-admin password fallback when `ADMIN_PASSWORD` is unset. |
 | `ADMIN_USERNAME` | `admin` | no | First admin username when the MariaDB users table is empty. |
 | `ADMIN_PASSWORD` | API key bootstrap fallback | no | Optional first admin password. Rotate or replace it after first login. |
@@ -313,7 +313,7 @@ Server env vars:
 | `CACHE_TTL_SECONDS` | `15` | no | Redis cache TTL for project/image/job/settings reads. Lower values refresh faster; higher values reduce Docker/API load. |
 | `METRICS_REFRESH_MINUTES` | `15` | no | Background interval for project cache warmup and Docker stats snapshots. Minimum 15. |
 | `WARM_CACHE_TTL_MINUTES` | `30` | no | Redis TTL for background-warmed project/image metadata. |
-| `ROOT` | `/docker` | no | In-container path where managed Compose projects are mounted. |
+| `ROOT` | `/docker` | no | Directory the server scans for Compose projects. Compose sets it to `DOCKER_ROOT` at the same path inside the container, so `/docker` only applies to a bare binary or the CLI. |
 | `STATE_DIR` | `.stack-manager` | no | Host state directory before container mount. Relative paths resolve under the Stack Manager root; in Compose the server uses `/state` inside the container. |
 | `PORT` | `8192` | no | API server listen port. |
 | `HOOKS_DIR` | `<STATE_DIR>/hooks` | no | Directory for API update hooks. |

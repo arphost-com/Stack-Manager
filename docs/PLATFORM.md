@@ -1,13 +1,13 @@
 # Stack Manager — Platform Guide
 
-Install, upgrade, and operate Stack Manager itself (not the stacks it manages).
-For per-application stack docs, see the **Stack Catalog** / the Documentation
-page in the UI.
+Operate Stack Manager itself, not the stacks it manages. For install and update
+steps see [Installing Stack Manager](INSTALL.md), and for problems see
+[Troubleshooting](TROUBLESHOOTING.md). For per-application stack docs, see the
+Stack Catalog or the Documentation page in the UI.
 
 - [Overview](#overview)
 - [Requirements](#requirements)
-- [Install](#install)
-- [Upgrade](#upgrade)
+- [Install and update](#install-and-update)
 - [Manual upgrade from an old version](#manual-upgrade-from-an-old-version)
 - [TLS / SSL](#tls--ssl)
 - [Host helper scripts](#host-helper-scripts)
@@ -30,7 +30,7 @@ Stack Manager ships two surfaces from one repo:
 
 The same Go binary runs in two modes:
 
-- **Controller** (`APP_MODE` unset) — full stack with MariaDB + Redis, routes
+- **Controller** (`APP_MODE` unset or `server`) — full stack with MariaDB + Redis, routes
   under `/api/v1`, session/bearer auth.
 - **Agent** (`APP_MODE=agent*`) — no MariaDB/Redis/UI, routes under `/agent/v1`,
   bearer-token auth via `AGENT_TOKEN`. Registered from a controller's
@@ -55,106 +55,15 @@ Two directories you should never confuse:
 
 ---
 
-## Install
+## Install and update
 
-### Web dashboard (recommended)
-
-```bash
-mkdir -p ~/docker && cd ~/docker
-git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
-cd stack-manager
-./scripts/prepare-state.sh .env
-docker compose --env-file .env up -d --build
-```
-
-`prepare-state.sh` creates `.env` from `.env.example`, replaces every
-`change-me…` placeholder with a random 36-char secret, detects `DOCKER_GID` and
-`SERVER_USER` from the host, prepares the state directories with correct
-ownership, and prints the login URL + credentials. **Re-running it never
-overwrites existing secrets.**
-
-Prefer `./scripts/deploy.sh` over a bare `docker compose up` when you want the
-UI footer version stamped and the host helper scripts installed automatically —
-see [Upgrade](#upgrade).
-
-### CLI-only (no dashboard)
-
-```bash
-chmod +x stack-manager.sh
-./stack-manager.sh --root ~/docker list
-./stack-manager.sh --root ~/docker --dry-run update
-```
-
-Flags must come **before** the command. `-p` is `--prune`, not `--project`.
-
-### Agent (managed node)
-
-On the node to be managed:
-
-```bash
-git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
-cd stack-manager
-./scripts/prepare-state.sh --agent --mode callback .env   # or --mode inbound / both
-# Set DOCKER_ROOT and AGENT_CONTROLLER_URL in .env, then:
-docker compose --env-file .env -f docker-compose.agent.yml up -d --build
-```
-
-`prepare-state.sh --agent` writes `APP_MODE`, `AGENT_NAME`, `AGENT_TOKEN`, and
-`AGENT_PORT`, and prints the values to register in the controller's
-**Settings → Agents**. Agent modes: `callback` (outbound check-in, best behind
-NAT), `inbound` (controller reaches the agent), or `both`.
-
----
-
-## Upgrade
-
-Three supported paths, all equivalent in result:
-
-### 1. UI — Settings → Update → "Update now" (no SSH)
-
-Pulls the latest code and rebuilds the stack **detached on the host** (via a
-transient `systemd-run` unit) so it survives the server/web containers
-restarting. The panel shows how many commits you're behind and **what's in the
-update** — the pending commit subjects (`git log HEAD..@{u}`), so you see the
-changelog before you click. The update helper is **installed automatically** the
-first time the stack comes up (see [Host helper scripts](#host-helper-scripts));
-if it's missing on an older install, the panel prints the one-time command:
-
-```bash
-sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update
-```
-
-> A **CI/rsync-deployed** host can't self-update in place. The pipeline writes
-> `.stack-manager-ci-deployed`, and the panel checks that marker even if a
-> legacy `.git` directory remains. Update it through the pipeline instead of
-> risking a reset to a stale external mirror.
-
-### 2. `deploy.sh` (SSH, recommended for a full refresh)
-
-```bash
-cd ~/docker/stack-manager
-git pull            # or: git fetch && git reset --hard origin/main
-./scripts/deploy.sh
-```
-
-`deploy.sh` runs `prepare-state.sh`, rebuilds with the correct version stamp
-(`VITE_GIT_SHA`), **installs/refreshes all host helper scripts**
-(gpu/os/update/csf/tz), and records the deployed version in the DB. Use this —
-not a bare `docker compose up` — after pulling, or the web bundle can serve a
-**stale cached build** (wrong footer version, and a stale frontend against a
-newer server shows as "invalid request body").
-
-### 3. Manual
-
-```bash
-cd ~/docker/stack-manager
-git pull
-./scripts/prepare-state.sh .env
-docker compose --env-file .env up -d --build
-```
-
-> After changing Dockerfiles, nginx, or server config, always use
-> `up -d --build` (not plain `up -d`) — plain `up -d` reuses old images.
+The install, update, agent and CLI-only steps now live in one place,
+[Installing Stack Manager](INSTALL.md). In short, run
+`./scripts/prepare-state.sh .env` and then
+`docker compose --env-file .env up -d --build` as a normal user in the `docker`
+group, and update with **Settings > Update** or the same two commands after a
+`git pull`. Hosts deployed by the GitLab pipeline are updated through the
+pipeline.
 
 ---
 
@@ -185,13 +94,12 @@ but a few things are easy to get wrong:
    chown `DOCKER_ROOT` (it holds other people's projects).
 
 4. **Version footer.** The server stamps its own build version into the DB on
-   startup, so after any rebuild the footer reflects the deployed commit. If it
-   looks stale, you rebuilt with a bare `docker compose` (no `VITE_GIT_SHA`) —
-   redeploy with `./scripts/deploy.sh` or the UI Update button.
+   startup, and `prepare-state.sh` stamps the git commit into `.env`, so after
+   any rebuild the footer reflects the deployed commit. If it looks stale, the
+   images were not rebuilt. Run `docker compose --env-file .env up -d --build`.
 
-5. **Reinstall the host helpers** (gpu/os/update/csf/tz) if their scripts
-   changed — `deploy.sh` does this for you; otherwise
-   `sudo install -m 750 scripts/stack-manager-<name>.sh /usr/local/sbin/stack-manager-<name>`.
+5. **Host helpers** (gpu/os/update/csf/tz) are reinstalled automatically each
+   time the stack starts, so a rebuild picks up changed helper scripts.
 
 6. **If CSF (firewall) was uninstalled**, Docker's iptables NAT chain is
    flushed with it — `systemctl restart docker` (the CSF helper now schedules
@@ -288,18 +196,4 @@ rebuilds.
 
 ## Troubleshooting
 
-- **Footer version looks stale / "invalid request body" after an update** — the
-  web bundle was rebuilt without `VITE_GIT_SHA` (bare `docker compose`). Redeploy
-  with `./scripts/deploy.sh` or the UI Update button.
-- **"Update now" logs a start line then nothing** — the update helper on that
-  host is an old build; reinstall it (`deploy.sh` or the `sudo install` command).
-  The current helper runs the rebuild under systemd so it survives the restart.
-- **`deploy.sh` fails with `chmod: Operation not permitted`** — a prior root
-  self-update left root-owned files. `sudo chown -R <deploy-user>:<deploy-user>`
-  the tree **excluding `.stack-manager`**, then retry. The current self-update
-  re-owns the tree automatically.
-- **Docker Settings: `daemon.json is not valid JSON: invalid character 'U'`** —
-  transient on first use of the helper image (Docker's "Unable to find image…"
-  pull line); refresh once the image is cached. Fixed in current builds.
-- **Web container won't bind ports after CSF was removed** —
-  `systemctl restart docker` to rebuild Docker's iptables chains.
+See [Troubleshooting](TROUBLESHOOTING.md).

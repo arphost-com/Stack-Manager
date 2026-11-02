@@ -819,24 +819,24 @@ git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
 cd stack-manager
 ./scripts/prepare-state.sh .env
 docker compose --env-file .env up -d --build`}</Code>
-        <p className="text-sm text-gray-600"><code className="rounded bg-gray-100 px-1">prepare-state.sh</code> generates random secrets, detects <code className="rounded bg-gray-100 px-1">DOCKER_GID</code>/<code className="rounded bg-gray-100 px-1">SERVER_USER</code>, and prints the login URL — re-running it never overwrites existing secrets. Default dashboard: HTTP 8193 → HTTPS 8993 (self-signed on first boot).</p>
+        <p className="text-sm text-gray-600">Run it as a normal user in the <code className="rounded bg-gray-100 px-1">docker</code> group, not with sudo, or Stack Manager will run as root and manage <code className="rounded bg-gray-100 px-1">/root/docker</code>. <code className="rounded bg-gray-100 px-1">prepare-state.sh</code> generates random secrets, detects <code className="rounded bg-gray-100 px-1">DOCKER_GID</code> and <code className="rounded bg-gray-100 px-1">SERVER_USER</code>, creates the <code className="rounded bg-gray-100 px-1">stackmgr-net</code> network and prints the login URL. Re-running it never overwrites existing secrets. The dashboard uses HTTP 8193 and HTTPS 8993 (self-signed on first boot); open both on the host firewall to reach it from another machine.</p>
         <p className="text-sm text-gray-700 pt-1">Agent (managed node):</p>
-        <Code>{`./scripts/prepare-state.sh --agent --mode callback .env   # or inbound / both
-# set DOCKER_ROOT + AGENT_CONTROLLER_URL in .env, then:
+        <Code>{`./scripts/prepare-state.sh --agent --mode callback --controller https://<dashboard-host>:8993 .env
 docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code>
+        <p className="text-sm text-gray-600">Full steps: <DocLink href={`${GH_BASE}/docs/INSTALL.md`} compact>docs/INSTALL.md</DocLink>. Common problems: <DocLink href={`${GH_BASE}/docs/TROUBLESHOOTING.md`} compact>docs/TROUBLESHOOTING.md</DocLink>.</p>
       </DocSection>
 
       <DocSection title="Upgrade">
         <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
-          <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are, what&rsquo;s in the update, and the live rebuild log through completion. Install the helper once: <code className="rounded bg-gray-100 px-1 text-xs">sudo install -m 750 scripts/stack-manager-update.sh /usr/local/sbin/stack-manager-update</code></li>
-          <li><strong>deploy.sh (recommended full refresh):</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/deploy.sh</code> — rebuilds with the correct version stamp, installs all host helpers, records the version in the DB.</li>
+          <li><strong>UI (no SSH):</strong> Settings → Update → <em>Update now</em>. Shows how far behind you are, what&rsquo;s in the update, and the live rebuild log through completion. The update helper is installed automatically when the stack starts. Hosts deployed by the GitLab pipeline update through the pipeline instead.</li>
+          <li><strong>deploy.sh (optional):</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/deploy.sh</code> does the same as the manual steps and also records the version. It is no longer required, because the server stamps its own version and the helpers install themselves.</li>
           <li><strong>Manual:</strong> <code className="rounded bg-gray-100 px-1">git pull &amp;&amp; ./scripts/prepare-state.sh .env &amp;&amp; docker compose --env-file .env up -d --build</code></li>
           <li><strong>Controller guard:</strong> Stack Manager&rsquo;s own Compose project is visible on the dashboard but cannot be pulled or updated as an ordinary stack. Use Settings → Update, which verifies the running version after the rebuild.</li>
           <li><strong>Dismiss notices:</strong> Dismiss hides an image-update or check-warning notice only until a future check reports it again. It does not pull images, restart containers, or alter Compose files.</li>
           <li><strong>Opt-in checks:</strong> Stack Manager does not scan registries at startup or on a nightly timer. Add an enabled <em>Check for updates</em> schedule to each project that should be checked; <em>Check Scheduled Now</em> uses that same allowlist.</li>
           <li><strong>Registry protection:</strong> repeated update checks within five minutes use the last completed result. If a registry rate limit is reached, Stack Manager stops the remaining scan, preserves known update notices, and shows when another refresh is allowed.</li>
         </ul>
-        <p className="text-sm text-amber-700">Always use <code className="rounded bg-white/60 px-1">up -d --build</code> after pulling — a bare <code className="rounded bg-white/60 px-1">up -d</code> reuses stale images (wrong footer version / "invalid request body").</p>
+        <p className="text-sm text-amber-700">Always use <code className="rounded bg-white/60 px-1">up -d --build</code> after pulling — a bare <code className="rounded bg-white/60 px-1">up -d</code> reuses stale images and the footer keeps showing the old version.</p>
       </DocSection>
 
       <DocSection title="Manual upgrade from an old version">
@@ -846,7 +846,7 @@ docker compose --env-file .env -f docker-compose.agent.yml up -d --build`}</Code
           <li><strong>Never chown</strong> <code className="rounded bg-gray-100 px-1">STATE_DIR/mariadb</code> or <code className="rounded bg-gray-100 px-1">/redis</code> after init, and never recursively chown <code className="rounded bg-gray-100 px-1">DOCKER_ROOT</code>.</li>
           <li><strong>If CSF was removed</strong>, run <code className="rounded bg-gray-100 px-1">systemctl restart docker</code> (Docker's iptables NAT chain gets flushed with it).</li>
         </ul>
-        <p className="text-sm text-gray-600">Details + troubleshooting: <DocLink href={`${GH_BASE}/docs/PLATFORM.md`} compact>docs/PLATFORM.md</DocLink></p>
+        <p className="text-sm text-gray-600">Details: <DocLink href={`${GH_BASE}/docs/PLATFORM.md`} compact>docs/PLATFORM.md</DocLink>. Troubleshooting: <DocLink href={`${GH_BASE}/docs/TROUBLESHOOTING.md`} compact>docs/TROUBLESHOOTING.md</DocLink></p>
       </DocSection>
 
       <DocSection title="API reference">

@@ -10,7 +10,7 @@ Manage all your Docker Compose stacks from one dashboard. Discover, deploy, upda
 
 - **200+ one-click stack templates** — AI, databases, CMS, monitoring, proxies, dev tools, media, and more. Pick a template, review the compose and env, and spin it up.
 - **In-browser config editor** — edit compose.yml, .env, Caddyfile, and other project files directly from the dashboard with automatic .bak backups.
-- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view is a read-only aggregate; select one server before changing projects. Behind-NAT **callback agents** are managed through a command queue that runs on their next check-in. All cross-server traffic uses TLS 1.3.
+- **Fleet management with agents & peers** — register remote Docker hosts as outbound (phone-home), inbound, or combined agents, or add another full install as a **peer controller**. The "All Servers" view is a read-only aggregate; select one server before changing projects. Behind-NAT **callback agents** are managed through a command queue that runs on their next check-in. Agent check-ins and peer traffic use HTTPS. The inbound agent listener is plain HTTP, so keep it on a private network.
 - **GPU for AI stacks** — Settings > GPU detects the host GPU, one-click-installs the NVIDIA driver + toolkit, and runs a real `--gpus all` test container (nvidia-smi) to prove passthrough works. "Add GPU passthrough" is a checkbox on both the Stack Catalog and the Create Project form (baked in before deploy), or an **Enable GPU** action after the fact.
 - **Per-stack volumes & networks** — inspect a project's Docker volumes and networks (with in-use containers) and safely delete them, scoped to that stack, from its detail page.
 - **One-click self-update** — Settings > Update pulls and rebuilds the controller on the host (detached, survives the restart) and shows **what's in the update** (the pending commit subjects) before you run it.
@@ -40,7 +40,9 @@ cd stack-manager
 docker compose --env-file .env up -d --build
 ```
 
-Open the URL printed by the setup script (default `https://<your-ip>:8993`). All passwords and keys are auto-generated on first run.
+Run this as a normal user in the `docker` group, not with sudo. Open the URL printed by the setup script (default `https://<your-ip>:8993`) and open ports 8993 and 8193 on the host firewall if you browse from another machine. All passwords and keys are generated on first run.
+
+The full guide is [Installing Stack Manager](docs/INSTALL.md), and [Troubleshooting](docs/TROUBLESHOOTING.md) covers the common problems.
 
 ---
 
@@ -525,7 +527,7 @@ Manage Docker hosts across your network from one controller. The dashboard's **S
 | **Both** (agent) | Combined — works whether the host is reachable or not. | Yes | Yes, live |
 | **Peer controller** | Another full Stack Manager. You add it by its URL + API key; the controller live-fetches its projects into the "All Servers" view. | Reachable over HTTPS | Yes, live |
 
-Agents are a lightweight runtime (no database, Redis, or UI) installed with `./scripts/prepare-state.sh --agent --mode <callback\|inbound\|both> --controller https://<controller>:8993` — which auto-generates the `.env` (including `AGENT_TOKEN`), fills the controller URL (no `change-me` left behind), and prints the exact name/token to register. **Peer controllers** are two full installs that each add the other as a peer, so both dashboards see and (via the agent proxy) act on both hosts over direct HTTPS. All server-to-server traffic uses TLS 1.3.
+Agents are a lightweight runtime (no database, Redis, or UI) installed with `./scripts/prepare-state.sh --agent --mode <callback\|inbound\|both> --controller https://<controller>:8993` — which auto-generates the `.env` (including `AGENT_TOKEN`), fills the controller URL (no `change-me` left behind), and prints the exact name/token to register. **Peer controllers** are two full installs that each add the other as a peer, so both dashboards see and (via the agent proxy) act on both hosts over direct HTTPS. Check-ins and peer traffic use HTTPS. The inbound agent listener on 8192 is plain HTTP.
 
 Open any project in the "All Servers" view — including ones on a peer or agent — to inspect it. Select a specific server before changing projects. Peer/inbound projects are then managed live. **Callback agents** can't be reached inbound, so opening their project shows a **Queued commands** panel: actions run on the agent's next check-in with reported output. Bulk actions, Create Project, and Prune target the selected server.
 
@@ -554,7 +556,7 @@ Settings > Firewall provides full management of ConfigServer Firewall on the hos
 - Your detected IP shown with an **Add my IP** button
 - Manual allow / deny form for any IPv4 or IPv6 address with a comment
 - Allow list and deny list tables with per-entry Remove buttons
-- Auto-allowlist on login — every successful dashboard login runs `csf -a` for the caller's IP
+- Auto-allowlist on login. When csf is installed, every successful dashboard login runs `csf -a` for the caller's IP
 
 **Per-project port opening:**
 - Any project has an **Open Ports (CSF)** button that adds the project's published TCP ports inbound to the host firewall (`TCP_IN`) and reloads CSF, backing up `csf.conf` first. Requires the firewall helper (`stack-manager-csf`) installed on that host.
@@ -571,13 +573,7 @@ Settings > Firewall provides full management of ConfigServer Firewall on the hos
 - Writes `csfpre.sh` (saves iptables state) and `csfpost.sh` (restarts Docker after CSF reload) so `csf -r` never breaks container networking
 - Installs `unzip`, `perl`, and `iptables` as prerequisites
 
-**One-time host setup:**
-
-```bash
-sudo install -m 750 scripts/stack-manager-csf.sh /usr/local/sbin/stack-manager-csf
-```
-
-If the helper is not installed, the Firewall panel shows an amber install-command card with a Copy button instead of an error.
+**Host helper:** the `stack-manager-csf` helper is installed automatically every time the stack starts. On hosts without csf, which includes hosts using ufw, nftables or a control panel firewall, these features stay idle and the login allowlist is skipped quietly.
 
 ### Reverse Proxy (Nginx Proxy Manager)
 
@@ -702,36 +698,7 @@ The same Go binary runs in two modes:
 
 ## Installation
 
-### Web Dashboard (recommended)
-
-```bash
-mkdir -p ~/docker && cd ~/docker
-git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
-cd stack-manager
-./scripts/prepare-state.sh .env
-docker compose --env-file .env up -d --build
-```
-
-`prepare-state.sh` generates cryptographically random passwords for every secret, detects `DOCKER_GID` and `SERVER_USER` from the host, and prints the login URL + credentials. Re-running it never overwrites existing secrets.
-
-### Updating
-
-```bash
-cd ~/docker/stack-manager
-git pull
-./scripts/prepare-state.sh .env
-docker compose --env-file .env up -d --build
-```
-
-### CLI-Only (no dashboard)
-
-```bash
-chmod +x stack-manager.sh
-./stack-manager.sh --root ~/docker list
-./stack-manager.sh --root ~/docker update
-```
-
-The CLI is a single Bash script with no dependencies beyond Docker Compose. It supports all lifecycle commands, bulk operations, custom update hooks, inactive markers, timeouts, dry-run mode, and logging.
+Install, update, agent and CLI-only setup are all in [Installing Stack Manager](docs/INSTALL.md). If something does not work, start with [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ---
 
@@ -761,20 +728,7 @@ The CLI is a single Bash script with no dependencies beyond Docker Compose. It s
 
 ## Agent Installation
 
-See [Agent Modes](docs/AGENT_MODES.md) for the full protocol reference, or use the guided setup in **Settings > Agents** which generates copy-paste commands for each mode.
-
-```bash
-git clone https://github.com/arphost-com/Stack-Manager.git stack-manager
-cd stack-manager
-# --mode is callback (outbound), inbound, or both. This writes the correct
-# APP_MODE and auto-generates AGENT_TOKEN, AGENT_NAME, AGENT_PORT into .env,
-# then prints the values to register in Settings > Agents.
-./scripts/prepare-state.sh --agent --mode callback .env
-# Edit .env: set DOCKER_ROOT and AGENT_CONTROLLER_URL to your controller's URL
-docker compose --env-file .env -f docker-compose.agent.yml up -d --build
-```
-
-Then register the agent from the controller: **Settings > Agents > Add Agent** (name, mode, and the printed `AGENT_TOKEN`). For a **peer controller** instead, run a full install on both hosts and add each as a peer of the other (URL + API key) under Settings > Agents.
+See [Install an agent on another host](docs/INSTALL.md#install-an-agent-on-another-host) for the steps and [Agent Modes](docs/AGENT_MODES.md) for the protocol reference. **Settings > Agents** also generates copy-paste commands for each mode.
 
 ---
 
@@ -796,7 +750,7 @@ Commands:
 
 Options:
   --root <dir>     Project root directory
-  --running        Only act on running projects
+  --running-only   Only act on running projects
   --dry-run        Show what would run without executing
   --timeout <sec>  Timeout for pull/check operations
   --prune          Run docker system prune after operations
