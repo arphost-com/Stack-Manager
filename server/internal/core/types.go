@@ -33,6 +33,12 @@ type Container struct {
 	Image string `json:"image"`
 	State string `json:"state"`
 	Ports string `json:"ports,omitempty"`
+	// HostNetwork is true for containers using network_mode: host. Docker
+	// reports no port mappings for them, so HostPorts lists the TCP ports the
+	// project declares instead (numeric *_PORT values in .env, or the image's
+	// EXPOSE list when .env declares none). They are declared ports, not verified listeners.
+	HostNetwork bool  `json:"host_network,omitempty"`
+	HostPorts   []int `json:"host_ports,omitempty"`
 }
 
 // ImageSource describes how a compose service gets its image.

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -110,6 +111,14 @@ func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if result != nil && result.Success {
+		disabled, disableErr := h.Store.DisableLocalSchedulesForProject(r.Context(), name, "disabled automatically: project "+name+" was deleted")
+		if disableErr != nil {
+			result.Output += "warning: could not disable schedules for this project: " + disableErr.Error() + "\n"
+		} else if disabled > 0 {
+			result.Output += fmt.Sprintf("disabled %d schedule(s) for this project\n", disabled)
+		}
 	}
 	writeJSON(w, http.StatusOK, result)
 }

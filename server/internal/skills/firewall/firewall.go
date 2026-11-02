@@ -73,6 +73,10 @@ type Skill struct {
 	mu         sync.Mutex
 	lastStatus StatusResult
 	statusTime time.Time
+	// allowSkipUntil suppresses login allowlisting while the host has no
+	// usable CSF, so each login does not spawn a privileged helper container
+	// just to learn the same thing again.
+	allowSkipUntil time.Time
 }
 
 // New returns an unconfigured Skill. Init picks up overrides.
@@ -192,10 +196,21 @@ func (s *Skill) AllowIP(ctx context.Context, ip, comment string) error {
 	if comment == "" {
 		comment = "Stack Manager"
 	}
+	s.mu.Lock()
+	skip := time.Now().Before(s.allowSkipUntil)
+	s.mu.Unlock()
+	if skip {
+		return nil
+	}
 	_, err := s.runHelper(ctx, commandTimeout, nil, "allow-ip", ip, comment)
-	if errors.Is(err, errHelperMissing) {
-		// Firewall not set up on this host. Login should not be gated
-		// on it and repeated logs are noise.
+	if errors.Is(err, errHelperMissing) || errors.Is(err, errCSFMissing) {
+		// Firewall not set up on this host. The helper is installed on every
+		// host automatically, so "csf missing" is the normal state for hosts
+		// that use nftables, ufw or nothing. Login should not be gated on it,
+		// repeated logs are noise, and re-checking on every login is waste.
+		s.mu.Lock()
+		s.allowSkipUntil = time.Now().Add(allowSkipInterval)
+		s.mu.Unlock()
 		return nil
 	}
 	return err
@@ -220,6 +235,14 @@ type StatusResult struct {
 // toast when the only thing wrong is that they haven't run the one-time
 // install command yet.
 var errHelperMissing = errors.New("host helper script not installed at " + defaultHelperPath)
+
+// errCSFMissing means the helper ran but csf itself is not installed on the
+// host. The helper reports this with "csf is not installed at <path>".
+var errCSFMissing = errors.New("csf is not installed on this host")
+
+// allowSkipInterval is how long login allowlisting stays off after the host
+// was found to have no usable CSF. Installing CSF takes effect within this.
+const allowSkipInterval = 15 * time.Minute
 
 func helperInstallHint() string {
 	return "Run this on the host once (one-time setup):\n" +
@@ -262,6 +285,12 @@ func (s *Skill) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Skill) handleInstall(w http.ResponseWriter, r *http.Request) {
 	out, err := s.runHelper(r.Context(), installTimeout, nil, "install")
+	if err == nil {
+		// CSF exists now, so resume login allowlisting immediately.
+		s.mu.Lock()
+		s.allowSkipUntil = time.Time{}
+		s.mu.Unlock()
+	}
 	writeCommandResult(w, out, err)
 }
 
@@ -651,6 +680,9 @@ func (s *Skill) runHelper(ctx context.Context, timeout time.Duration, stdin io.R
 		if strings.Contains(combined, s.helperPath) &&
 			(strings.Contains(combined, "No such file") || strings.Contains(combined, "can't execute") || strings.Contains(combined, "not found")) {
 			return out, errHelperMissing
+		}
+		if strings.Contains(combined, "csf is not installed") {
+			return out, errCSFMissing
 		}
 		return out, fmt.Errorf("helper failed: %s: %s", err.Error(), strings.TrimSpace(stderr.String()))
 	}

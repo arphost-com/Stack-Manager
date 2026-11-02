@@ -1049,6 +1049,41 @@ func (s *Store) DeleteSchedule(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DisableSchedule turns off one schedule and records why. It is used when a
+// schedule can never run again, for example because its project was deleted.
+func (s *Store) DisableSchedule(ctx context.Context, id int64, reason string) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE update_schedules
+		SET enabled=FALSE, last_status='disabled', last_error=?, updated_at=?
+		WHERE id=?`, nullableString(reason), time.Now().UTC(), id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	s.DeleteCache(ctx, "schedules:list")
+	return nil
+}
+
+// DisableLocalSchedulesForProject turns off every enabled local schedule for a
+// project, so deleting a project does not leave schedules that fail forever.
+// Agent schedules are left alone because they target a project on another node.
+func (s *Store) DisableLocalSchedulesForProject(ctx context.Context, project, reason string) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, `UPDATE update_schedules
+		SET enabled=FALSE, last_status='disabled', last_error=?, updated_at=?
+		WHERE project=? AND agent_id IS NULL AND enabled=TRUE`,
+		nullableString(reason), time.Now().UTC(), project)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := res.RowsAffected()
+	if affected > 0 {
+		s.DeleteCache(ctx, "schedules:list")
+	}
+	return affected, nil
+}
+
 // ScheduledCheckProjectNames returns local projects explicitly opted into
 // non-mutating registry/source checks through an enabled check schedule.
 func (s *Store) ScheduledCheckProjectNames(ctx context.Context) map[string]bool {

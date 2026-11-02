@@ -88,6 +88,30 @@ func unstableUpdateServices(first, last map[string]updateServiceState) []string 
 	return failures
 }
 
+const (
+	// updateVerifySettle is the delay before the second sample that catches
+	// restart loops.
+	updateVerifySettle = 30 * time.Second
+	// updateVerifyHealthPoll and updateVerifyHealthWait bound how long verification
+	// keeps waiting for a healthcheck that is still in its start period.
+	updateVerifyHealthPoll = 10 * time.Second
+	updateVerifyHealthWait = 5 * time.Minute
+)
+
+// onlyHealthStarting reports whether every failure is a healthcheck that is
+// still starting, meaning the service may yet become healthy.
+func onlyHealthStarting(failures []string) bool {
+	if len(failures) == 0 {
+		return false
+	}
+	for _, failure := range failures {
+		if !strings.HasSuffix(failure, ": starting") {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *Engine) verifyUpdateServices(project *Project, wait func(time.Duration)) *OpResult {
 	start := time.Now()
 	result := &OpResult{Project: project.Name, Action: "verify update", ExitCode: 1}
@@ -104,12 +128,24 @@ func (e *Engine) verifyUpdateServices(project *Project, wait func(time.Duration)
 		}
 		// A short-lived "running" state is not sufficient for restart loops. The
 		// second sample catches a service that Docker repeatedly restarts.
-		wait(30 * time.Second)
+		wait(updateVerifySettle)
+		waited := updateVerifySettle
 		var last map[string]updateServiceState
 		last, err = e.updateServiceStates(project)
+		// Slow services (GitLab, Pi-hole) are still in their healthcheck start
+		// period after the settle delay. Keep sampling while the only problem is
+		// a "starting" healthcheck, so a healthy update is not reported failed.
+		for err == nil && waited < updateVerifyHealthWait && onlyHealthStarting(unstableUpdateServices(first, last)) {
+			wait(updateVerifyHealthPoll)
+			waited += updateVerifyHealthPoll
+			last, err = e.updateServiceStates(project)
+		}
 		if err == nil {
 			failures := unstableUpdateServices(first, last)
 			if len(failures) > 0 {
+				if onlyHealthStarting(failures) {
+					failures = append(failures, fmt.Sprintf("healthcheck still starting after %s", waited))
+				}
 				result.Output = "Post-update container verification failed:\n" + strings.Join(failures, "\n") + "\n"
 			} else {
 				result.Success = true

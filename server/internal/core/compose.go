@@ -61,21 +61,23 @@ func (e *Engine) getContainers(name string) ([]Container, string) {
 			continue
 		}
 		var raw struct {
-			ID    string `json:"ID"`
-			Names string `json:"Names"`
-			Image string `json:"Image"`
-			State string `json:"State"`
-			Ports string `json:"Ports"`
+			ID       string `json:"ID"`
+			Names    string `json:"Names"`
+			Image    string `json:"Image"`
+			State    string `json:"State"`
+			Ports    string `json:"Ports"`
+			Networks string `json:"Networks"`
 		}
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			continue
 		}
 		containers = append(containers, Container{
-			ID:    raw.ID,
-			Name:  raw.Names,
-			Image: raw.Image,
-			State: raw.State,
-			Ports: raw.Ports,
+			ID:          raw.ID,
+			Name:        raw.Names,
+			Image:       raw.Image,
+			State:       raw.State,
+			Ports:       raw.Ports,
+			HostNetwork: strings.TrimSpace(raw.Networks) == "host",
 		})
 	}
 

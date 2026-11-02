@@ -48,7 +48,7 @@ func TestManualPullWithoutTimeoutCanFinishAfterExplicitLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	finished = waitForTestJob(t, m, limitedJob.ID)
-	if finished.Status != "failed" || finished.Error != "command timed out" {
+	if finished.Status != "failed" || finished.Error != "docker compose pull timed out after 1s" || !strings.Contains(finished.Output, "use 0 for no limit") {
 		t.Fatalf("explicit limit should stop pull: status=%s error=%q", finished.Status, finished.Error)
 	}
 }
@@ -65,4 +65,20 @@ func waitForTestJob(t *testing.T, m *JobManager, id string) *ActionJob {
 	}
 	t.Fatal("job did not finish")
 	return nil
+}
+
+func TestCommandLabelNamesTheComposeStep(t *testing.T) {
+	cases := map[string][]string{
+		"docker compose pull": {"compose", "-f", "compose.yml", "-p", "app", "pull", "--ignore-buildable"},
+		"docker compose up":   {"compose", "-p", "app", "up", "-d"},
+		"docker compose":      {"compose", "-p"},
+	}
+	for want, args := range cases {
+		if got := commandLabel("docker", args); got != want {
+			t.Errorf("commandLabel(docker, %v) = %q, want %q", args, got, want)
+		}
+	}
+	if got := commandLabel("/hooks/post-update-app", []string{"app"}); got != "post-update-app" {
+		t.Errorf("hook label = %q", got)
+	}
 }

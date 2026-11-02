@@ -10,7 +10,7 @@ function parsePublishedPorts(project) {
   const ports = [];
   const seen = new Set();
   for (const c of project?.containers || []) {
-    for (const mapping of (c.ports || '').split(',')) {
+    for (const mapping of containerPortsString(c).split(',')) {
       const m = mapping.trim().match(/:(\d+)(?:-(\d+))?->\d+(?:-\d+)?\/tcp/);
       if (!m) continue;
       const start = Number(m[1]);
@@ -25,6 +25,7 @@ function parsePublishedPorts(project) {
   return ports;
 }
 import { useFollowingScroll } from '../hooks/useFollowingScroll';
+import { containerPortsString } from '../utils/hostPorts';
 import { projectState, projectStateTone, stateTone } from '../utils/projectState';
 import { projectActionBlockedReason, updateStatusLabel, updateStatusTone } from '../utils/updateEligibility';
 import { DEFAULT_MANUAL_ACTION_TIMEOUT_SECONDS } from '../utils/manualActionTimeout';
@@ -871,7 +872,7 @@ function Overview({ project, linkHost, policyForm, setPolicyForm, saveUpdatePoli
                   <td className="py-2 font-mono">{c.name}</td>
                   <td className="font-mono text-xs text-gray-600">{c.image}</td>
                   <td><Badge tone={stateTone(c.state)}>{c.state}</Badge></td>
-                  <td className="text-xs"><ContainerPorts ports={c.ports} state={c.state} linkHost={linkHost} /></td>
+                  <td className="text-xs"><ContainerPorts ports={containerPortsString(c)} state={c.state} linkHost={linkHost} />{c.host_network && <span className="ml-1 text-[10px] text-gray-400" title="This container uses host networking. These are the ports the project declares, and they must be open on the host firewall to be reachable.">host network</span>}</td>
                 </tr>
               ))}
             </tbody>

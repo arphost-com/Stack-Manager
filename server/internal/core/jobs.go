@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -430,8 +431,12 @@ func runCommandJob(job *ActionJob, dir string, timeoutSecs int, name string, arg
 	wg.Wait()
 
 	if ctx.Err() == context.DeadlineExceeded {
-		setJobError(job, "command timed out")
-		appendJobOutput(job, "\ncommand timed out\n")
+		msg := fmt.Sprintf("%s timed out after %s", commandLabel(name, args), time.Duration(timeoutSecs)*time.Second)
+		setJobError(job, msg)
+		appendJobOutput(job, "\n"+msg+"\n")
+		if commandLabel(name, args) == "docker compose pull" {
+			appendJobOutput(job, "Large images can need more time. Raise this schedule's or action's timeout, or use 0 for no limit.\n")
+		}
 		return false, 1
 	}
 	if err != nil {
@@ -442,6 +447,24 @@ func runCommandJob(job *ActionJob, dir string, timeoutSecs int, name string, arg
 		return false, 1
 	}
 	return true, 0
+}
+
+// commandLabel names a job command for timeout messages, for example
+// "docker compose pull" or the hook file name, so the operator can tell which
+// step hit its limit.
+func commandLabel(name string, args []string) string {
+	if filepath.Base(name) == "docker" && len(args) > 0 && args[0] == "compose" {
+		for i := 1; i < len(args); i++ {
+			if args[i] == "-p" {
+				if i+2 < len(args) {
+					return "docker compose " + args[i+2]
+				}
+				break
+			}
+		}
+		return "docker compose"
+	}
+	return filepath.Base(name)
 }
 
 func commandJobContext(timeoutSecs int) (context.Context, context.CancelFunc) {

@@ -134,6 +134,7 @@ func (e *Engine) buildProject(dir, composeFile string) Project {
 	p.State = state
 	p.Running = state == "running"
 	p.Containers = containers
+	fillHostNetworkPorts(&p, imageExposedTCPPorts)
 	p.ImageSources = e.ImageSources(&p)
 	p.Documentation = e.ProjectDocs(&p)
 

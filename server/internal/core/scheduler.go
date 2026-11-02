@@ -35,6 +35,7 @@ type ScheduleStore interface {
 	GetAgent(context.Context, int64) (*ComposeAgent, error)
 	ResolveUpdatePolicy(Project) ProjectUpdatePolicy
 	EnqueueAgentCommand(context.Context, int64, AgentCommandRequest) (*AgentCommand, error)
+	DisableSchedule(context.Context, int64, string) error
 }
 
 type ScheduleManager struct {
@@ -168,6 +169,16 @@ func (m *ScheduleManager) runSchedule(ctx context.Context, schedule UpdateSchedu
 
 	project, err := m.engine.GetProject(schedule.Project)
 	if err != nil {
+		var notFound *ErrNotFound
+		if errors.As(err, &notFound) {
+			// The project is gone, so this schedule can never succeed. Record the
+			// failure once, then disable it instead of failing on every run.
+			recorded := fail(err)
+			if disableErr := m.store.DisableSchedule(ctx, schedule.ID, "disabled automatically: "+err.Error()); disableErr != nil {
+				return fmt.Errorf("%w (disable schedule: %v)", recorded, disableErr)
+			}
+			return recorded
+		}
 		return fail(err)
 	}
 	if action == "update" || action == "check" {

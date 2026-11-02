@@ -57,6 +57,26 @@ backup before a scheduled update. For production, use a manual update after a
 verified backup; treat automatic backup-before-update enforcement as an
 unimplemented safeguard, not as something a separate backup schedule guarantees.
 
+## Post-update verification
+
+After Compose recreates the containers, Stack Manager samples their state
+again 30 seconds later to catch restart loops. If a service is running but its
+healthcheck still reports starting, verification keeps sampling every 10
+seconds for up to 5 minutes before it gives up. Slow starters such as GitLab and
+Pi-hole therefore pass once they turn healthy. A service that turns unhealthy,
+restarts, or exits fails at once. If the healthcheck is still starting when the
+5 minutes run out, the job fails and says how long it waited.
+
+## Schedules for deleted projects
+
+Deleting a project disables every local schedule that targets it, and the
+delete result says how many were disabled. Schedules for agents are left alone
+because they target a project on another node. If a schedule still runs for a
+project that no longer exists, for example because the directory was removed by
+hand, the scheduler records that run as failed once and then disables the
+schedule. The schedule keeps its history and can be re-enabled
+after the project is restored.
+
 ## Startup host-port conflicts
 
 If Compose cannot start because a published host port is already in use, the
