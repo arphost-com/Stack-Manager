@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -45,6 +48,7 @@ func AuditRecorder(store *storage.Store, node string) func(http.Handler) http.Ha
 				Target:     target,
 				Success:    rec.status < 400,
 				DurationMs: int(time.Since(start).Milliseconds()),
+				Details:    auditFailureDetails(rec.status, rec.body.Bytes()),
 				RemoteIP:   clientIP(r),
 			})
 		})
@@ -145,6 +149,55 @@ type auditRecorder struct {
 	http.ResponseWriter
 	status int
 	wrote  bool
+	// body keeps the start of an error response so the audit entry can say
+	// why the call failed. Successful responses are not buffered.
+	body bytes.Buffer
+}
+
+// auditBodyLimit caps how much of an error response is kept for parsing.
+const auditBodyLimit = 64 << 10
+
+// auditFailureDetails turns a failed JSON API response into a short reason
+// for the audit log. For bulk actions it also names the projects that failed,
+// since the request itself carries no single project.
+func auditFailureDetails(status int, body []byte) string {
+	if status < 400 {
+		return ""
+	}
+	var resp struct {
+		Error string `json:"error"`
+		Data  struct {
+			Results []struct {
+				Project string `json:"project"`
+				Action  string `json:"action"`
+				Success bool   `json:"success"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Error == "" {
+		return fmt.Sprintf("HTTP %d", status)
+	}
+	details := resp.Error
+	var failed []string
+	for _, r := range resp.Data.Results {
+		if !r.Success && r.Project != "" {
+			failed = append(failed, r.Project)
+		}
+	}
+	if len(failed) > 0 {
+		shown := failed
+		if len(shown) > 10 {
+			shown = shown[:10]
+		}
+		details += "; failed: " + strings.Join(shown, ", ")
+		if extra := len(failed) - len(shown); extra > 0 {
+			details += fmt.Sprintf(" and %d more", extra)
+		}
+	}
+	if len(details) > 500 {
+		details = details[:500]
+	}
+	return details
 }
 
 func (a *auditRecorder) WriteHeader(code int) {
@@ -158,6 +211,13 @@ func (a *auditRecorder) WriteHeader(code int) {
 func (a *auditRecorder) Write(b []byte) (int, error) {
 	if !a.wrote {
 		a.wrote = true
+	}
+	if a.status >= 400 && a.body.Len() < auditBodyLimit {
+		keep := b
+		if room := auditBodyLimit - a.body.Len(); len(keep) > room {
+			keep = keep[:room]
+		}
+		a.body.Write(keep)
 	}
 	return a.ResponseWriter.Write(b)
 }

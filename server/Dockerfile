@@ -29,6 +29,13 @@ RUN addgroup -g 1001 -S appgroup && \
     chown -R appuser:appgroup /home/appuser
 WORKDIR /app
 COPY --from=builder /stack-manager-server .
+# Record the build's commit on the image so `docker inspect` shows which
+# version is running. Declared after the package layers so a new commit does
+# not invalidate them.
+ARG APP_GIT_SHA=
+LABEL org.opencontainers.image.title="Stack Manager server" \
+      org.opencontainers.image.source="https://github.com/arphost-com/Stack-Manager" \
+      org.opencontainers.image.revision="${APP_GIT_SHA}"
 USER appuser
 EXPOSE 8192
 # The controller MUST be able to reach the Docker daemon to be useful, so the

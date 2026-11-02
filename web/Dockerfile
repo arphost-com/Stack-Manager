@@ -24,6 +24,12 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/http.d/default.conf
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Record the build's commit on the image so `docker inspect` shows which
+# version is running.
+ARG VITE_GIT_SHA=
+LABEL org.opencontainers.image.title="Stack Manager web" \
+      org.opencontainers.image.source="https://github.com/arphost-com/Stack-Manager" \
+      org.opencontainers.image.revision="${VITE_GIT_SHA}"
 # Default to a non-root UID so the image is safe even without a runtime
 # user override. docker-compose sets `user: ${SERVER_USER}` to match the
 # bind-mounted /etc/nginx/ssl ownership from state-init.

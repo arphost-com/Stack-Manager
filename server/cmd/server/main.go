@@ -118,7 +118,12 @@ func main() {
 		runAgent(cfg, engine)
 		return
 	}
-	appStore, err := storage.New(context.Background(), cfg.DatabaseDSN, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.CacheTTL)
+	// storage.New already waits 30 seconds for MariaDB on each try but not for
+	// Redis. After a host or Docker restart either can take longer, so try a
+	// few more times (about two minutes in all) before giving up.
+	appStore, err := retryStartup("storage init", 4, 5*time.Second, time.Sleep, func() (*storage.Store, error) {
+		return storage.New(context.Background(), cfg.DatabaseDSN, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.CacheTTL)
+	})
 	if err != nil {
 		log.Fatalf("storage init: %v", err)
 	}
