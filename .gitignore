@@ -60,3 +60,31 @@ coverage.out
 *.test
 server/server
 server/template-smoke
+
+# Agent instructions, access maps and session scratch
+AGENTS.md
+CLAUDE.local.md
+.codex/
+.cursor/
+.cursorrules
+.aider*
+.continue/
+.windsurf*
+.github/copilot-instructions.md
+.cc-scratch/
+worktrees/
+work/
+ACCESS.md
+# Private/local material and distributable output
+*.pem
+*.key
+*.p12
+*.pfx
+id_*
+*.sql
+*.dump
+*.zip
+*.code-workspace
+
+__pycache__/
+*.pyc

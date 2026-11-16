@@ -339,6 +339,9 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 			j.Success = success
 			j.ExitCode = exitCode
 		})
+		if success {
+			appendJobOutput(job, engine.cleanupAfterHook(project))
+		}
 		return
 	}
 	if preflight := engine.CheckComposeServiceIdentity(project); !preflight.Success {
@@ -372,6 +375,9 @@ func runUpdateJob(engine *Engine, project *Project, job *ActionJob, timeoutSecs 
 	appendJobOutput(job, "\n=== verify update ===\n")
 	verification := engine.VerifyUpdate(project)
 	appendJobOutput(job, verification.Output)
+	if verification.Success {
+		appendJobOutput(job, engine.cleanupAfterUpdate())
+	}
 	updateJob(job, func(j *ActionJob) {
 		j.Success = verification.Success
 		j.ExitCode = verification.ExitCode

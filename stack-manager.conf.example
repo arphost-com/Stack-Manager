@@ -21,3 +21,9 @@ ROOT="/docker"
 
 # Hooks directory (default: <ROOT>/.stack-manager/hooks)
 #HOOKS_DIR="/docker/.stack-manager/hooks"
+
+# Post-update cleanup (does not prune containers, networks, or volumes).
+# Set to 0 or use --no-update-cleanup to disable.
+#UPDATE_CLEANUP_ENABLED=1
+# Minimum Docker image creation/cache age in hours (24..87600).
+#UPDATE_CLEANUP_MIN_AGE_HOURS=168

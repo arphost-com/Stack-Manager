@@ -78,6 +78,8 @@ services:
       REDIS_DB: "${REDIS_DB:-0}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-15}"
       HOOKS_DIR: "/state/hooks"
+      UPDATE_CLEANUP_ENABLED: "${UPDATE_CLEANUP_ENABLED:-1}"
+      UPDATE_CLEANUP_MIN_AGE_HOURS: "${UPDATE_CLEANUP_MIN_AGE_HOURS:-168}"
       BACKUP_DIR: "/state/backups"
       DOCKER_CONFIG: "/state/docker-config"
       DOCKER_DAEMON_DIR: "${DOCKER_DAEMON_DIR:-/etc/docker}"

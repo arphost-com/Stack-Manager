@@ -18,6 +18,8 @@ test:
 	cd server && go test ./...
 	cd web && npm test
 	bash -n stack-manager.sh
+	python3 scripts/test-update-cleanup.py
+	python3 scripts/test-deploy-existing-dev.py
 
 # Cross-compile server for Linux
 build-linux:

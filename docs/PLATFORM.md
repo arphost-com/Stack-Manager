@@ -197,3 +197,61 @@ rebuilds.
 ## Troubleshooting
 
 See [Troubleshooting](TROUBLESHOOTING.md).
+
+## Existing Docker02 DEV deployment contract
+
+The DEV pipeline promotes the pipeline-built and scanned server/web images with
+`--no-deps --no-build`. It does not rerun state initialization, rebuild on the live
+path, recreate databases/cache, prune volumes, or normalize existing ownership.
+The service account remains `debian`. The installed `.env` is preserved byte for
+byte, including cleanup opt-outs; settings for a new install require a separate
+approved initialization workflow.
+
+The contract in `scripts/deploy-existing-dev.py` combines the documented service
+account and state modes with the healthy deployed `c14fc79` / pipeline 5880
+metadata independently inspected on November 13, 2026. It checks root/code/state
+owners, modes, file kinds, absence of unapproved ACL/xattrs, and persistent data
+root metadata before writing. Metadata drift holds deployment; it is not repaired.
+Only tracked application files are copied, with explicit service ownership and
+file modes, and replacements are atomic. Runtime state and credentials are not
+part of the code backup. The code rollback manifest records file kind, UID/GID,
+account/group names and mode, with the required empty ACL/xattr baseline explicit.
+
+A failed application promotion restores old application bytes/metadata and the
+retained image IDs, then recreates only server/web. Database/cache container IDs,
+mounts and data-root metadata, sibling-root metadata, and configuration bytes are
+checked independently. Independent application readback remains required. Existing
+source/image rollback manifests remain under the service-owned state directory;
+they are not published as CI artifacts. All project jobs share one resource group;
+operators must additionally verify host-wide runner occupancy before dispatch.
+
+The runner's home remains private. The deployment job streams the exact tracked
+Git blobs plus a source/baseline file manifest to the existing `sudo -u debian`
+receiver. The receiver first validates the DEV contract, then creates private
+service-owned source staging beneath the release directory. It rejects symlinks,
+duplicates, missing/unexpected paths and a changed deployed baseline; archive
+owners/modes/ACLs are never imported. The public scanned helper is passed as
+Python program text so the service account need not traverse the runner home.
+Private source staging is removed after success or failure; application rollback
+backups remain. Runner home permissions and sudo rights are unchanged.
+
+The required Dependency-Check gate uses the runner-maintained advisory cache.
+On Docker02 its explicit path is
+`/home/gitlab-runner/.cache/dependency-check-data`; the job requires the documented
+runner account and an existing cache instead of deriving a second cache from
+the login shell's `HOME`. It uses a 24-hour validity window, supporting daily cache
+refreshes without making each scan depend on a live NVD API request. Updates stay
+enabled: once the validity window expires, an unsuccessful refresh blocks the
+gate. The CVSS 7 failure threshold is unchanged. See the upstream
+[cache strategy](https://dependency-check.github.io/DependencyCheck/data/cacheh2.html)
+and [CLI configuration](https://dependency-check.github.io/DependencyCheck/dependency-check-cli/arguments.html).
+A missing/corrupt/unhydrated database or rate-limited update blocks acceptance;
+the pipeline does not retry NVD requests repeatedly or disable the scan. Restore
+the cache through runner maintenance before merging a candidate with this failure.
+
+Permission-scan handling is scoped to directory operations with explicit modes:
+0755 for new public source directories and 0700 for private release storage. The
+Semgrep file-mode rule compares numeric modes against 0650 and therefore flags
+even owner-only 0700 directories. The narrowly annotated directory cases and
+intentional metadata-drift fixtures retain their real permission assertions;
+other security findings continue to fail the job.

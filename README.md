@@ -1,5 +1,7 @@
 # Stack Manager
 
+Stack Manager is maintained by [ARPHost](https://arphost.com).
+
 Manage all your Docker Compose stacks from one dashboard. Discover, deploy, update, back up, and monitor projects across a fleet of hosts — with a 200+ template catalog, scheduled updates, live shell access, firewall management, two-factor auth, and agents that phone home from behind NAT.
 
 ![Stack Manager login &amp; landing page](docs/images/login-landing-dark.png)
@@ -830,7 +832,10 @@ Scheduled updates and bulk actions respect this policy.
 Registry/source checks are read-only and run only for projects with an enabled
 `check` schedule. They do not pull images, restart services, or edit Compose or
 environment files. Production backup, update, readback, and rollback guidance is
-in [Managed stack updates](docs/STACK_UPDATES.md).
+in [Managed stack updates](docs/STACK_UPDATES.md). Successful verified managed-stack
+updates also clean aged dangling images and unused build cache, reporting reclaimed
+space in update output. Automatic cleanup never prunes volumes; host settings
+and rollback-image guidance are in the same guide.
 
 ### Project Deletion Guardrails
 

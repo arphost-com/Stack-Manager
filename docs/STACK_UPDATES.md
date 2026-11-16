@@ -67,6 +67,74 @@ Pi-hole therefore pass once they turn healthy. A service that turns unhealthy,
 restarts, or exits fails at once. If the healthcheck is still starting when the
 5 minutes run out, the job fails and says how long it waited.
 
+## Automatic post-update Docker cleanup
+
+After a managed stack update passes container stability/health verification,
+Stack Manager runs these commands on the stack's owning Docker daemon:
+
+```sh
+docker image prune --force --filter until=168h
+docker builder prune --all --force --filter until=168h --keep-storage 1GB
+```
+
+The default removes only dangling, unused images and aged unused build cache.
+It never prunes containers, networks or volumes, and does not pass `--all` to
+image pruning. Tagged images and images still referenced by a container are
+preserved. Cleanup is daemon-wide, including eligible artifacts from other
+projects on that host. It is not limited to the updated Compose project.
+This is separate from the existing manual/scheduled full-prune options,
+which can delete volumes and are not used by automatic cleanup.
+
+Docker's image age filter uses **image creation time**, not the time an image
+became unused. An old image can become eligible immediately after an update
+replaces its last container. Before a production update, retain an explicit tag
+on any image needed for rollback, or verify its immutable digest can be pulled
+again. Pruned images/cache cannot be undeleted: recovery means pulling the
+retained digest or rebuilding. Keep verified data backups; cleanup does not
+create them. Tagged images are deliberately retained even if that means this
+policy cannot reclaim all disk usage.
+
+Configure each controller/agent host separately in its `.env` and recreate its
+server/agent container through the normal approved deployment workflow. The
+development pipeline preserves the installed `.env` byte for byte:
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `UPDATE_CLEANUP_ENABLED` | `1` | Set to `0` or `false` to disable automatic cleanup. |
+| `UPDATE_CLEANUP_MIN_AGE_HOURS` | `168` | Integer from `24` to `87600`; applies to image and cache pruning. |
+
+Standalone CLI installations use the same variables in `stack-manager.conf`
+or the environment. `--no-update-cleanup` disables cleanup for that invocation.
+CLI dry runs describe the commands without running verification or pruning.
+CLI cleanup requires the `timeout` utility; if unavailable, cleanup is skipped
+with a warning while the established update action remains usable. Each prune
+command has a two-minute limit. API/agent cleanup is serialized within the
+process; external Docker operations can still cause a prune conflict, which is
+reported as a warning rather than retried automatically.
+
+Direct API and bulk updates, dashboard background jobs, scheduled updates and
+updated agents share this behavior. The standalone CLI uses the same cleanup
+policy and samples container IDs/restart counts across the verification window.
+A failed pull, failed recreate, or failed verification never triggers cleanup.
+Custom update hooks still replace pull/up; after a successful hook, container
+verification gates cleanup only. A hook that intentionally leaves a stack down
+keeps its existing success status, with a cleanup-skipped warning. Pull-only,
+check, start, restart and Stack Manager's dedicated self-update actions do not
+trigger this automatic cleanup. Older peers/agents need their own approved
+software update before they gain this behavior.
+
+Update output/action history and CLI logs include cleanup commands, Docker's
+per-operation reclaimed-space totals (`Total reclaimed space` or BuildKit's
+`Total`), and any errors. A cleanup failure preserves the successful update
+status and reports a warning; inspect the daemon and retry cleanup separately
+instead of rerunning an update that may include migrations. Invalid cleanup
+settings also skip cleanup with a warning. The standalone CLI's `--prune`
+combined with `update` uses only this verified image/cache cleanup; the standalone
+legacy `prune` command retains its explicit resource-pruning behavior.
+
+References: [Docker image prune](https://docs.docker.com/reference/cli/docker/image/prune/)
+and [Docker builder prune](https://docs.docker.com/reference/cli/docker/builder/prune/).
+
 ## Schedules for deleted projects
 
 Deleting a project disables every local schedule that targets it, and the

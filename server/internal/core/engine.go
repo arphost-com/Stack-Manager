@@ -27,6 +27,7 @@ type Engine struct {
 	dockerExec            func(args ...string) (*ExecResult, error)
 	dockerExecWithTimeout func(timeout time.Duration, args ...string) (*ExecResult, error)
 	hostname              func() (string, error)
+	verifyWait            func(time.Duration)
 }
 
 // NewEngine creates a new Engine.
@@ -115,6 +116,9 @@ func (e *Engine) Update(project *Project, timeout int) []OpResult {
 	if e.HasHook("post", "update", project.Name) {
 		hookResult := e.RunHook("post", "update", project)
 		hookResult.Action = "update (hook)"
+		if hookResult.Success {
+			hookResult.Output += e.cleanupAfterHook(project)
+		}
 		return []OpResult{*hookResult}
 	}
 	if preflight := e.CheckComposeServiceIdentity(project); !preflight.Success {
@@ -135,6 +139,9 @@ func (e *Engine) Update(project *Project, timeout int) []OpResult {
 			upResult.Output += "\n=== verify update ===\n" + verification.Output
 			upResult.Success = verification.Success
 			upResult.ExitCode = verification.ExitCode
+			if verification.Success {
+				upResult.Output += e.cleanupAfterUpdate()
+			}
 			upResult.Duration = time.Since(upStarted).Round(time.Millisecond).String()
 		}
 		results = append(results, *upResult)
@@ -147,7 +154,11 @@ func (e *Engine) Update(project *Project, timeout int) []OpResult {
 // A successful `up -d` only means Docker accepted the request; a container
 // that immediately restarts can still make the application unusable.
 func (e *Engine) VerifyUpdate(project *Project) *OpResult {
-	return e.verifyUpdateServices(project, time.Sleep)
+	wait := e.verifyWait
+	if wait == nil {
+		wait = time.Sleep
+	}
+	return e.verifyUpdateServices(project, wait)
 }
 
 // Status returns the compose ps output for a project.

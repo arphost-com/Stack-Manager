@@ -47,6 +47,8 @@ INCLUDE_INACTIVE=0
 ONLY_INACTIVE=0
 DRY_RUN=0
 DO_PRUNE=0
+UPDATE_CLEANUP_ENABLED="${UPDATE_CLEANUP_ENABLED:-1}"
+UPDATE_CLEANUP_MIN_AGE_HOURS="${UPDATE_CLEANUP_MIN_AGE_HOURS:-168}"
 VERBOSE=0
 RUNNING_ONLY=0
 
@@ -143,7 +145,8 @@ Hooks:
 
 Other:
   -n, --dry-run            Show actions only
-  -p, --prune              Run prune at the end
+  --no-update-cleanup      Disable automatic image/build-cache cleanup after updates
+  -p, --prune              Run legacy prune at the end (includes volumes)
   -v, --verbose            More output
   -h, --help               Show help
 
@@ -626,6 +629,12 @@ cmd_update() {
     local ccmd; ccmd="$(compose_cmd "$dir" || true)"
     [[ -n "$ccmd" ]] || continue
 
+    if [[ "$name" == "${STACK_MANAGER_PROJECT_NAME:-stack-manager}" ]]; then
+      warn "Stack Manager uses its dedicated Settings > Update workflow."
+      SKIPPED+=("$name (Update) [controller]")
+      continue
+    fi
+
     # If a custom post-update hook exists, use it INSTEAD of compose pull/up.
     local hook; hook="$(hook_path "post" "update" "$name")"
     if (( HOOKS_ENABLED )) && [[ -x "$hook" ]]; then
@@ -636,6 +645,7 @@ cmd_update() {
       if (( DRY_RUN )); then
         say "${CYAN}[dry-run]${NC} $hook $name $dir"
         SUCCESSES+=("$name (Hook post-update) [dry-run]")
+        cleanup_after_update "$dir"
       else
         local rc=0
         "$hook" "$name" "$dir" || rc=$?
@@ -645,6 +655,7 @@ cmd_update() {
         else
           say "${GREEN}Hook OK${NC}"
           SUCCESSES+=("$name (Hook post-update)")
+          cleanup_after_update "$dir"
         fi
       fi
 
@@ -662,7 +673,9 @@ cmd_update() {
 
     if (( pull_ok )); then
       say "${CYAN}Step 2/2:${NC} Bringing up containers..."
-      run_project_op "$dir" "Up" "$ccmd up -d" || true
+      if run_project_op "$dir" "Up" "$ccmd up -d"; then
+        cleanup_after_update "$dir"
+      fi
     else
       say "${YELLOW}Skipping 'up' for ${name} because pull failed${NC}"
       SKIPPED+=("$name (Up) [pull failed]")
@@ -694,6 +707,99 @@ cmd_down() {
     (( STOP_REQUESTED )) && return 130
   done
   return 0
+}
+
+# Only field-scoped Docker inspection; never read container environments.
+cleanup_container_sample() {
+  local dir="$1" pname ids records id name state exit_code restarts health policy
+  pname="$(sanitize_project_name "$(basename "$dir")")"
+  ids="$(timeout 15 docker ps -a --filter "label=com.docker.compose.project=$pname" --format '{{.ID}}')" || return 1
+  [[ -n "$ids" ]] || return 1
+  local -a containers=()
+  while IFS= read -r id; do [[ -n "$id" ]] && containers+=("$id"); done <<< "$ids"
+  records="$(timeout 15 docker inspect --format '{{.Id}}|{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|{{.RestartCount}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.HostConfig.RestartPolicy.Name}}' "${containers[@]}")" || return 1
+  [[ -n "$records" ]] || return 1
+  local starting=0 count=0
+  while IFS='|' read -r id name state exit_code restarts health policy; do
+    [[ -n "$id" && "$restarts" =~ ^[0-9]+$ ]] || return 1
+    count=$((count + 1))
+    if [[ "$state" == exited && "$exit_code" == 0 && "$policy" == no ]]; then
+      : # Completed one-shot service.
+    elif [[ "$state" != running || "$health" == unhealthy ]]; then
+      return 1
+    elif [[ "$health" == starting ]]; then
+      starting=1
+    elif [[ "$health" != healthy && "$health" != none ]]; then
+      return 1
+    fi
+    printf '%s|%s\n' "$id" "$restarts"
+  done <<< "$records"
+  [[ "$count" -eq "${#containers[@]}" ]] || return 1
+  (( starting )) && return 2
+  return 0
+}
+
+verify_cleanup_containers() {
+  local first last first_rc=0 last_rc=0 waited=30
+  first="$(cleanup_container_sample "$1")" || first_rc=$?
+  (( first_rc == 0 || first_rc == 2 )) || return 1
+  first="$(printf '%s\n' "$first" | sort)"
+  sleep 30
+  while true; do
+    (( STOP_REQUESTED )) && return 1
+    last_rc=0
+    last="$(cleanup_container_sample "$1")" || last_rc=$?
+    (( last_rc == 0 || last_rc == 2 )) || return 1
+    last="$(printf '%s\n' "$last" | sort)"
+    [[ "$first" == "$last" ]] || return 1
+    (( last_rc == 0 )) && return 0
+    (( waited >= 300 )) && return 1
+    sleep 10
+    waited=$((waited + 10))
+  done
+}
+
+cleanup_after_update() {
+  local age="$UPDATE_CLEANUP_MIN_AGE_HOURS"
+  case "$UPDATE_CLEANUP_ENABLED" in
+    0|false|FALSE|False) say "Post-update cleanup disabled on this host."; return 0 ;;
+    1|true|TRUE|True) : ;;
+    *) warn "Cleanup skipped: UPDATE_CLEANUP_ENABLED must be a boolean."; return 0 ;;
+  esac
+  if [[ ! "$age" =~ ^[0-9]{1,5}$ ]] || (( 10#$age < 24 || 10#$age > 87600 )); then
+    warn "Cleanup skipped: UPDATE_CLEANUP_MIN_AGE_HOURS must be an integer from 24 to 87600."
+    return 0
+  fi
+  age=$((10#$age))
+  if (( DRY_RUN )); then
+    say "[dry-run] Verify container stability and health before cleanup."
+    say "[dry-run] docker image prune --force --filter until=${age}h"
+    say "[dry-run] docker builder prune --all --force --filter until=${age}h --keep-storage 1GB"
+    return 0
+  fi
+  if ! has_bin timeout; then
+    warn "Cleanup skipped: timeout is required to bound Docker cleanup and inspection. Update succeeded."
+    return 0
+  fi
+  say "Verifying container stability and health before post-update cleanup..."
+  if ! verify_cleanup_containers "$1"; then
+    warn "Cleanup skipped: post-update container verification failed. Inspect the stack before another update."
+    SKIPPED+=("$(basename "$1") (Cleanup) [container verification failed]")
+    return 0
+  fi
+  (( STOP_REQUESTED )) && return 0
+  say "Host-wide cleanup: dangling images and unused build cache older than ${age}h; retain 1GB of build cache. No containers, networks or volumes are pruned."
+  say "=== docker image prune ==="
+  if ! timeout 120 docker image prune --force --filter "until=${age}h"; then
+    warn "Image cleanup incomplete; update succeeded. Retry cleanup separately."
+    return 0
+  fi
+  say "=== docker builder prune ==="
+  if ! timeout 120 docker builder prune --all --force --filter "until=${age}h" --keep-storage 1GB; then
+    warn "Build-cache cleanup incomplete; update succeeded. Retry cleanup separately."
+    return 0
+  fi
+  say "Cleanup completed. Reclaimed space per operation is reported by Docker above."
 }
 
 do_prune() {
@@ -797,6 +903,7 @@ while [[ $# -gt 0 ]]; do
 
     -n|--dry-run) DRY_RUN=1; shift;;
     -p|--prune) DO_PRUNE=1; shift;;
+    --no-update-cleanup) UPDATE_CLEANUP_ENABLED=0; shift;;
     -v|--verbose) VERBOSE=1; shift;;
     -h|--help) usage; exit 0;;
     --) shift; break;;
@@ -865,7 +972,11 @@ case "$CMD" in
 esac
 
 if (( DO_PRUNE )) && [[ "$CMD" != "prune" ]]; then
-  do_prune || true
+  if [[ "$CMD" == "update" ]]; then
+    warn "--prune with update uses the verified automatic image/cache cleanup only; use the standalone prune command for legacy resource pruning."
+  else
+    do_prune || true
+  fi
 fi
 
 print_summary

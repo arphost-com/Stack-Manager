@@ -40,6 +40,8 @@ services:
       ROOT: "${DOCKER_ROOT}"
       STATE_DIR: "/state"
       HOOKS_DIR: "/state/hooks"
+      UPDATE_CLEANUP_ENABLED: "${UPDATE_CLEANUP_ENABLED:-1}"
+      UPDATE_CLEANUP_MIN_AGE_HOURS: "${UPDATE_CLEANUP_MIN_AGE_HOURS:-168}"
       BACKUP_DIR: "/state/backups"
       DOCKER_CONFIG: "/state/docker-config"
       AGENT_NAME: "${AGENT_NAME:?AGENT_NAME required}"

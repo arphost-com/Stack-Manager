@@ -20,8 +20,8 @@ FROM ${BASE_IMAGE_PREFIX}alpine:3.22
 # image tag.
 RUN apk add --no-cache \
     ca-certificates 'curl>=8.14.1-r4' docker-cli docker-cli-compose bash tar \
-    'gzip>=1.14-r2' git openssh-client rclone 'util-linux>=2.41.6-r1' \
-    'libexpat>=2.9.0-r0' 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0' && \
+    'gzip>=1.14-r2' git 'openssh-client-default>=10.0_p1-r11' 'openssh-client-common>=10.0_p1-r11' 'openssh-keygen>=10.0_p1-r11' rclone 'util-linux>=2.41.6-r1' \
+    'libexpat>=2.10.0-r0' 'libcrypto3>=3.5.8-r0' 'libssl3>=3.5.8-r0' && \
     apk upgrade --no-cache
 RUN addgroup -g 1001 -S appgroup && \
     adduser -S appuser -u 1001 -G appgroup && \
